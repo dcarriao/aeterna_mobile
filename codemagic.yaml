@@ -24,7 +24,7 @@ workflows:
           keychain add-certificates
           xcode-project use-profiles --project ios/Runner.xcodeproj
 
-     - name: Build IPA
+      - name: Build IPA
         script: |
           flutter build ios --release --no-codesign
           xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner
