@@ -4,15 +4,18 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
 
+    integrations:
+      app_store_connect: Codemagic
+
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: br.com.aeternalegado.app
-        certificate_reference: apple_distribution
-        provisioning_profile_reference: appstore_profile
+        certificates:
+          - apple_distribution
+        provisioning_profiles:
+          - appstore_profile
 
     scripts:
       - name: Get Flutter packages
