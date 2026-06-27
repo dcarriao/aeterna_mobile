@@ -16,6 +16,8 @@ workflows:
           - apple_distribution
         provisioning_profiles:
           - appstore_profile
+      groups:
+        - aeterna
 
     scripts:
       - name: Get Flutter packages
