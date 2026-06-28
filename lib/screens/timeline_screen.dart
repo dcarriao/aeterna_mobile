@@ -89,7 +89,26 @@ class _TimelineScreenState extends State<TimelineScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Linha do Tempo')),
+      backgroundColor: AppColors.fundo,
+      appBar: AppBar(
+        title: Image.asset('assets/logo.png', height: 44),
+        centerTitle: false,
+        backgroundColor: AppColors.fundo,
+        elevation: 0,
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 20),
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0EAF5),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Icon(Icons.timeline_outlined,
+                color: AppColors.roxo, size: 20),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -98,7 +117,6 @@ class _TimelineScreenState extends State<TimelineScreen> {
                 ? _EstadoVazio(onCriar: widget.onCriarMemoria)
                 : Column(
                     children: [
-                      const SizedBox(height: 12),
                       _StatsBar(
                         totalMemorias: _memoriasFiltradas.length,
                         totalPessoas: _pessoas.length,
@@ -116,37 +134,46 @@ class _TimelineScreenState extends State<TimelineScreen> {
 
   Widget _buildFiltro() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-      child: Row(
-        children: [
-          const Icon(Icons.filter_list_outlined,
-              size: 18, color: AppColors.textoSuave),
-          const SizedBox(width: 8),
-          Expanded(
-            child: DropdownButton<int?>(
-              value: _pessoaFiltroId,
-              isExpanded: true,
-              underline: const SizedBox(),
-              hint: const Text(
-                'Todas as pessoas',
-                style: TextStyle(color: AppColors.textoSuave, fontSize: 14),
-              ),
-              items: [
-                const DropdownMenuItem<int?>(
-                  value: null,
-                  child: Text('Todas as pessoas'),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFEDE8DC)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.filter_list_outlined,
+                size: 18, color: AppColors.dourado),
+            const SizedBox(width: 10),
+            Expanded(
+              child: DropdownButton<int?>(
+                value: _pessoaFiltroId,
+                isExpanded: true,
+                underline: const SizedBox(),
+                dropdownColor: Colors.white,
+                hint: const Text(
+                  'Filtrar por pessoa',
+                  style: TextStyle(color: AppColors.textoSuave, fontSize: 14),
                 ),
-                ..._pessoas.map(
-                  (p) => DropdownMenuItem<int?>(
-                    value: p.id,
-                    child: Text(p.nome),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('Todas as pessoas'),
                   ),
-                ),
-              ],
-              onChanged: (id) => setState(() => _pessoaFiltroId = id),
+                  ..._pessoas.map(
+                    (p) => DropdownMenuItem<int?>(
+                      value: p.id,
+                      child: Text(p.nome),
+                    ),
+                  ),
+                ],
+                onChanged: (id) => setState(() => _pessoaFiltroId = id),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -171,7 +198,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final apenasUma = _memoriasFiltradas.length == 1;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
       children: [
         if (apenasUma) ...[
           Container(
@@ -202,11 +229,12 @@ class _TimelineScreenState extends State<TimelineScreen> {
         ],
         ...anos.map((ano) {
           final memorias = _agrupadoPorAno[ano]!;
+          memorias.sort((a, b) => b.criadaEm.compareTo(a.criadaEm));
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _AnoHeader(ano: ano),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               ...List.generate(memorias.length, (i) {
                 final memoria = memorias[i];
                 final ids = memoria.pessoasIds ??
@@ -224,7 +252,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
                   onTap: () => widget.onAbrirMemoria(memoria),
                 );
               }),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
             ],
           );
         }),
@@ -247,31 +275,53 @@ class _StatsBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: _StatCard(
-              icon: Icons.auto_stories_outlined,
-              value: '$totalMemorias',
-              label: totalMemorias == 1 ? 'memória' : 'memórias',
+          const Text(
+            'Linha do Tempo',
+            style: TextStyle(
+              color: AppColors.roxo,
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _StatCard(
-              icon: Icons.people_outline,
-              value: '$totalPessoas',
-              label: totalPessoas == 1 ? 'pessoa' : 'pessoas',
+          const SizedBox(height: 6),
+          const Text(
+            'Reviva sua história em ordem cronológica.',
+            style: TextStyle(
+              color: AppColors.textoSuave,
+              fontSize: 15,
             ),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _StatCard(
-              icon: Icons.calendar_today_outlined,
-              value: anoMaisAntigo != null ? '$anoMaisAntigo' : '-',
-              label: 'mais antigo',
-            ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: _StatCard(
+                  icon: Icons.auto_stories_outlined,
+                  value: '$totalMemorias',
+                  label: totalMemorias == 1 ? 'memória' : 'memórias',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _StatCard(
+                  icon: Icons.people_outline,
+                  value: '$totalPessoas',
+                  label: totalPessoas == 1 ? 'pessoa' : 'pessoas',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _StatCard(
+                  icon: Icons.calendar_today_outlined,
+                  value: anoMaisAntigo != null ? '$anoMaisAntigo' : '-',
+                  label: 'mais antigo',
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -297,7 +347,14 @@ class _StatCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.borda),
+        border: Border.all(color: const Color(0xFFEDE8DC)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x042B1747),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         children: [
@@ -307,15 +364,16 @@ class _StatCard extends StatelessWidget {
             value,
             style: const TextStyle(
               color: AppColors.roxo,
-              fontSize: 22,
+              fontSize: 20,
               fontWeight: FontWeight.w800,
             ),
           ),
+          const SizedBox(height: 2),
           Text(
             label,
             style: const TextStyle(
               color: Color(0xFF7A7280),
-              fontSize: 12,
+              fontSize: 11,
             ),
           ),
         ],
@@ -332,7 +390,7 @@ class _AnoHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 12, top: 8, bottom: 4),
+      padding: const EdgeInsets.only(left: 12, top: 12, bottom: 4),
       child: Text(
         '$ano',
         style: const TextStyle(
@@ -370,16 +428,16 @@ class _TimelineEvent extends StatelessWidget {
               children: [
                 const SizedBox(height: 18),
                 Container(
-                  width: 12,
-                  height: 12,
+                  width: 10,
+                  height: 10,
                   decoration: BoxDecoration(
                     color: AppColors.dourado,
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
                     boxShadow: const [
                       BoxShadow(
-                        color: Color(0x40D4A84F),
-                        blurRadius: 6,
+                        color: Color(0x30D4A84F),
+                        blurRadius: 4,
                         offset: Offset(0, 2),
                       ),
                     ],
@@ -389,117 +447,142 @@ class _TimelineEvent extends StatelessWidget {
                   Expanded(
                     child: Container(
                       width: 2,
-                      color: const Color(0xFFE2D8C8),
+                      color: const Color(0xFFEDE8DC),
                     ),
                   ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Padding(
               padding: EdgeInsets.only(bottom: isLast ? 0 : 16),
-              child: Material(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                child: InkWell(
-                  onTap: onTap,
-                  borderRadius: BorderRadius.circular(14),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.borda),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+              child: GestureDetector(
+                onTap: onTap,
+                child: Container(
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFEDE8DC)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x062B1747),
+                        blurRadius: 10,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (memoria.foto != null)
+                        ClipRRect(
+                          borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(15)),
+                          child: SizedBox(
+                            height: 180,
+                            width: double.infinity,
+                            child:
+                                Image.memory(memoria.foto!, fit: BoxFit.cover),
+                          ),
+                        )
+                      else if (memoria.fotoUrl != null)
+                        ClipRRect(
+                          borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(15)),
+                          child: SizedBox(
+                            height: 180,
+                            width: double.infinity,
+                            child: Image.network(
+                              memoria.fotoUrl!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                            ),
+                          ),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.calendar_today_outlined,
-                                size: 14, color: AppColors.dourado),
-                            const SizedBox(width: 6),
+                            Row(
+                              children: [
+                                const Icon(Icons.calendar_today_outlined,
+                                    size: 13, color: AppColors.dourado),
+                                const SizedBox(width: 6),
+                                Text(
+                                  DateFormat('dd/MM/yyyy')
+                                      .format(memoria.criadaEm),
+                                  style: const TextStyle(
+                                    color: Color(0xFF817987),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
                             Text(
-                              DateFormat('dd/MM/yyyy')
-                                  .format(memoria.criadaEm),
+                              memoria.titulo,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                color: Color(0xFF817987),
-                                fontSize: 13,
+                                color: AppColors.roxo,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
+                            const SizedBox(height: 6),
+                            Text(
+                              memoria.contexto,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFF625B67),
+                                fontSize: 13,
+                                height: 1.4,
+                              ),
+                            ),
+                            if (pessoas.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: pessoas
+                                    .map(
+                                      (p) => Chip(
+                                        avatar: CircleAvatar(
+                                          radius: 10,
+                                          backgroundColor:
+                                              const Color(0xFFF0EAF5),
+                                          backgroundImage: p.fotoBytes != null
+                                              ? MemoryImage(p.fotoBytes!)
+                                              : null,
+                                          child: p.fotoBytes == null
+                                              ? const Icon(Icons.person,
+                                                  size: 10,
+                                                  color: AppColors.roxo)
+                                              : null,
+                                        ),
+                                        label: Text(
+                                          p.nome,
+                                          style: const TextStyle(fontSize: 11),
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                        materialTapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                        labelPadding: EdgeInsets.zero,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 6),
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                            ],
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          memoria.titulo,
-                          style: const TextStyle(
-                            color: AppColors.roxo,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          memoria.contexto,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Color(0xFF625B67),
-                            fontSize: 14,
-                            height: 1.4,
-                          ),
-                        ),
-                        if (memoria.foto != null) ...[
-                          const SizedBox(height: 10),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: AspectRatio(
-                              aspectRatio: 16 / 9,
-                              child: Image.memory(
-                                memoria.foto!,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          ),
-                        ],
-                        if (pessoas.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: pessoas
-                                .map(
-                                  (p) => Chip(
-                                    avatar: CircleAvatar(
-                                      radius: 10,
-                                      backgroundColor:
-                                          const Color(0xFFF0EAF5),
-                                      backgroundImage: p.fotoBytes != null
-                                          ? MemoryImage(p.fotoBytes!)
-                                          : null,
-                                      child: p.fotoBytes == null
-                                          ? const Icon(Icons.person,
-                                              size: 10,
-                                              color: AppColors.roxo)
-                                          : null,
-                                    ),
-                                    label: Text(
-                                      p.nome,
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                    visualDensity: VisualDensity.compact,
-                                    materialTapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                    labelPadding: EdgeInsets.zero,
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 6),
-                                  ),
-                                )
-                                .toList(),
-                          ),
-                        ],
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -523,15 +606,23 @@ class _EstadoVazio extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.timeline_outlined,
-              size: 58, color: AppColors.dourado),
+          Container(
+            width: 64,
+            height: 64,
+            decoration: const BoxDecoration(
+              color: Color(0x26D4A84F),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.timeline_outlined,
+                size: 32, color: AppColors.dourado),
+          ),
           const SizedBox(height: 20),
           const Text(
-            'Sua linha do tempo ainda está começando',
+            'Sua linha do tempo começará com a primeira memória.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: AppColors.roxo,
-              fontSize: 24,
+              fontSize: 22,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -539,17 +630,24 @@ class _EstadoVazio extends StatelessWidget {
           const Text(
             'Cada memória registrada ajuda a contar a história da sua família.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Color(0xFF746D78),
-              fontSize: 15,
-              height: 1.4,
-            ),
+            style:
+                TextStyle(color: Color(0xFF746D78), fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: onCriar,
-            icon: const Icon(Icons.add_a_photo_outlined),
-            label: const Text('Criar memória'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.roxo,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 46),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+            label: const Text('Nova memória'),
           ),
         ],
       ),

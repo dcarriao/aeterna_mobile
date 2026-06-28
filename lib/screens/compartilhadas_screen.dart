@@ -71,7 +71,8 @@ class _CompartilhadasScreenState extends State<CompartilhadasScreen> {
     if (_carregando) {
       return Scaffold(
         appBar: AppBar(title: const Text('Compartilhadas')),
-        body: const Center(child: CircularProgressIndicator()),
+        body: const SafeArea(
+            child: Center(child: CircularProgressIndicator())),
       );
     }
 

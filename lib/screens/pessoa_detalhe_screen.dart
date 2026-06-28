@@ -9,11 +9,13 @@ class PessoaDetalheScreen extends StatefulWidget {
   const PessoaDetalheScreen({
     required this.pessoa,
     required this.onAbrirMemoria,
+    this.titulosMemorias = const {},
     super.key,
   });
 
   final Pessoa pessoa;
   final void Function(int memoriaId) onAbrirMemoria;
+  final Map<int, String> titulosMemorias;
 
   @override
   State<PessoaDetalheScreen> createState() => _PessoaDetalheScreenState();
@@ -32,22 +34,31 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
   }
 
   Future<void> _carregar() async {
-    final todas = await PessoaRepository.listar();
-    final atualizada = todas.firstWhere(
-      (p) => p.id == widget.pessoa.id,
-      orElse: () => widget.pessoa,
-    );
-    final vinculos = await PessoaRepository.listarVinculos();
-    final ids = vinculos.entries
-        .where((e) => e.value.contains(widget.pessoa.id))
-        .map((e) => e.key)
-        .toList();
-    if (mounted) {
-      setState(() {
-        _pessoa = atualizada;
-        _memoriasViculadas = ids;
-        _carregando = false;
-      });
+    try {
+      final todas = await PessoaRepository.listar();
+      final atualizada = todas.firstWhere(
+        (p) => p.id == widget.pessoa.id,
+        orElse: () => widget.pessoa,
+      );
+      final vinculos = await PessoaRepository.listarVinculos();
+      final ids = vinculos.entries
+          .where((e) => e.value.contains(widget.pessoa.id))
+          .map((e) => e.key)
+          .toList();
+      if (mounted) {
+        setState(() {
+          _pessoa = atualizada;
+          _memoriasViculadas = ids;
+          _carregando = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _carregando = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erro ao carregar dados.')),
+        );
+      }
     }
   }
 
@@ -58,6 +69,42 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
       ),
     );
     if (alterou == true && mounted) _carregar();
+  }
+
+  Future<void> _excluir() async {
+    final confirmou = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir pessoa'),
+        content: Text('Tem certeza que deseja excluir ${widget.pessoa.nome}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmou == true && mounted) {
+      try {
+        await PessoaRepository.remover(widget.pessoa.id);
+        if (mounted) Navigator.of(context).pop();
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Não foi possível excluir ${widget.pessoa.nome}.'),
+            ),
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -72,6 +119,11 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
             tooltip: 'Editar',
             onPressed: _editar,
             icon: const Icon(Icons.edit_outlined),
+          ),
+          IconButton(
+            tooltip: 'Excluir',
+            onPressed: _excluir,
+            icon: const Icon(Icons.delete_outline),
           ),
         ],
       ),
@@ -218,7 +270,9 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          'Memória #$id',
+                                          widget.titulosMemorias[id] ?? 'Memória',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
                                             color: AppColors.roxo,
                                             fontSize: 15,

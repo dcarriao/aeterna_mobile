@@ -102,9 +102,12 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         fotoBase64: _fotoBase64,
         createdAt: widget.pessoa?.createdAt,
       );
-      await PessoaRepository.salvar(pessoa);
+      print('[NovaPessoaScreen] _salvar() -> chamando PessoaRepository.salvar(${pessoa.nome}) isUpdate=$_editando');
+      await PessoaRepository.salvar(pessoa, isUpdate: _editando);
+      print('[NovaPessoaScreen] _salvar() -> salvar concluido, pop(true)');
       if (mounted) Navigator.of(context).pop(true);
-    } catch (_) {
+    } catch (e) {
+      print('[NovaPessoaScreen] _salvar() ERRO: $e');
       if (mounted) {
         setState(() => _salvando = false);
         ScaffoldMessenger.of(context).showSnackBar(

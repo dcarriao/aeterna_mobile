@@ -6,14 +6,22 @@ import 'package:supabase/supabase.dart';
 
 import '../models/memoria.dart';
 import '../models/pessoa.dart';
-import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import 'curador_screen.dart';
 
 class NovaMemoriaScreen extends StatefulWidget {
-  const NovaMemoriaScreen({required this.onSalvar, super.key});
+  const NovaMemoriaScreen({
+    required this.onSalvar,
+    this.memoria,
+    this.onEditar,
+    super.key,
+  });
 
   final Future<Memoria> Function(MemoriaRascunho rascunho) onSalvar;
+  final Memoria? memoria;
+  final Future<Memoria?> Function(MemoriaRascunho rascunho)? onEditar;
+
+  bool get _editando => memoria != null;
 
   @override
   State<NovaMemoriaScreen> createState() => _NovaMemoriaScreenState();
@@ -27,11 +35,13 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
 
   Uint8List? _foto;
   String? _nomeArquivo;
+  String? _fotoUrlExistente;
+  bool _fotoRemovida = false;
   String _categoria = 'momentos';
   List<int> _pessoasSelecionadas = [];
   List<Pessoa> _todasPessoas = [];
   bool _salvando = false;
-  DateTime? _dataMemoria;
+  DateTime? _dataMemoria = DateTime.now();
   bool _dataMemoriaFoiAlterada = false;
   bool _isCompartilhada = false;
   List<int> _familiaresSelecionados = [];
@@ -40,6 +50,27 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
   void initState() {
     super.initState();
     _carregarPessoas();
+    final m = widget.memoria;
+    if (m != null) {
+      _tituloController.text = m.titulo;
+      _contextoController.text = m.contexto;
+      const categoriasValidas = [
+        'momentos',
+        'familia',
+        'aprendizados',
+        'viagens',
+        'tradicoes'
+      ];
+      _categoria =
+          categoriasValidas.contains(m.categoria) ? m.categoria : 'momentos';
+      _dataMemoria = m.dataMemoria ?? m.criadaEm;
+      _dataMemoriaFoiAlterada = m.dataMemoria != null;
+      _isCompartilhada = m.isCompartilhada;
+      _pessoasSelecionadas = List<int>.from(m.pessoasIds ?? []);
+      _familiaresSelecionados = List<int>.from(m.familiaresIds ?? []);
+      _foto = m.foto;
+      _fotoUrlExistente = m.fotoUrl;
+    }
   }
 
   @override
@@ -47,6 +78,14 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     _tituloController.dispose();
     _contextoController.dispose();
     super.dispose();
+  }
+
+  Future<void> _carregarPessoas() async {
+    print('[NovaMemoriaScreen] _carregarPessoas() iniciando');
+    _todasPessoas = await PessoaRepository.listar();
+    print(
+        '[NovaMemoriaScreen] _carregarPessoas() -> ${_todasPessoas.length} pessoas carregadas');
+    if (mounted) setState(() {});
   }
 
   Future<void> _capturarFoto(ImageSource origem) async {
@@ -63,6 +102,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       setState(() {
         _foto = bytes;
         _nomeArquivo = imagem.name;
+        _fotoRemovida = false;
       });
     } catch (_) {
       if (!mounted) return;
@@ -79,57 +119,40 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
 
   Future<void> _escolherDaGaleria() => _capturarFoto(ImageSource.gallery);
 
-  Future<void> _salvar() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _salvando = true);
-    try {
-      final memoria = await widget.onSalvar(
-        MemoriaRascunho(
-          titulo: _tituloController.text.trim(),
-          contexto: _contextoController.text.trim(),
-          categoria: _categoria,
-          foto: _foto,
-          nomeArquivo: _nomeArquivo,
-          pessoasIds: _pessoasSelecionadas.isEmpty
-              ? null
-              : List<int>.from(_pessoasSelecionadas),
-          isCompartilhada: _isCompartilhada,
-          familiaresIds: _familiaresSelecionados.isEmpty
-              ? null
-              : List<int>.from(_familiaresSelecionados),
-          dataMemoria: _dataMemoria,
+  void _abrirOpcoesFoto() {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading:
+                  const Icon(Icons.photo_camera_outlined, color: AppColors.roxo),
+              title: const Text('Tirar foto',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _tirarFoto();
+              },
+            ),
+            ListTile(
+              leading:
+                  const Icon(Icons.photo_library_outlined, color: AppColors.roxo),
+              title: const Text('Escolher da Galeria',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _escolherDaGaleria();
+              },
+            ),
+          ],
         ),
-      );
-      if (_pessoasSelecionadas.isNotEmpty && memoria.id != null) {
-        await PessoaRepository.salvarVinculo(
-          memoria.id!,
-          _pessoasSelecionadas,
-        );
-      }
-      if (_isCompartilhada && memoria.id != null) {
-        await PessoaRepository.salvarCompartilhamento(
-          memoria.id!,
-          _familiaresSelecionados,
-        );
-      }
-      if (_dataMemoriaFoiAlterada &&
-          _dataMemoria != null &&
-          memoria.id != null) {
-        await _salvarDataMemoria(memoria.id!, _dataMemoria!);
-      }
-      if (mounted) Navigator.of(context).pop(memoria);
-    } catch (erro) {
-      if (!mounted) return;
-      setState(() => _salvando = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_mensagemDeErro(erro)),
-          action: SnackBarAction(label: 'Tentar novamente', onPressed: _salvar),
-        ),
+      ),
     );
   }
-}
 
   Future<void> _escolherDataMemoria() async {
     final data = await showDatePicker(
@@ -139,17 +162,15 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       lastDate: DateTime.now(),
     );
     if (data != null && mounted) {
-      setState(() { _dataMemoria = data; _dataMemoriaFoiAlterada = true; });
+      setState(() {
+        _dataMemoria = data;
+        _dataMemoriaFoiAlterada = true;
+      });
     }
   }
 
   Future<void> _salvarDataMemoria(int memoriaId, DateTime data) async {
     await PessoaRepository.salvarDataMemoria(memoriaId, data);
-  }
-
-  Future<void> _carregarPessoas() async {
-    _todasPessoas = await PessoaRepository.listar();
-    if (mounted) setState(() {});
   }
 
   Future<void> _abrirSelecaoPessoas() async {
@@ -173,6 +194,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
 
     if (resultado != null && mounted) {
       setState(() => _pessoasSelecionadas = resultado);
+      _carregarPessoas();
     }
   }
 
@@ -197,6 +219,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
 
     if (resultado != null && mounted) {
       setState(() => _familiaresSelecionados = resultado);
+      _carregarPessoas();
     }
   }
 
@@ -205,7 +228,8 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     if (contexto.length < 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Escreva um pouco sobre este momento antes de aprofundar.'),
+          content:
+              Text('Escreva um pouco sobre este momento antes de aprofundar.'),
         ),
       );
       return;
@@ -240,10 +264,135 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     _contextoController.text = resultado.contextoEnriquecido;
   }
 
-  String _mensagemDeErro(Object erro) {
-    if (erro is SupabaseConfigurationException) {
-      return 'Configure a chave pública do Supabase para salvar na aEterna.';
+  Future<void> _salvar() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _salvando = true);
+    try {
+      if (widget._editando && widget.onEditar != null) {
+        final m = widget.memoria!;
+        final rascunho = MemoriaRascunho(
+          titulo: _tituloController.text.trim(),
+          contexto: _contextoController.text.trim(),
+          categoria: _categoria,
+          foto: _foto,
+          nomeArquivo: _nomeArquivo,
+          pessoasIds: _pessoasSelecionadas.isEmpty
+              ? null
+              : List<int>.from(_pessoasSelecionadas),
+          isCompartilhada: _isCompartilhada,
+          familiaresIds: _familiaresSelecionados.isEmpty
+              ? null
+              : List<int>.from(_familiaresSelecionados),
+          dataMemoria: _dataMemoria,
+        );
+
+        await PessoaRepository.atualizarMemoria(
+          memoriaId: m.id!,
+          titulo: rascunho.titulo,
+          contexto: rascunho.contexto,
+          categoria: rascunho.categoria,
+          dataEvento: _dataMemoriaFoiAlterada ? _dataMemoria : null,
+          isCompartilhada: _isCompartilhada,
+        );
+
+        await PessoaRepository.salvarVinculo(
+          m.id!,
+          _pessoasSelecionadas,
+        );
+        await PessoaRepository.salvarCompartilhamento(
+          m.id!,
+          _familiaresSelecionados,
+        );
+
+        String? novaFotoUrl = m.fotoUrl;
+        if (_fotoRemovida) {
+          await PessoaRepository.removerFotosDaMemoria(m.id!);
+          novaFotoUrl = null;
+        } else if (_foto != null) {
+          await PessoaRepository.removerFotosDaMemoria(m.id!);
+          novaFotoUrl = await PessoaRepository.uploadFotoMemoria(
+            memoriaId: m.id!,
+            bytes: _foto!,
+            nomeArquivo: _nomeArquivo ?? 'foto.jpg',
+          );
+        }
+
+        if (_dataMemoriaFoiAlterada && _dataMemoria != null) {
+          await PessoaRepository.salvarDataMemoria(m.id!, _dataMemoria!);
+        }
+
+        if (mounted) {
+          final atualizada = Memoria(
+            titulo: rascunho.titulo,
+            contexto: rascunho.contexto,
+            categoria: rascunho.categoria,
+            criadaEm: _dataMemoria ?? m.criadaEm,
+            id: m.id,
+            foto: _foto ?? (_fotoRemovida ? null : m.foto),
+            fotoUrl: novaFotoUrl,
+            pessoasIds: rascunho.pessoasIds,
+            isCompartilhada: _isCompartilhada,
+            familiaresIds: rascunho.familiaresIds,
+            dataMemoria: _dataMemoria,
+          );
+          Navigator.of(context).pop(atualizada);
+        }
+        return;
+      }
+
+      final memoria = await widget.onSalvar(
+        MemoriaRascunho(
+          titulo: _tituloController.text.trim(),
+          contexto: _contextoController.text.trim(),
+          categoria: _categoria,
+          foto: _foto,
+          nomeArquivo: _nomeArquivo,
+          pessoasIds: _pessoasSelecionadas.isEmpty
+              ? null
+              : List<int>.from(_pessoasSelecionadas),
+          isCompartilhada: _isCompartilhada,
+          familiaresIds: _familiaresSelecionados.isEmpty
+              ? null
+              : List<int>.from(_familiaresSelecionados),
+          dataMemoria: _dataMemoria,
+        ),
+      );
+      if (_pessoasSelecionadas.isNotEmpty && memoria.id != null) {
+        await PessoaRepository.salvarVinculo(
+          memoria.id!,
+          _pessoasSelecionadas,
+        );
+      }
+      if (_isCompartilhada && memoria.id != null) {
+        await PessoaRepository.salvarCompartilhamento(
+          memoria.id!,
+          _familiaresSelecionados,
+        );
+      }
+      if (memoria.id != null) {
+        await PessoaRepository.atualizarVisibilidadeMemoria(
+          memoria.id!,
+          _isCompartilhada,
+        );
+      }
+      if (_dataMemoriaFoiAlterada && _dataMemoria != null && memoria.id != null) {
+        await _salvarDataMemoria(memoria.id!, _dataMemoria!);
+      }
+      if (mounted) Navigator.of(context).pop(memoria);
+    } catch (erro) {
+      if (!mounted) return;
+      setState(() => _salvando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_mensagemDeErro(erro)),
+          action: SnackBarAction(label: 'Tentar novamente', onPressed: _salvar),
+        ),
+      );
     }
+  }
+
+  String _mensagemDeErro(Object erro) {
     if (erro is PostgrestException && erro.code == '42501') {
       return 'O Supabase bloqueou a gravação. Configure as políticas RLS do MVP.';
     }
@@ -254,10 +403,115 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     return 'Não foi possível salvar agora. Verifique a conexão e tente novamente.';
   }
 
+  Widget _buildFieldLabel(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6, left: 4),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: AppColors.roxo,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPhotoHero() {
+    final temFoto = _foto != null || (_fotoUrlExistente != null && !_fotoRemovida);
+    return Center(
+      child: Container(
+        height: 240,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFEDE8DC)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x062B1747),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_foto != null)
+                Image.memory(_foto!, fit: BoxFit.cover)
+              else if (_fotoUrlExistente != null && !_fotoRemovida)
+                Image.network(_fotoUrlExistente!, fit: BoxFit.cover)
+              else
+                const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.add_a_photo_outlined,
+                          size: 48, color: AppColors.dourado),
+                      SizedBox(height: 12),
+                      Text(
+                        'Adicione uma foto',
+                        style: TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              // Botão de câmera sobreposto no canto inferior direito
+              Positioned(
+                bottom: 12,
+                right: 12,
+                child: FloatingActionButton.small(
+                  heroTag: 'camera_btn',
+                  onPressed: _salvando ? null : _abrirOpcoesFoto,
+                  backgroundColor: AppColors.roxo,
+                  foregroundColor: Colors.white,
+                  child: const Icon(Icons.camera_alt_outlined, size: 18),
+                ),
+              ),
+              // Botão de remover foto se houver
+              if (temFoto)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: CircleAvatar(
+                    backgroundColor: Colors.black.withValues(alpha: 0.5),
+                    radius: 18,
+                    child: IconButton(
+                      icon: const Icon(Icons.close, size: 16, color: Colors.white),
+                      onPressed: () {
+                        setState(() {
+                          _foto = null;
+                          _nomeArquivo = null;
+                          _fotoRemovida = true;
+                        });
+                      },
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Registrar momento')),
+      backgroundColor: AppColors.fundo,
+      appBar: AppBar(
+        title: Image.asset('assets/logo.png', height: 44),
+        centerTitle: false,
+        backgroundColor: AppColors.fundo,
+        elevation: 0,
+      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -265,71 +519,20 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
             child: Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
                 children: [
-                  const Text(
-                    'Guarde este instante',
-                    style: TextStyle(
-                      color: AppColors.roxo,
-                      fontSize: 26,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 7),
-                  const Text(
-                    'Conte o que esse momento significou para você.',
-                    style: TextStyle(
-                      color: AppColors.textoSuave,
-                      fontSize: 15,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-                  _FotoEscolhida(
-                    foto: _foto,
-                    onRemover: () => setState(() {
-                      _foto = null;
-                      _nomeArquivo = null;
-                    }),
-                  ),
-                  const SizedBox(height: 12),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final botoes = [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _tirarFoto,
-                            icon: const Icon(Icons.photo_camera_outlined),
-                            label: const Text('Tirar foto'),
-                          ),
-                        ),
-                        const SizedBox(width: 12, height: 10),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _escolherDaGaleria,
-                            icon: const Icon(Icons.photo_library_outlined),
-                            label: const Text('Galeria'),
-                          ),
-                        ),
-                      ];
+                  // ── HERO DE FOTO ──
+                  _buildPhotoHero(),
+                  const SizedBox(height: 24),
 
-                      if (constraints.maxWidth < 390) {
-                        return Column(
-                          children: botoes.map((item) {
-                            return item is Expanded ? item.child : item;
-                          }).toList(),
-                        );
-                      }
-                      return Row(children: botoes);
-                    },
-                  ),
-                  const SizedBox(height: 20),
+                  // ── CAMPO TÍTULO ──
+                  _buildFieldLabel('Título da memória'),
                   TextFormField(
                     controller: _tituloController,
                     textCapitalization: TextCapitalization.sentences,
                     decoration: const InputDecoration(
-                      labelText: 'Título',
                       hintText: 'Dê um nome a este momento',
+                      prefixIcon: Icon(Icons.title_outlined, color: AppColors.dourado, size: 20),
                     ),
                     validator: (valor) {
                       if (valor == null || valor.trim().isEmpty) {
@@ -338,14 +541,16 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
+
+                  // ── CAMPO DATA ──
+                  _buildFieldLabel('Data da memória'),
                   InkWell(
                     onTap: _salvando ? null : _escolherDataMemoria,
                     borderRadius: BorderRadius.circular(12),
                     child: InputDecorator(
                       decoration: const InputDecoration(
-                        labelText: 'Data da memória',
-                        prefixIcon: Icon(Icons.calendar_today_outlined),
+                        prefixIcon: Icon(Icons.calendar_today_outlined, color: AppColors.dourado, size: 20),
                       ),
                       child: Text(
                         _dataMemoria != null
@@ -361,12 +566,14 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
+
+                  // ── CAMPO CATEGORIA ──
+                  _buildFieldLabel('Categoria'),
                   DropdownButtonFormField<String>(
                     initialValue: _categoria,
                     decoration: const InputDecoration(
-                      labelText: 'Categoria',
-                      prefixIcon: Icon(Icons.label_outline),
+                      prefixIcon: Icon(Icons.label_outline, color: AppColors.dourado, size: 20),
                     ),
                     items: const [
                       DropdownMenuItem(
@@ -395,36 +602,106 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
                     },
                   ),
                   const SizedBox(height: 20),
-                  SwitchListTile(
-                    value: _isCompartilhada,
-                    onChanged: _salvando
-                        ? null
-                        : (valor) {
+
+                  // ── SEÇÃO COMPARTILHAMENTO ──
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFEDE8DC)),
+                    ),
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          value: _isCompartilhada,
+                          onChanged: (valor) {
+                            if (_salvando) return;
                             setState(() {
                               _isCompartilhada = valor;
                               if (!valor) _familiaresSelecionados.clear();
                             });
                           },
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text(
-                      'Compartilhar com familiares',
-                      style: TextStyle(
-                        color: AppColors.roxo,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
+                          activeThumbColor: AppColors.roxo,
+                          title: const Text(
+                            'Compartilhar com familiares',
+                            style: TextStyle(
+                              color: AppColors.roxo,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          secondary: const Icon(Icons.share_outlined,
+                              color: AppColors.dourado, size: 20),
+                        ),
+                        if (_isCompartilhada) ...[
+                          const Divider(height: 1, color: Color(0xFFEDE8DC)),
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                ..._familiaresSelecionados.map((id) {
+                                  final p = _todasPessoas.firstWhere(
+                                    (p) => p.id == id,
+                                    orElse: () => Pessoa(
+                                      nome: 'Desconhecido',
+                                      parentesco: 'Outro',
+                                    ),
+                                  );
+                                  return Chip(
+                                    avatar: CircleAvatar(
+                                      backgroundColor: const Color(0xFFF0EAF5),
+                                      backgroundImage: p.fotoBytes != null
+                                          ? MemoryImage(p.fotoBytes!)
+                                          : null,
+                                      child: p.fotoBytes == null
+                                          ? const Icon(Icons.person,
+                                              size: 14, color: AppColors.roxo)
+                                          : null,
+                                    ),
+                                    label: Text(p.nome, style: const TextStyle(fontSize: 12)),
+                                    deleteIcon: const Icon(Icons.close, size: 14),
+                                    onDeleted: () {
+                                      setState(() => _familiaresSelecionados.remove(id));
+                                    },
+                                  );
+                                }),
+                                ActionChip(
+                                  avatar: const Icon(Icons.add, size: 14),
+                                  label: Text(
+                                    _familiaresSelecionados.isEmpty
+                                        ? 'Selecionar familiares'
+                                        : 'Adicionar mais',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  onPressed: _abrirSelecaoFamiliares,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    secondary: const Icon(Icons.share_outlined,
-                        color: AppColors.dourado),
                   ),
-                  if (_isCompartilhada) ...[
-                    const SizedBox(height: 8),
-                    Wrap(
+                  const SizedBox(height: 20),
+
+                  // ── SEÇÃO PARTICIPANTES ──
+                  _buildFieldLabel('Quem participou deste momento?'),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFEDE8DC)),
+                    ),
+                    child: Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        ..._familiaresSelecionados.map((id) {
-                          final pessoa = _todasPessoas.firstWhere(
+                        ..._pessoasSelecionadas.map((id) {
+                          final p = _todasPessoas.firstWhere(
                             (p) => p.id == id,
                             orElse: () => Pessoa(
                               nome: 'Desconhecido',
@@ -433,95 +710,45 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
                           );
                           return Chip(
                             avatar: CircleAvatar(
-                              backgroundColor:
-                                  const Color(0xFFF0EAF5),
-                              backgroundImage: pessoa.fotoBytes != null
-                                  ? MemoryImage(pessoa.fotoBytes!)
+                              backgroundColor: const Color(0xFFF0EAF5),
+                              backgroundImage: p.fotoBytes != null
+                                  ? MemoryImage(p.fotoBytes!)
                                   : null,
-                              child: pessoa.fotoBytes == null
+                              child: p.fotoBytes == null
                                   ? const Icon(Icons.person,
                                       size: 14, color: AppColors.roxo)
                                   : null,
                             ),
-                            label: Text(pessoa.nome),
-                            deleteIcon: const Icon(Icons.close, size: 16),
+                            label: Text(p.nome, style: const TextStyle(fontSize: 12)),
+                            deleteIcon: const Icon(Icons.close, size: 14),
                             onDeleted: () {
-                              setState(() => _familiaresSelecionados
-                                  .remove(id));
+                              setState(() => _pessoasSelecionadas.remove(id));
                             },
                           );
                         }),
                         ActionChip(
-                          avatar: const Icon(Icons.add, size: 18),
+                          avatar: const Icon(Icons.add, size: 14),
                           label: Text(
-                            _familiaresSelecionados.isEmpty
-                                ? 'Selecionar familiares'
+                            _pessoasSelecionadas.isEmpty
+                                ? 'Adicionar pessoas'
                                 : 'Adicionar mais',
+                            style: const TextStyle(fontSize: 12),
                           ),
-                          onPressed: _abrirSelecaoFamiliares,
+                          onPressed: _abrirSelecaoPessoas,
                         ),
                       ],
                     ),
-                  ],
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Quem participou deste momento?',
-                    style: TextStyle(
-                      color: AppColors.roxo,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      ..._pessoasSelecionadas.map((id) {
-                        final pessoa = _todasPessoas.firstWhere(
-                          (p) => p.id == id,
-                          orElse: () => Pessoa(
-                            nome: 'Desconhecido',
-                            parentesco: 'Outro',
-                          ),
-                        );
-                        return Chip(
-                          avatar: CircleAvatar(
-                            backgroundColor: const Color(0xFFF0EAF5),
-                            backgroundImage: pessoa.fotoBytes != null
-                                ? MemoryImage(pessoa.fotoBytes!)
-                                : null,
-                            child: pessoa.fotoBase64 == null
-                                ? const Icon(Icons.person,
-                                    size: 14, color: AppColors.roxo)
-                                : null,
-                          ),
-                          label: Text(pessoa.nome),
-                          deleteIcon: const Icon(Icons.close, size: 16),
-                          onDeleted: () {
-                            setState(() => _pessoasSelecionadas.remove(id));
-                          },
-                        );
-                      }),
-                      ActionChip(
-                        avatar: const Icon(Icons.add, size: 18),
-                        label: Text(
-                          _pessoasSelecionadas.isEmpty
-                              ? 'Adicionar pessoas'
-                              : 'Adicionar mais',
-                        ),
-                        onPressed: _abrirSelecaoPessoas,
-                      ),
-                    ],
                   ),
                   const SizedBox(height: 20),
+
+                  // ── CAMPO CONTEXTO ──
+                  _buildFieldLabel('O que aconteceu?'),
                   TextFormField(
                     controller: _contextoController,
                     textCapitalization: TextCapitalization.sentences,
                     minLines: 5,
-                    maxLines: 10,
+                    maxLines: 12,
                     decoration: const InputDecoration(
-                      labelText: 'O que aconteceu?',
                       alignLabelWithHint: true,
                       hintText:
                           'Quem estava com você? Por que este momento foi especial?',
@@ -534,89 +761,54 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
                     },
                   ),
                   const SizedBox(height: 16),
+
+                  // ── BOTÃO CURADOR ──
                   OutlinedButton.icon(
                     onPressed: _salvando ? null : _abrirCurador,
-                    icon: const Icon(Icons.auto_awesome_outlined),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.roxo,
+                      side: const BorderSide(color: AppColors.borda),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: const Icon(Icons.auto_awesome_outlined, size: 18),
                     label: const Text('Aprofundar esta história'),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 28),
+
+                  // ── BOTÃO SALVAR ──
                   FilledButton.icon(
                     onPressed: _salvando ? null : _salvar,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.roxo,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
                     icon: _salvando
                         ? const SizedBox.square(
                             dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
                           )
-                        : const Icon(Icons.favorite_outline),
-                    label: Text(_salvando ? 'Salvando...' : 'Salvar memória'),
+                        : const Icon(Icons.favorite_outline, size: 18),
+                    label: Text(
+                      _salvando
+                          ? 'Salvando...'
+                          : widget._editando
+                              ? 'Salvar alterações'
+                              : 'Salvar memória',
+                    ),
                   ),
                 ],
               ),
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _FotoEscolhida extends StatelessWidget {
-  const _FotoEscolhida({required this.foto, required this.onRemover});
-
-  final Uint8List? foto;
-  final VoidCallback onRemover;
-
-  @override
-  Widget build(BuildContext context) {
-    if (foto != null) {
-      return Stack(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: AspectRatio(
-              aspectRatio: 4 / 3,
-              child: Image.memory(foto!, fit: BoxFit.cover),
-            ),
-          ),
-          Positioned(
-            top: 10,
-            right: 10,
-            child: IconButton.filled(
-              tooltip: 'Remover foto',
-              onPressed: onRemover,
-              icon: const Icon(Icons.close),
-            ),
-          ),
-        ],
-      );
-    }
-
-    return Container(
-      height: 210,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFE2D8C8)),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: const Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.add_a_photo_outlined, size: 42, color: AppColors.dourado),
-          SizedBox(height: 12),
-          Text(
-            'Adicione uma foto deste momento',
-            style: TextStyle(
-              color: AppColors.roxo,
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          SizedBox(height: 4),
-          Text(
-            'Use a câmera ou escolha uma imagem',
-            style: TextStyle(color: Color(0xFF7A7280)),
-          ),
-        ],
       ),
     );
   }
@@ -647,8 +839,15 @@ class _PessoaPickerSheetState extends State<_PessoaPickerSheet> {
   }
 
   Future<void> _carregar() async {
+    print('[PessoaPickerSheet] _carregar() iniciando');
     final pessoas = await PessoaRepository.listar();
-    if (mounted) setState(() { _pessoas = pessoas; _carregando = false; });
+    print('[PessoaPickerSheet] _carregar() -> ${pessoas.length} pessoas');
+    if (mounted) {
+      setState(() {
+        _pessoas = pessoas;
+        _carregando = false;
+      });
+    }
   }
 
   @override
@@ -708,8 +907,7 @@ class _PessoaPickerSheetState extends State<_PessoaPickerSheet> {
                     : ListView.separated(
                         controller: controller,
                         itemCount: _pessoas.length,
-                        separatorBuilder: (_, _) =>
-                            const SizedBox(height: 4),
+                        separatorBuilder: (_, _) => const SizedBox(height: 4),
                         itemBuilder: (ctx, index) {
                           final p = _pessoas[index];
                           final sel = _sel.contains(p.id);
@@ -733,8 +931,7 @@ class _PessoaPickerSheetState extends State<_PessoaPickerSheet> {
                             ),
                             subtitle: Text(p.parentesco),
                             secondary: CircleAvatar(
-                              backgroundColor:
-                                  const Color(0xFFF0EAF5),
+                              backgroundColor: const Color(0xFFF0EAF5),
                               backgroundImage: p.fotoBytes != null
                                   ? MemoryImage(p.fotoBytes!)
                                   : null,

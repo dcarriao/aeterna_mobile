@@ -53,7 +53,6 @@ class _AeternaAppState extends State<AeternaApp> {
     final compartilhamentos =
         await PessoaRepository.listarCompartilhamentos();
     final datas = await PessoaRepository.carregarDatasMemorias();
-    debugPrint('[main] _memorias.length=${_memorias.length}, datas.length=${datas.length}');
     for (var i = 0; i < _memorias.length; i++) {
       final m = _memorias[i];
       final ids = vinculos[m.id ?? -1];
@@ -132,12 +131,23 @@ class _AeternaAppState extends State<AeternaApp> {
     );
   }
 
-  void _abrirDetalhe(BuildContext context, Memoria memoria) {
-    Navigator.of(context).push<void>(
+  Future<void> _abrirDetalhe(BuildContext context, Memoria memoria) async {
+    final atualizada = await Navigator.of(context).push<Memoria>(
       MaterialPageRoute(
-        builder: (_) => MemoriaDetalheScreen(memoria: memoria),
+        builder: (_) => MemoriaDetalheScreen(
+          memoria: memoria,
+        ),
       ),
     );
+
+    if (atualizada != null && context.mounted) {
+      setState(() {
+        final index = _memorias.indexWhere((m) => m.id == atualizada.id);
+        if (index >= 0) {
+          _memorias[index] = atualizada;
+        }
+      });
+    }
   }
 
   void _abrirTimeline(BuildContext context) {
@@ -168,6 +178,10 @@ class _AeternaAppState extends State<AeternaApp> {
     Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => PessoasScreen(
+          titulosMemorias: {
+            for (final m in _memorias.where((m) => m.id != null))
+              m.id!: m.titulo,
+          },
           onAbrirMemoria: (memoriaId) {
             final memoria = _memorias.firstWhere(
               (m) => m.id == memoriaId,

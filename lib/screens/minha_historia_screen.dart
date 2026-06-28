@@ -29,9 +29,17 @@ class MinhaHistoriaScreen extends StatefulWidget {
 class _MinhaHistoriaScreenState extends State<MinhaHistoriaScreen> {
   bool _atualizando = false;
 
+  bool _registrando = false;
+
   Future<void> _registrar() async {
-    await widget.onRegistrar();
-    if (mounted) setState(() {});
+    if (_registrando) return;
+    setState(() => _registrando = true);
+    try {
+      await widget.onRegistrar();
+      if (mounted) setState(() {});
+    } finally {
+      if (mounted) setState(() => _registrando = false);
+    }
   }
 
   Future<void> _atualizar() async {
@@ -72,10 +80,15 @@ class _MinhaHistoriaScreenState extends State<MinhaHistoriaScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         tooltip: 'Registrar momento',
-        onPressed: _registrar,
+        onPressed: _registrando ? null : _registrar,
         backgroundColor: AppColors.dourado,
         foregroundColor: AppColors.roxo,
-        child: const Icon(Icons.add),
+        child: _registrando
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.add),
       ),
       body: SafeArea(
         child: Center(

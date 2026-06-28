@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Aeterna Mobile</string>
+	<string>aEterna</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,11 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>aeterna_mobile</string>
+	<string>aEterna</string>
+	<key>NSCameraUsageDescription</key>
+	<string>aEterna precisa acessar a câmera para registrar fotos das suas memórias.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>aEterna precisa acessar suas fotos para adicionar imagens às memórias.</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

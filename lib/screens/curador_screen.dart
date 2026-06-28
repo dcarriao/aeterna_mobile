@@ -34,11 +34,18 @@ class _CuradorScreenState extends State<CuradorScreen> {
   bool _mostrandoPreview = false;
   bool _carregandoPerguntas = true;
   AnaliseLegado? _analiseLegado;
+  String? _narrativa;
 
   @override
   void initState() {
     super.initState();
     _carregarPerguntas();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   Future<void> _carregarPerguntas() async {
@@ -73,12 +80,6 @@ class _CuradorScreenState extends State<CuradorScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
   PerguntaCurador? get _perguntaAtual {
     if (_indice >= _perguntas.length) return null;
     return _perguntas[_indice];
@@ -104,6 +105,7 @@ class _CuradorScreenState extends State<CuradorScreen> {
       _controller.dispose();
       setState(() => _mostrandoPreview = true);
       _carregarAnalise();
+      _carregarNarrativa();
     }
   }
 
@@ -114,6 +116,30 @@ class _CuradorScreenState extends State<CuradorScreen> {
     } else {
       setState(() => _mostrandoPreview = true);
       _carregarAnalise();
+      _carregarNarrativa();
+    }
+  }
+
+  Future<void> _carregarNarrativa() async {
+    if (LegacyCuratorService.instance.isConfigured && _respostas.isNotEmpty) {
+      final resultado = await LegacyCuratorService.instance.gerarNarrativa(
+        widget.contextoOriginal,
+        widget.titulo,
+        _respostas,
+      );
+      if (resultado != null && mounted) {
+        setState(() => _narrativa = resultado);
+        return;
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _narrativa = const MotorPerguntas().montarNarrativa(
+          widget.contextoOriginal,
+          _respostas,
+        );
+      });
     }
   }
 
@@ -146,6 +172,7 @@ class _CuradorScreenState extends State<CuradorScreen> {
       );
 
   String _montarContextoEnriquecido() {
+    if (_narrativa != null && _narrativa!.isNotEmpty) return _narrativa!;
     if (_respostas.isEmpty) return widget.contextoOriginal;
 
     final buffer = StringBuffer();
@@ -173,8 +200,25 @@ class _CuradorScreenState extends State<CuradorScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.fundo,
       appBar: AppBar(
-        title: const Text('Curador de Histórias'),
+        title: Image.asset('assets/logo.png', height: 44),
+        centerTitle: false,
+        backgroundColor: AppColors.fundo,
+        elevation: 0,
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 20),
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0EAF5),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Icon(Icons.auto_awesome_outlined,
+                color: AppColors.roxo, size: 20),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Center(
@@ -195,65 +239,107 @@ class _CuradorScreenState extends State<CuradorScreen> {
     final pergunta = _perguntaAtual;
     if (pergunta == null) return const SizedBox.shrink();
 
+    final progresso = (_indice + 1) / _perguntas.length;
+
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
       children: [
+        // ── TITULO DO CURADOR ──
+        const Text(
+          'Curador de Memórias',
+          style: TextStyle(
+            color: AppColors.roxo,
+            fontSize: 26,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Vamos transformar lembranças em histórias que permanecerão vivas.',
+          style: TextStyle(
+            color: AppColors.textoSuave,
+            fontSize: 15,
+          ),
+        ),
+        const SizedBox(height: 28),
+
+        // ── PROGRESSO E BARRA ──
         Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: const BoxDecoration(
-                color: Color(0x26D4A84F),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  '${_indice + 1}',
-                  style: const TextStyle(
-                    color: AppColors.dourado,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                ),
+            Text(
+              'Pergunta ${_indice + 1} de ${_perguntas.length}',
+              style: const TextStyle(
+                color: AppColors.roxo,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(width: 10),
             Text(
-              '${_indice + 1} de ${_perguntas.length}',
+              '${(progresso * 100).toInt()}%',
               style: const TextStyle(
-                color: Color(0xFF7A7280),
-                fontSize: 14,
+                color: AppColors.dourado,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
         ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: progresso,
+            backgroundColor: const Color(0xFFEDE8DC),
+            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.dourado),
+            minHeight: 6,
+          ),
+        ),
         const SizedBox(height: 24),
+
+        // ── CARD DA PERGUNTA PRINCIPAL ──
         Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.borda),
+            border: Border.all(color: const Color(0xFFEDE8DC)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x062B1747),
+                blurRadius: 10,
+                offset: Offset(0, 4),
+              ),
+            ],
           ),
-          child: Text(
-            pergunta.texto,
-            style: const TextStyle(
-              color: AppColors.roxo,
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              height: 1.3,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.format_quote_outlined,
+                  size: 24, color: AppColors.dourado),
+              const SizedBox(height: 12),
+              Text(
+                pergunta.texto,
+                style: const TextStyle(
+                  color: AppColors.roxo,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  height: 1.35,
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 20),
+
+        // ── CAMPO DE RESPOSTA ──
         TextFormField(
           controller: _controller,
           textCapitalization: TextCapitalization.sentences,
-          minLines: 3,
-          maxLines: 6,
+          minLines: 4,
+          maxLines: 8,
           decoration: InputDecoration(
-            hintText: 'Escreva sua resposta...',
+            hintText: 'Escreva sua resposta para preservar este detalhe...',
             alignLabelWithHint: true,
             filled: true,
             fillColor: Colors.white,
@@ -268,17 +354,26 @@ class _CuradorScreenState extends State<CuradorScreen> {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  const BorderSide(color: AppColors.roxo, width: 2),
+              borderSide: const BorderSide(color: AppColors.roxo, width: 2),
             ),
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 28),
+
+        // ── BOTÕES DE NAVEGAÇÃO ──
         Row(
           children: [
             Expanded(
               child: OutlinedButton(
                 onPressed: _pular,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.roxo,
+                  side: const BorderSide(color: AppColors.borda),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
                 child: const Text('Pular'),
               ),
             ),
@@ -286,8 +381,16 @@ class _CuradorScreenState extends State<CuradorScreen> {
             Expanded(
               child: FilledButton(
                 onPressed: _avancar,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.roxo,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
                 child: Text(
-                  _indice + 1 < _perguntas.length ? 'Continuar' : 'Finalizar',
+                  _indice + 1 < _perguntas.length ? 'Próxima pergunta' : 'Finalizar',
                 ),
               ),
             ),
@@ -301,8 +404,9 @@ class _CuradorScreenState extends State<CuradorScreen> {
     final respondeu = _respostas.isNotEmpty;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
       children: [
+        // ── CABEÇALHO FINALE ──
         const Text(
           'Antes de salvar',
           style: TextStyle(
@@ -311,176 +415,38 @@ class _CuradorScreenState extends State<CuradorScreen> {
             fontWeight: FontWeight.w800,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         const Text(
-          'Revise como sua memória ficou.',
+          'Revise como sua história enriquecida ficou.',
           style: TextStyle(color: Color(0xFF7A7280), fontSize: 15),
         ),
         const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.borda),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.auto_stories_outlined,
-                      size: 18, color: AppColors.roxo),
-                  SizedBox(width: 8),
-                  Text(
-                    'Sua memória',
-                    style: TextStyle(
-                      color: AppColors.roxo,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                widget.contextoOriginal,
-                style: const TextStyle(
-                  color: Color(0xFF625B67),
-                  fontSize: 15,
-                  height: 1.5,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (respondeu) ...[
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.borda),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.forum_outlined,
-                        size: 18, color: AppColors.verdeApoio),
-                    SizedBox(width: 8),
-                    Text(
-                      'Perguntas respondidas',
-                      style: TextStyle(
-                        color: AppColors.roxo,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                ..._perguntas
-                    .where((p) => _respostas.containsKey(p.texto))
-                    .map(
-                      (p) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              p.texto,
-                              style: const TextStyle(
-                                color: AppColors.roxo,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _respostas[p.texto]!,
-                              style: const TextStyle(
-                                color: Color(0xFF625B67),
-                                fontSize: 14,
-                                height: 1.4,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-              ],
+
+        // ── CARD PRINCIPAL: SUA HISTÓRIA (NARRATIVA) ──
+        _PreviewCard(
+          icon: Icons.menu_book_outlined,
+          titulo: 'Sua história',
+          color: AppColors.roxo,
+          child: Text(
+            _montarContextoEnriquecido(),
+            style: const TextStyle(
+              color: Color(0xFF625B67),
+              fontSize: 15,
+              height: 1.6,
             ),
           ),
-        ],
-        const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF0EAF5),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.merge_type,
-                      size: 18, color: AppColors.dourado),
-                  SizedBox(width: 8),
-                  Text(
-                    'Versão completa',
-                    style: TextStyle(
-                      color: AppColors.roxo,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                _montarContextoEnriquecido(),
-                style: const TextStyle(
-                  color: Color(0xFF625B67),
-                  fontSize: 15,
-                  height: 1.5,
-                ),
-              ),
-            ],
-          ),
         ),
+
+        // ── CARD REVELADO (Valores / Características / Aprendizados) ──
         if (_analise.temConteudo) ...[
-          const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: const Color(0x26D4A84F),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                  color: AppColors.dourado.withValues(alpha: 0.3)),
-            ),
+          const SizedBox(height: 16),
+          _PreviewCard(
+            icon: Icons.emoji_objects_outlined,
+            titulo: 'O que esta história revela',
+            color: AppColors.dourado,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
-                  children: [
-                    Icon(Icons.emoji_objects_outlined,
-                        size: 18, color: AppColors.dourado),
-                    SizedBox(width: 8),
-                    Text(
-                      'O que esta história revela',
-                      style: TextStyle(
-                        color: AppColors.roxo,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
                 if (_analise.valores.isNotEmpty) ...[
                   const Text(
                     'Valores',
@@ -588,12 +554,67 @@ class _CuradorScreenState extends State<CuradorScreen> {
             ),
           ),
         ],
+
+        // ── CARD AUXILIAR: ORIGINAL E RESPOSTAS ──
+        if (respondeu) ...[
+          const SizedBox(height: 16),
+          _PreviewCard(
+            icon: Icons.forum_outlined,
+            titulo: 'Respostas coletadas',
+            color: AppColors.verdeApoio,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ..._perguntas
+                    .where((p) => _respostas.containsKey(p.texto))
+                    .map(
+                      (p) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              p.texto,
+                              style: const TextStyle(
+                                color: AppColors.roxo,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _respostas[p.texto]!,
+                              style: const TextStyle(
+                                color: Color(0xFF625B67),
+                                fontSize: 14,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+              ],
+            ),
+          ),
+        ],
+
         const SizedBox(height: 28),
+
+        // ── BOTÕES DE SALVAMENTO ──
         Row(
           children: [
             Expanded(
               child: OutlinedButton(
                 onPressed: () => Navigator.of(context).pop(null),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.roxo,
+                  side: const BorderSide(color: AppColors.borda),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
                 child: const Text('Cancelar'),
               ),
             ),
@@ -601,13 +622,75 @@ class _CuradorScreenState extends State<CuradorScreen> {
             Expanded(
               child: FilledButton.icon(
                 onPressed: _salvar,
-                icon: const Icon(Icons.favorite_outline),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.roxo,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                icon: const Icon(Icons.favorite_outline, size: 18),
                 label: const Text('Salvar memória'),
               ),
             ),
           ],
         ),
       ],
+    );
+  }
+}
+
+class _PreviewCard extends StatelessWidget {
+  const _PreviewCard({
+    required this.icon,
+    required this.titulo,
+    required this.color,
+    required this.child,
+  });
+
+  final IconData icon;
+  final String titulo;
+  final Color color;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFEDE8DC)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x042B1747),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 8),
+              Text(
+                titulo,
+                style: const TextStyle(
+                  color: AppColors.roxo,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
     );
   }
 }
@@ -627,7 +710,7 @@ class _CarregandoCurador extends StatelessWidget {
           ),
           SizedBox(height: 16),
           Text(
-            'Preparando perguntas...',
+            'Organizando sua história...',
             style: TextStyle(color: Color(0xFF7A7280), fontSize: 15),
           ),
         ],

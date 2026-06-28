@@ -46,11 +46,25 @@ class LegacyCuratorService {
     }
 
     buffer.writeln(
-      'Gere 3 a 5 perguntas curtas e profundas para entrevistar o autor sobre '
-      'esta memória. Foque em valores, aprendizados, traços de personalidade '
-      'e impacto emocional das pessoas citadas. Não repita "quando aconteceu", '
-      '"onde foi" ou "quem estava presente". Responda apenas com as perguntas, '
-      'uma por linha, sem numeração.',
+      'Primeiro classifique esta memória em uma dessas categorias: '
+      'pessoa, evento_familiar, viagem, conquista, infância, trabalho, '
+      'amizade, relacionamento, aprendizado, reflexão, data_comemorativa, '
+      'lembrança_cotidiana. '
+      'Depois gere 3 a 5 perguntas adequadas à categoria. '
+      'Exemplos por categoria:'
+      '\n- evento_familiar: O que tornou esse momento especial? Quem estava presente? '
+      'Alguma conversa ficou marcada?'
+      '\n- viagem: Para onde foram? O que mais marcou? Houve algum imprevisto?'
+      '\n- conquista: Qual era o objetivo? Quanto tempo levou? Como se sentiu ao concluir?'
+      '\n- pessoa: Como essa pessoa fazia parte da sua vida? O que mais a caracterizava? '
+      'Existe algum ensinamento marcante?'
+      '\n- reflexão: O que motivou esse pensamento? Sua forma de pensar mudou?'
+      '\n- trabalho: Como conseguiu essa oportunidade? O que aprendeu? Quem te ajudou?'
+      '\n- aprendizado: O que aprendeu? Quem ensinou? Como aplica isso hoje?'
+      '\n- infância: Quantos anos você tinha? Onde aconteceu? Como se sentia naquela época?'
+      '\nNUNCA use perguntas de pessoa quando a memória for sobre um evento. '
+      'NUNCA repita perguntas já respondidas. '
+      'Responda apenas com as perguntas, uma por linha, sem numeração.',
     );
 
     try {
@@ -172,6 +186,80 @@ class LegacyCuratorService {
     }
   }
 
+  Future<String?> gerarNarrativa(
+    String contextoOriginal,
+    String titulo,
+    Map<String, String> respostas,
+  ) async {
+    if (!isConfigured || respostas.isEmpty) return null;
+
+    final buffer = StringBuffer();
+    buffer.writeln('Título: $titulo');
+    buffer.writeln();
+    buffer.writeln('Memória original:');
+    buffer.writeln(contextoOriginal);
+    buffer.writeln();
+
+    for (final entry in respostas.entries) {
+      buffer.writeln('Pergunta: ${entry.key}');
+      buffer.writeln('Resposta: ${entry.value}');
+      buffer.writeln();
+    }
+
+    buffer.writeln(
+      'Transforme as informações acima em um texto narrativo contínuo, '
+      'em português, usando linguagem natural. '
+      'Organize em parágrafos fluidos. '
+      'NUNCA invente nomes, locais, sentimentos ou acontecimentos que não '
+      'estejam nas respostas. '
+      'Se uma informação não existir, simplesmente não a mencione. '
+      'Não use listas. Não repita informações. '
+      'O texto deve parecer uma lembrança contada por uma pessoa real.',
+    );
+
+    try {
+      final response = await http
+          .post(
+            Uri.parse(_baseUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $_apiKey',
+            },
+            body: jsonEncode({
+              'model': _model,
+              'messages': [
+                {
+                  'role': 'system',
+                  'content':
+                      'Você é um narrador de memórias familiares. '
+                      'Seu objetivo é transformar perguntas e respostas em '
+                      'um texto narrativo contínuo e natural. '
+                      'Nunca invente informações. '
+                      'Seja fiel ao que foi dito.',
+                },
+                {
+                  'role': 'user',
+                  'content': buffer.toString(),
+                },
+              ],
+              'temperature': 0.5,
+              'max_tokens': 600,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      if (response.statusCode != 200) return null;
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final choices = data['choices'] as List<dynamic>;
+      if (choices.isEmpty) return null;
+
+      return choices[0]['message']['content'] as String;
+    } catch (_) {
+      return null;
+    }
+  }
+
   List<String> _parseToStringList(dynamic value) {
     if (value is List) {
       return value.map((e) => e.toString()).toList();
@@ -180,13 +268,18 @@ class LegacyCuratorService {
   }
 
   static const _systemPrompt =
-      'Você é um Entrevistador de Legado Familiar. '
-      'Seu objetivo é descobrir valores, aprendizados, traços de personalidade '
-      'e impacto emocional das pessoas citadas nas memórias. '
-      'Nunca aja como assistente genérico. '
-      'Nunca responda dúvidas. '
-      'Nunca ensine. '
-      'Apenas entreviste. '
-      'Faça perguntas curtas, profundas e específicas. '
-      'Foque em quem a pessoa era, não apenas no que aconteceu.';
+      'Você é um Entrevistador de Memórias Familiares. '
+      'Seu objetivo é ajudar o usuário a registrar uma memória de forma natural, '
+      'fazendo perguntas adequadas ao contexto. '
+      'Primeiro classifique a memória (pessoa, evento_familiar, viagem, conquista, '
+      'infância, trabalho, amizade, relacionamento, aprendizado, reflexão, '
+      'data_comemorativa, lembrança_cotidiana). '
+      'Depois use perguntas da categoria correta. '
+      'NUNCA presuma que toda memória é sobre uma pessoa. '
+      'Se a memória for um evento (almoço, formatura, viagem), NÃO pergunte '
+      '"quem era essa pessoa" ou "o que aprendeu com ela". '
+      'Se a memória for sobre uma pessoa específica, use perguntas de pessoa. '
+      'NUNCA repita perguntas já respondidas. '
+      'Pare de perguntar quando houver informações suficientes. '
+      'Nunca aja como assistente. Nunca ensine. Apenas entreviste.';
 }

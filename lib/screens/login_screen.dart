@@ -54,19 +54,28 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _entrando = true);
-    final preferencias = await SharedPreferences.getInstance();
-    await preferencias.setBool(_lembrarKey, _lembrarDados);
+    try {
+      final preferencias = await SharedPreferences.getInstance();
+      await preferencias.setBool(_lembrarKey, _lembrarDados);
 
-    if (_lembrarDados) {
-      await preferencias.setString(_emailKey, _emailController.text.trim());
-    } else {
-      await preferencias.remove(_emailKey);
+      if (_lembrarDados) {
+        await preferencias.setString(_emailKey, _emailController.text.trim());
+      } else {
+        await preferencias.remove(_emailKey);
+      }
+
+      // TODO: autenticar com Supabase Auth e guardar tokens apenas em storage seguro.
+      // Nunca persistir a senha em texto puro.
+      if (!mounted) return;
+      widget.onEntrar();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _entrando = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erro ao acessar. Tente novamente.')),
+        );
+      }
     }
-
-    // TODO: autenticar com Supabase Auth e guardar tokens apenas em storage seguro.
-    // Nunca persistir a senha em texto puro.
-    if (!mounted) return;
-    widget.onEntrar();
   }
 
   void _mostrarBiometria() {

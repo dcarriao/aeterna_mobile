@@ -140,3 +140,30 @@ using (
   bucket_id = 'fotos'
   and name like 'usuario_2/app_mobile/%'
 );
+
+-- Contatos (MVP sem auth)
+grant select, insert, delete on table public.contatos to anon;
+grant usage, select on all sequences in schema public to anon;
+
+alter table public.contatos enable row level security;
+
+drop policy if exists "mvp anon select contatos usuario 2" on public.contatos;
+create policy "mvp anon select contatos usuario 2"
+on public.contatos
+for select
+to anon
+using (usuario_id = 2);
+
+drop policy if exists "mvp anon insert contatos usuario 2" on public.contatos;
+create policy "mvp anon insert contatos usuario 2"
+on public.contatos
+for insert
+to anon
+with check (usuario_id = 2);
+
+drop policy if exists "mvp anon delete contatos usuario 2" on public.contatos;
+create policy "mvp anon delete contatos usuario 2"
+on public.contatos
+for delete
+to anon
+using (usuario_id = 2);

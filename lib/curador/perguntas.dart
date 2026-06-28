@@ -10,89 +10,79 @@ class PerguntaCurador {
   final CategoriaPergunta categoria;
 }
 
+// ── Perguntas por contexto ──
+
 const _factuais = [
-  PerguntaCurador(
-    texto: 'Quando isso aconteceu?',
-    categoria: CategoriaPergunta.factual,
-  ),
-  PerguntaCurador(
-    texto: 'Onde aconteceu?',
-    categoria: CategoriaPergunta.factual,
-  ),
-  PerguntaCurador(
-    texto: 'Quem estava presente nesse momento?',
-    categoria: CategoriaPergunta.factual,
-  ),
+  PerguntaCurador(texto: 'Quando isso aconteceu?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Onde aconteceu?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Quem estava presente nesse momento?', categoria: CategoriaPergunta.factual),
 ];
 
 const _emocionais = [
-  PerguntaCurador(
-    texto: 'Como você se sentiu nesse momento?',
-    categoria: CategoriaPergunta.emocional,
-  ),
-  PerguntaCurador(
-    texto: 'O que mais marcou você nessa experiência?',
-    categoria: CategoriaPergunta.emocional,
-  ),
-  PerguntaCurador(
-    texto: 'Se você pudesse guardar apenas uma lembrança desta história, qual seria?',
-    categoria: CategoriaPergunta.emocional,
-  ),
+  PerguntaCurador(texto: 'Como você se sentiu nesse momento?', categoria: CategoriaPergunta.emocional),
+  PerguntaCurador(texto: 'O que mais marcou você?', categoria: CategoriaPergunta.emocional),
+  PerguntaCurador(texto: 'Se pudesse guardar só uma lembrança, qual seria?', categoria: CategoriaPergunta.emocional),
 ];
 
-const _legado = [
-  PerguntaCurador(
-    texto: 'O que essa história revela sobre essa pessoa?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'Qual característica marcante ela tinha?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'O que você mais admirava nela?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'Existe algum conselho que ela repetia?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'O que você aprendeu com essa pessoa?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'Qual valor ela transmitiu para sua família?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'O que você gostaria que seus filhos soubessem sobre ela?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'O que dessa pessoa continua vivo em você?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'Existe alguma frase que você nunca esqueceu dela?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'Como essa pessoa influenciou sua vida?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'O que tornava essa pessoa especial?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'Como ela gostaria de ser lembrada?',
-    categoria: CategoriaPergunta.legado,
-  ),
-  PerguntaCurador(
-    texto: 'Qual foi o maior aprendizado que esta experiência deixou para sua vida?',
-    categoria: CategoriaPergunta.legado,
-  ),
+const _eventoFamiliar = [
+  PerguntaCurador(texto: 'O que tornou esse momento especial?', categoria: CategoriaPergunta.emocional),
+  PerguntaCurador(texto: 'Onde aconteceu?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Quem estava presente?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Alguma conversa ficou marcada?', categoria: CategoriaPergunta.emocional),
+  PerguntaCurador(texto: 'Como você lembra desse dia?', categoria: CategoriaPergunta.emocional),
+  PerguntaCurador(texto: 'Existe algum detalhe que uma foto não mostraria?', categoria: CategoriaPergunta.emocional),
+];
+
+const _viagem = [
+  PerguntaCurador(texto: 'Para onde vocês foram?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'O que motivou essa viagem?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'O que mais marcou você?', categoria: CategoriaPergunta.emocional),
+  PerguntaCurador(texto: 'Houve algum imprevisto ou surpresa?', categoria: CategoriaPergunta.emocional),
+  PerguntaCurador(texto: 'Qual lembrança você gostaria de preservar?', categoria: CategoriaPergunta.emocional),
+];
+
+const _conquista = [
+  PerguntaCurador(texto: 'Qual era o objetivo?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Quanto tempo levou para alcançar?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Quem esteve ao seu lado?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Qual foi a maior dificuldade?', categoria: CategoriaPergunta.emocional),
+  PerguntaCurador(texto: 'Como você se sentiu ao concluir?', categoria: CategoriaPergunta.emocional),
+];
+
+const _pessoa = [
+  PerguntaCurador(texto: 'Como essa pessoa fazia parte da sua vida?', categoria: CategoriaPergunta.legado),
+  PerguntaCurador(texto: 'O que mais a caracterizava?', categoria: CategoriaPergunta.legado),
+  PerguntaCurador(texto: 'Existe alguma história que represente bem quem ela era?', categoria: CategoriaPergunta.legado),
+  PerguntaCurador(texto: 'Existe algum ensinamento marcante dessa pessoa?', categoria: CategoriaPergunta.legado),
+  PerguntaCurador(texto: 'O que você gostaria que seus filhos soubessem sobre ela?', categoria: CategoriaPergunta.legado),
+];
+
+const _infancia = [
+  PerguntaCurador(texto: 'Quantos anos você tinha?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Onde você morava naquela época?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Como você se sentia naquele tempo?', categoria: CategoriaPergunta.emocional),
+  PerguntaCurador(texto: 'Quem fazia parte desse momento?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'O que mudou de lá para cá?', categoria: CategoriaPergunta.emocional),
+];
+
+const _trabalho = [
+  PerguntaCurador(texto: 'Como conseguiu essa oportunidade?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'O que você aprendeu nessa experiência?', categoria: CategoriaPergunta.legado),
+  PerguntaCurador(texto: 'Alguém te ajudou ou inspirou?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Qual foi o maior desafio?', categoria: CategoriaPergunta.emocional),
+];
+
+const _reflexao = [
+  PerguntaCurador(texto: 'O que motivou esse pensamento?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Sua forma de pensar mudou depois disso?', categoria: CategoriaPergunta.legado),
+  PerguntaCurador(texto: 'Como isso impactou suas decisões?', categoria: CategoriaPergunta.legado),
+  PerguntaCurador(texto: 'Existe uma mensagem que gostaria de deixar?', categoria: CategoriaPergunta.legado),
+];
+
+const _aprendizado = [
+  PerguntaCurador(texto: 'O que você aprendeu?', categoria: CategoriaPergunta.legado),
+  PerguntaCurador(texto: 'Quem te ensinou ou inspirou?', categoria: CategoriaPergunta.factual),
+  PerguntaCurador(texto: 'Como você aplica isso na sua vida hoje?', categoria: CategoriaPergunta.legado),
 ];
 
 class AnaliseLegado {
@@ -113,97 +103,120 @@ class AnaliseLegado {
 class MotorPerguntas {
   const MotorPerguntas();
 
+  String? _classificar(String texto) {
+    final t = texto.toLowerCase();
+
+    if (RegExp(r'\b(pai|m[aã]e|av[oô]|av[óo]|bisavô|bisavó|irm[ãa]o|irm[ãa]|tio|tia)\b').hasMatch(t) &&
+        (t.length < 60 || RegExp(r'\b(era|foi\s+um[ae]?|pessoa|lembr[oa]|saudade)\b').hasMatch(t))) {
+      return 'pessoa';
+    }
+    if (RegExp(r'\b(viagem|viaj[aeo]|viajei|passeio|f[eé]rias|conheci\s+\w+|gramado|cidade|praia|hotel|estrada)\b').hasMatch(t)) return 'viagem';
+    if (RegExp(r'\b(formatura|formei|conquistei|consegui|promo[cç][aã]o|vestibular|aprovado|passei|pr[eê]mio|certificado|trofeu|medalha)\b').hasMatch(t)) return 'conquista';
+    if (RegExp(r'\b(almo[cç]o|jantar|festa|natal|ano\s+novo|p[aá]scoa|anivers[aá]rio|ceia|churrasco|reuni[aã]o\s+(de\s+)?fam[ií]lia|encontro\s+familiar)\b').hasMatch(t)) return 'evento_familiar';
+    if (RegExp(r'\b(trabalho|emprego|empresa|carreira|escrit[oó]rio|entrevista|contrata[cç][aã]o|demiss[aã]o|chefe|colega\s+de\s+trabalho)\b').hasMatch(t)) return 'trabalho';
+    if (RegExp(r'\b(aprendi|ensinou|curso|aula|estud[ae]|professor)\b').hasMatch(t)) return 'aprendizado';
+    if (RegExp(r'\b(crian[cç]a|pequen[oa]|cresci|inf[aâ]ncia|escola|brincava|brinquedo|quando\s+eu\s+era\s+(criança|pequeno|pequena|novo|nova))\b').hasMatch(t)) return 'infancia';
+    if (RegExp(r'\b(refleti[r]?|pens[ae]|conversa\s+que\s+mudou|mudou\s+minha\s+forma|percebi|entendi\s+que)\b').hasMatch(t)) return 'reflexao';
+
+    if (RegExp(r'\b(pai|m[aã]e|av[oô]|tio|tia)\b').hasMatch(t)) return 'pessoa';
+    return null;
+  }
+
   List<PerguntaCurador> selecionar(String contexto) {
-    final texto = contexto.trim().toLowerCase();
-    final palavras = texto.split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
-    final tamanho = palavras.length;
+    final categoria = _classificar(contexto);
 
-    final temPessoas = texto.contains(RegExp(
-      r'\b(pai|m[aã]e|av[oô]|av[óo]|bisav[oô]|bisav[óo]|'
-      r'tio|tia|irm[aã]o|irm[aã]|filho|filha|amigo|amiga)\b',
-    ));
-    final temAprendizado = texto.contains(RegExp(
-      r'\b(aprendi|ensinou|conselho|li[cç][aã]o|exemplo|inspir[aã][cç][aã]o)\b',
-    ));
-    final temEmocao = texto.contains(RegExp(
-      r'\b(saudade|amor|feliz|triste|orgulho|medo|alegria|gratid[aã]o)\b',
-    ));
-
-    final selecionadas = <PerguntaCurador>[];
-    final curto = tamanho < 25;
-
-    // REGRA OBRIGATÓRIA: sempre 1 pergunta de legado
-    selecionadas.add(_legado[0]);
-
-    if (curto) {
-      selecionadas.addAll([
-        _factuais[1], // Onde?
-        _factuais[2], // Quem?
-      ]);
-    } else {
-      selecionadas.add(_factuais[0]); // Quando?
+    List<PerguntaCurador> selecionadas;
+    switch (categoria) {
+      case 'evento_familiar':
+        selecionadas = [..._eventoFamiliar];
+      case 'viagem':
+        selecionadas = [..._viagem];
+      case 'conquista':
+        selecionadas = [..._conquista];
+      case 'pessoa':
+        selecionadas = [..._pessoa];
+      case 'infancia':
+        selecionadas = [..._infancia];
+      case 'trabalho':
+        selecionadas = [..._trabalho];
+      case 'reflexao':
+        selecionadas = [..._reflexao];
+      case 'aprendizado':
+        selecionadas = [..._aprendizado];
+      default:
+        selecionadas = [
+          _factuais[2],
+          _factuais[0],
+          _emocionais[0],
+          _emocionais[1],
+          _emocionais[2],
+        ];
     }
 
-    if (temPessoas) {
-      selecionadas.addAll([
-        _legado[1], // Característica marcante
-        _legado[4], // O que aprendeu com essa pessoa
-        _legado[7], // O que continua vivo
-      ]);
+    if (selecionadas.length > 7) {
+      selecionadas = selecionadas.sublist(0, 7);
+    }
+    if (selecionadas.length < 3) {
+      selecionadas.addAll(_emocionais.take(3 - selecionadas.length));
     }
 
-    if (temAprendizado) {
-      selecionadas.addAll([
-        _legado[12], // Maior aprendizado
-        _legado[5],  // Valor transmitido
-      ]);
-    }
+    return selecionadas;
+  }
 
-    if (temEmocao) {
-      selecionadas.addAll([
-        _emocionais[0], // Como se sentiu
-        _emocionais[1], // O que marcou
-      ]);
-      if (temPessoas) {
-        selecionadas.add(_legado[10]); // O que tornava especial
+  String montarNarrativa(String contextoOriginal, Map<String, String> respostas) {
+    if (respostas.isEmpty) return contextoOriginal;
+
+    final pessoas = <String>[];
+    final locais = <String>[];
+    final sentimentos = <String>[];
+    final aprendizados = <String>[];
+    final outros = <String>[];
+
+    for (final entry in respostas.entries) {
+      final p = entry.key.toLowerCase();
+      final r = entry.value.trim();
+      if (r.isEmpty) continue;
+
+      if (p.contains('quem') || p.contains('pessoa') || p.contains('presente')) {
+        pessoas.add(r);
+      } else if (p.contains('onde') || p.contains('local')) {
+        locais.add(r);
+      } else if (p.contains('sentiu') || p.contains('emoção') || p.contains('marcou') || p.contains('lembrança')) {
+        sentimentos.add(r);
+      } else if (p.contains('aprend') || p.contains('ensin') || p.contains('lição')) {
+        aprendizados.add(r);
+      } else {
+        outros.add(r);
       }
     }
 
-    if (!temEmocao && !curto) {
-      selecionadas.add(_emocionais[1]); // O que marcou
+    final buffer = StringBuffer();
+    buffer.writeln(contextoOriginal.trim());
+    buffer.writeln();
+
+    final todasAsPartes = <String>[];
+
+    if (pessoas.isNotEmpty) {
+      todasAsPartes.add('Estavam presentes ${pessoas.join(', ')}.');
+    }
+    if (locais.isNotEmpty) {
+      todasAsPartes.add('Aconteceu em ${locais.join(', ')}.');
+    }
+    for (final s in sentimentos) {
+      todasAsPartes.add(s);
+    }
+    for (final o in outros) {
+      todasAsPartes.add(o);
+    }
+    if (aprendizados.isNotEmpty) {
+      todasAsPartes.add(aprendizados.join(' '));
     }
 
-    if (!temAprendizado) {
-      selecionadas.add(_legado[12]); // Maior aprendizado
+    if (todasAsPartes.isNotEmpty) {
+      buffer.write(todasAsPartes.join(' '));
     }
 
-    // Pergunta do momento mais importante
-    if (!curto) {
-      selecionadas.add(_emocionais[2]);
-    }
-
-    final unicas = <PerguntaCurador>[];
-    final textos = <String>{};
-    for (final p in selecionadas) {
-      if (textos.add(p.texto)) {
-        unicas.add(p);
-      }
-    }
-
-    if (unicas.length < 5) {
-      for (final p in [..._legado, ..._emocionais, ..._factuais]) {
-        if (textos.add(p.texto)) {
-          unicas.add(p);
-        }
-        if (unicas.length >= 6) break;
-      }
-    }
-
-    if (unicas.length > 7) {
-      return unicas.sublist(0, 7);
-    }
-
-    return unicas;
+    return buffer.toString().trim();
   }
 
   AnaliseLegado analisarLegado(
@@ -217,86 +230,51 @@ class MotorPerguntas {
     final aprendizados = <String>[];
     final caracteristicas = <String>[];
 
-    // Detectar valores
     final termosValores = {
-      'honestidade': 'Honestidade',
-      'respeito': 'Respeito',
-      'família': 'Família',
-      'familia': 'Família',
-      'trabalho': 'Trabalho',
-      'amor': 'Amor',
-      'fé': 'Fé',
-      'fe': 'Fé',
-      'perseverança': 'Perseverança',
-      'perseveranca': 'Perseverança',
-      'humildade': 'Humildade',
-      'generosidade': 'Generosidade',
-      'coragem': 'Coragem',
-      'sabedoria': 'Sabedoria',
-      'gratidão': 'Gratidão',
-      'gratidao': 'Gratidão',
-      'união': 'União',
-      'uniao': 'União',
-      'dedicação': 'Dedicação',
-      'dedicacao': 'Dedicação',
-      'fé em': 'Fé',
+      'honestidade': 'Honestidade', 'respeito': 'Respeito',
+      'família': 'Família', 'familia': 'Família',
+      'trabalho': 'Trabalho', 'amor': 'Amor',
+      'fé': 'Fé', 'fe': 'Fé',
+      'perseverança': 'Perseverança', 'perseveranca': 'Perseverança',
+      'humildade': 'Humildade', 'generosidade': 'Generosidade',
+      'coragem': 'Coragem', 'sabedoria': 'Sabedoria',
+      'gratidão': 'Gratidão', 'gratidao': 'Gratidão',
+      'união': 'União', 'uniao': 'União',
+      'dedicação': 'Dedicação', 'dedicacao': 'Dedicação',
     };
 
     final encontrados = <String>{};
     for (final entry in termosValores.entries) {
       if (todasAsRespostas.contains(entry.key)) {
-        if (encontrados.add(entry.value)) {
-          valores.add(entry.value);
-        }
+        if (encontrados.add(entry.value)) valores.add(entry.value);
         if (valores.length >= 4) break;
       }
     }
 
-    // Detectar aprendizados
-    final regexAprendizado = RegExp(
-      r'(?:aprendi|ensinou|entendi|descobri|compreendi)\s[^.!?]+',
-    );
-    final matches = regexAprendizado.allMatches(todasAsRespostas);
-    for (final m in matches.take(3)) {
+    final regexAprendizado = RegExp(r'(?:aprendi|ensinou|entendi|descobri|compreendi)\s[^.!?]+');
+    for (final m in regexAprendizado.allMatches(todasAsRespostas).take(3)) {
       final frase = m.group(0)!.trim();
-      final capitalizada =
-          '${frase[0].toUpperCase()}${frase.substring(1)}';
       if (frase.length > 10 && frase.length < 120) {
-        aprendizados.add(capitalizada);
+        aprendizados.add('${frase[0].toUpperCase()}${frase.substring(1)}');
       }
     }
 
-    // Detectar características
     final termosCaracteristicas = {
-      'forte': 'Forte',
-      'corajos': 'Corajoso(a)',
-      'gentil': 'Gentil',
-      'sábio': 'Sábio(a)',
-      'sabio': 'Sábio(a)',
-      'alegre': 'Alegre',
-      'determinad': 'Determinado(a)',
-      'generos': 'Generoso(a)',
-      'cuidados': 'Cuidadoso(a)',
-      'inteligente': 'Inteligente',
-      'trabalhador': 'Trabalhador(a)',
-      'honesto': 'Honesto(a)',
-      'batalhador': 'Batalhador(a)',
-      'guerreir': 'Guerreiro(a)',
-      'amoroso': 'Amoroso(a)',
-      'carinhoso': 'Carinhoso(a)',
-      'divertid': 'Divertido(a)',
-      'engraçad': 'Engraçado(a)',
-      'engracad': 'Engraçado(a)',
-      'simples': 'Simples',
-      'humilde': 'Humilde',
+      'forte': 'Forte', 'corajos': 'Corajoso(a)', 'gentil': 'Gentil',
+      'sábio': 'Sábio(a)', 'sabio': 'Sábio(a)', 'alegre': 'Alegre',
+      'determinad': 'Determinado(a)', 'generos': 'Generoso(a)',
+      'cuidados': 'Cuidadoso(a)', 'inteligente': 'Inteligente',
+      'trabalhador': 'Trabalhador(a)', 'honesto': 'Honesto(a)',
+      'batalhador': 'Batalhador(a)', 'guerreir': 'Guerreiro(a)',
+      'amoroso': 'Amoroso(a)', 'carinhoso': 'Carinhoso(a)',
+      'divertid': 'Divertido(a)', 'engraçad': 'Engraçado(a)',
+      'engracad': 'Engraçado(a)', 'simples': 'Simples', 'humilde': 'Humilde',
     };
 
     final encontradosC = <String>{};
     for (final entry in termosCaracteristicas.entries) {
       if (todasAsRespostas.contains(entry.key)) {
-        if (encontradosC.add(entry.value)) {
-          caracteristicas.add(entry.value);
-        }
+        if (encontradosC.add(entry.value)) caracteristicas.add(entry.value);
         if (caracteristicas.length >= 4) break;
       }
     }

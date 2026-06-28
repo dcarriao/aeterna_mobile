@@ -1,8 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase/supabase.dart';
 
 class Pessoa {
   Pessoa({
@@ -24,9 +23,19 @@ class Pessoa {
   final String? fotoBase64;
   final DateTime createdAt;
 
-  Uint8List? get fotoBytes =>
-      fotoBase64 != null && fotoBase64!.isNotEmpty
-          ? base64Decode(fotoBase64!)
+  Uint8List? get fotoBytes {
+    if (fotoBase64 == null || fotoBase64!.isEmpty) return null;
+    if (fotoBase64!.startsWith('http')) return null;
+    try {
+      return base64Decode(fotoBase64!);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? get fotoUrl =>
+      fotoBase64 != null && fotoBase64!.startsWith('http')
+          ? fotoBase64
           : null;
 
   Map<String, dynamic> toMap() {
@@ -43,16 +52,16 @@ class Pessoa {
 
   factory Pessoa.fromMap(Map<String, dynamic> map) {
     return Pessoa(
-      id: map['id'] as int?,
-      nome: map['nome'] as String? ?? '',
+      id: map['id'] is int ? map['id'] as int : int.tryParse('${map['id']}'),
+      nome: (map['nome'] as String?) ?? '',
       apelido: map['apelido'] as String?,
-      parentesco: map['parentesco'] as String? ?? 'Outro',
-      dataNascimento: map['dataNascimento'] != null
-          ? DateTime.tryParse(map['dataNascimento'] as String)
+      parentesco: (map['parentesco'] as String?) ?? 'Outro',
+      dataNascimento: map['data_nascimento'] != null
+          ? DateTime.tryParse('${map['data_nascimento']}')
           : null,
-      fotoBase64: map['fotoBase64'] as String?,
-      createdAt: map['createdAt'] != null
-          ? DateTime.tryParse(map['createdAt'] as String) ?? DateTime.now()
+      fotoBase64: (map['foto_perfil'] as String?) ?? (map['fotoBase64'] as String?),
+      createdAt: map['data_criacao'] != null
+          ? DateTime.tryParse('${map['data_criacao']}') ?? DateTime.now()
           : DateTime.now(),
     );
   }
@@ -61,74 +70,230 @@ class Pessoa {
 class PessoaRepository {
   PessoaRepository._();
 
-  static const _pessoasKey = 'aeterna_pessoas';
-  static const _vinculosKey = 'aeterna_vinculos';
-  static const _compartilhadasKey = 'aeterna_compartilhadas';
-  static const _datasMemoriasKey = 'aeterna_datas_memorias';
+  static const _url = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: 'https://zfpvfljmnlgsqiqdxmka.supabase.co',
+  );
+  static const _anonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+  static const int _usuarioId = 2;
 
-  static Future<List<Pessoa>> listar() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_pessoasKey);
-    debugPrint('[PessoaRepository] listar: raw=${raw != null ? "${raw.length} chars" : "null"}');
-    if (raw == null || raw.isEmpty) return [];
+  static bool get isConfigured => _anonKey.isNotEmpty;
 
-    final list = jsonDecode(raw) as List<dynamic>;
-    debugPrint('[PessoaRepository] listar: ${list.length} pessoas carregadas');
-    for (final item in list) {
-      debugPrint('  -> ${(item as Map)['nome']} (${item['parentesco']})');
+  static SupabaseClient? _client;
+
+  static SupabaseClient get _supabase {
+    if (!isConfigured) {
+      throw Exception('SUPABASE_ANON_KEY não configurada.');
     }
-    return list
-        .map((item) => Pessoa.fromMap(item as Map<String, dynamic>))
-        .toList();
+    return _client ??= SupabaseClient(_url, _anonKey);
   }
 
-  static Future<void> salvar(Pessoa pessoa) async {
-    final pessoas = await listar();
-    final index = pessoas.indexWhere((p) => p.id == pessoa.id);
-    if (index >= 0) {
-      pessoas[index] = pessoa;
-    } else {
-      pessoas.insert(0, pessoa);
+  // ── CONTATOS (Supabase) ──
+
+  static Future<List<Pessoa>> listar() async {
+    if (!isConfigured) return [];
+
+    print('[PessoaRepo] listar() -> consultando Supabase contatos');
+    try {
+      final rows = await _supabase
+          .from('contatos')
+          .select('id, nome, sobrenome, parentesco, data_nascimento, foto_perfil, data_criacao')
+          .order('nome');
+      print('[PessoaRepo] listar() -> ${rows.length} contatos recebidos');
+      for (final r in rows) {
+        print('[PessoaRepo]   contato: id=${r["id"]} nome=${r["nome"]} parentesco=${r["parentesco"]}');
+      }
+      return rows.map((r) => Pessoa.fromMap(r)).toList();
+    } catch (e) {
+      print('[PessoaRepo] listar() ERRO: $e');
+      return [];
     }
-    await _persistir(pessoas);
+  }
+
+  static Future<void> salvar(Pessoa pessoa, {bool isUpdate = false}) async {
+    if (!isConfigured) return;
+
+    print('[PessoaRepo] salvar() isUpdate=$isUpdate nome=${pessoa.nome} id=${pessoa.id}');
+    final data = <String, dynamic>{
+      'usuario_id': _usuarioId,
+      'nome': pessoa.nome,
+      'parentesco': pessoa.parentesco,
+    };
+    if (pessoa.apelido != null && pessoa.apelido!.isNotEmpty) {
+      data['sobrenome'] = pessoa.apelido;
+    }
+    if (pessoa.dataNascimento != null) {
+      data['data_nascimento'] =
+          '${pessoa.dataNascimento!.year}-${pessoa.dataNascimento!.month.toString().padLeft(2, '0')}-${pessoa.dataNascimento!.day.toString().padLeft(2, '0')}';
+    }
+
+    try {
+      if (isUpdate) {
+        await _supabase
+            .from('contatos')
+            .update(data)
+            .eq('id', pessoa.id);
+        print('[PessoaRepo] salvar() -> update concluido');
+      } else {
+        data['data_criacao'] = pessoa.createdAt.toIso8601String();
+        await _supabase.from('contatos').insert(data);
+        print('[PessoaRepo] salvar() -> insert concluido');
+      }
+    } catch (e) {
+      print('[PessoaRepo] salvar() ERRO: $e');
+    }
   }
 
   static Future<void> remover(int pessoaId) async {
-    final pessoas = await listar();
-    pessoas.removeWhere((p) => p.id == pessoaId);
-    await _persistir(pessoas);
+    if (!isConfigured) return;
+    try {
+      await _supabase.from('conteudo_permissoes').delete().eq('contato_id', pessoaId);
+      await _supabase
+          .from('contatos')
+          .delete()
+          .eq('id', pessoaId)
+          .eq('usuario_id', _usuarioId);
+    } catch (_) {
+      rethrow;
+    }
   }
 
-  static Future<void> _persistir(List<Pessoa> pessoas) async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = pessoas.map((p) => p.toMap()).toList();
-    await prefs.setString(_pessoasKey, jsonEncode(list));
+  static Future<void> limparVinculosMemoria(int memoriaId) async {
+    if (!isConfigured) return;
+    try {
+      await _supabase
+          .from('conteudo_permissoes')
+          .delete()
+          .eq('conteudo_id', memoriaId)
+          .eq('tipo_conteudo', 'memoria');
+    } catch (_) {}
   }
+
+  static Future<void> atualizarMemoria({
+    required int memoriaId,
+    required String titulo,
+    required String contexto,
+    required String categoria,
+    DateTime? dataEvento,
+    bool? isCompartilhada,
+  }) async {
+    if (!isConfigured) return;
+    final data = <String, dynamic>{
+      'titulo': titulo,
+      'conteudo': contexto,
+      'categoria': categoria,
+    };
+    if (dataEvento != null) {
+      data['data_evento'] =
+          '${dataEvento.year}-${dataEvento.month.toString().padLeft(2, '0')}-${dataEvento.day.toString().padLeft(2, '0')}';
+    }
+    if (isCompartilhada != null) {
+      data['visibilidade'] = isCompartilhada ? 'contatos' : 'privado';
+    }
+    await _supabase.from('memorias').update(data).eq('id', memoriaId);
+  }
+
+  static Future<String?> uploadFotoMemoria({
+    required int memoriaId,
+    required Uint8List bytes,
+    required String nomeArquivo,
+  }) async {
+    if (!isConfigured) return null;
+
+    final nomeSeguro = nomeArquivo.toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9._-]'), '_',
+    );
+    final caminho =
+        'usuario_$_usuarioId/app_mobile/${DateTime.now().millisecondsSinceEpoch}_$nomeSeguro';
+
+    await _supabase.storage.from('fotos').uploadBinary(
+          caminho,
+          bytes,
+          fileOptions: FileOptions(
+            contentType: nomeArquivo.endsWith('.png') ? 'image/png' : 'image/jpeg',
+            upsert: false,
+          ),
+        );
+
+    final publicUrl =
+        _supabase.storage.from('fotos').getPublicUrl(caminho);
+
+    final foto = await _supabase.from('fotos').insert({
+      'usuario_id': _usuarioId,
+      'titulo': 'Foto da memória',
+      'caminho_arquivo': publicUrl,
+    }).select('id').single();
+
+    final fotoId = (foto['id'] as num).toInt();
+
+    await _supabase.from('memoria_fotos').insert({
+      'memoria_id': memoriaId,
+      'foto_id': fotoId,
+    });
+
+    return publicUrl;
+  }
+
+  static Future<void> removerFotosDaMemoria(int memoriaId) async {
+    if (!isConfigured) return;
+    final vinculos = await _supabase
+        .from('memoria_fotos')
+        .select('foto_id')
+        .eq('memoria_id', memoriaId);
+    for (final v in vinculos) {
+      final fotoId = (v['foto_id'] as num).toInt();
+      await _supabase.from('memoria_fotos').delete().eq('foto_id', fotoId);
+      await _supabase.from('fotos').delete().eq('id', fotoId);
+    }
+  }
+
+  static Future<void> atualizarVisibilidadeMemoria(
+    int memoriaId,
+    bool isCompartilhada,
+  ) async {
+    if (!isConfigured) return;
+    await _supabase
+        .from('memorias')
+        .update({'visibilidade': isCompartilhada ? 'contatos' : 'privado'})
+        .eq('id', memoriaId);
+  }
+
+  // ── VÍNCULOS (Supabase conteudo_permissoes) ──
 
   static Future<Map<int, List<int>>> listarVinculos() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_vinculosKey);
-    if (raw == null || raw.isEmpty) return {};
+    if (!isConfigured) return {};
 
-    final map = jsonDecode(raw) as Map<String, dynamic>;
-    return map.map(
-      (key, value) => MapEntry(
-        int.parse(key),
-        (value as List<dynamic>).cast<int>(),
-      ),
-    );
+    try {
+      final rows = await _supabase
+          .from('conteudo_permissoes')
+          .select('conteudo_id, contato_id')
+          .eq('tipo_conteudo', 'memoria');
+      final map = <int, List<int>>{};
+      for (final r in rows) {
+        final memId = (r['conteudo_id'] as num).toInt();
+        final contatoId = (r['contato_id'] as num).toInt();
+        map.putIfAbsent(memId, () => []).add(contatoId);
+      }
+      return map;
+    } catch (_) {
+      return {};
+    }
   }
 
   static Future<void> salvarVinculo(int memoriaId, List<int> pessoaIds) async {
-    final vinculos = await listarVinculos();
-    if (pessoaIds.isEmpty) {
-      vinculos.remove(memoriaId);
-    } else {
-      vinculos[memoriaId] = pessoaIds;
+    if (!isConfigured) return;
+    await _supabase
+        .from('conteudo_permissoes')
+        .delete()
+        .eq('conteudo_id', memoriaId)
+        .eq('tipo_conteudo', 'memoria');
+    for (final contatoId in pessoaIds) {
+      await _supabase.from('conteudo_permissoes').insert({
+        'tipo_conteudo': 'memoria',
+        'conteudo_id': memoriaId,
+        'contato_id': contatoId,
+      });
     }
-    final prefs = await SharedPreferences.getInstance();
-    final map = vinculos.map((key, value) => MapEntry('$key', value));
-    await prefs.setString(_vinculosKey, jsonEncode(map));
   }
 
   static Future<List<int>> obterPessoasDaMemoria(int? memoriaId) async {
@@ -137,66 +302,48 @@ class PessoaRepository {
     return vinculos[memoriaId] ?? [];
   }
 
-  static Future<Map<int, List<int>>> listarCompartilhamentos() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_compartilhadasKey);
-    if (raw == null || raw.isEmpty) return {};
+  // ── COMPARTILHAMENTO = VÍNCULOS (mesma tabela conteudo_permissoes) ──
 
-    final map = jsonDecode(raw) as Map<String, dynamic>;
-    return map.map(
-      (key, value) => MapEntry(
-        int.parse(key),
-        (value as List<dynamic>).cast<int>(),
-      ),
-    );
-  }
-
-  static Future<void> salvarDataMemoria(int memoriaId, DateTime data) async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_datasMemoriasKey);
-    final map = raw != null && raw.isNotEmpty
-        ? jsonDecode(raw) as Map<String, dynamic>
-        : <String, dynamic>{};
-    map['$memoriaId'] = data.toIso8601String();
-    await prefs.setString(_datasMemoriasKey, jsonEncode(map));
-  }
-
-  static Future<Map<int, DateTime>> carregarDatasMemorias() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_datasMemoriasKey);
-    debugPrint('[PessoaRepository] carregarDatasMemorias: raw=${raw != null ? "${raw.length} chars" : "null"}');
-    if (raw == null || raw.isEmpty) return {};
-    final map = jsonDecode(raw) as Map<String, dynamic>;
-    final result = <int, DateTime>{};
-    for (final entry in map.entries) {
-      final dt = DateTime.tryParse(entry.value as String);
-      debugPrint('  -> memoria ${entry.key}: ${entry.value} -> $dt');
-      if (dt != null) result[int.parse(entry.key)] = dt;
-    }
-    debugPrint('[PessoaRepository] carregarDatasMemorias: ${result.length} datas carregadas, sobreescrevendo ${result.values.map((d) => d.year)}');
-    return result;
-  }
+  static Future<Map<int, List<int>>> listarCompartilhamentos() =>
+      listarVinculos();
 
   static Future<void> salvarCompartilhamento(
     int memoriaId,
     List<int> familiaresIds,
-  ) async {
-    final compartilhamentos = await listarCompartilhamentos();
-    if (familiaresIds.isEmpty) {
-      compartilhamentos.remove(memoriaId);
-    } else {
-      compartilhamentos[memoriaId] = familiaresIds;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    final map =
-        compartilhamentos.map((key, value) => MapEntry('$key', value));
-    await prefs.setString(_compartilhadasKey, jsonEncode(map));
+  ) =>
+      salvarVinculo(memoriaId, familiaresIds);
+
+  static Future<List<int>> obterFamiliaresDaMemoria(int? memoriaId) =>
+      obterPessoasDaMemoria(memoriaId);
+
+  // ── DATAS DE MEMÓRIA (Supabase memorias.data_evento) ──
+
+  static Future<void> salvarDataMemoria(int memoriaId, DateTime data) async {
+    if (!isConfigured) return;
+    final dateStr =
+        '${data.year}-${data.month.toString().padLeft(2, '0')}-${data.day.toString().padLeft(2, '0')}';
+    await _supabase
+        .from('memorias')
+        .update({'data_evento': dateStr})
+        .eq('id', memoriaId);
   }
 
-  static Future<List<int>> obterFamiliaresDaMemoria(int? memoriaId) async {
-    if (memoriaId == null) return [];
-    final compartilhamentos = await listarCompartilhamentos();
-    return compartilhamentos[memoriaId] ?? [];
+  static Future<Map<int, DateTime>> carregarDatasMemorias() async {
+    if (!isConfigured) return {};
+    try {
+      final rows = await _supabase
+          .from('memorias')
+          .select('id, data_evento')
+          .not('data_evento', 'is', null);
+      final result = <int, DateTime>{};
+      for (final r in rows) {
+        final dt = DateTime.tryParse('${r['data_evento']}');
+        if (dt != null) result[(r['id'] as num).toInt()] = dt;
+      }
+      return result;
+    } catch (_) {
+      return {};
+    }
   }
 }
 

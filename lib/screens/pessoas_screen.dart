@@ -8,10 +8,12 @@ import 'pessoa_detalhe_screen.dart';
 class PessoasScreen extends StatefulWidget {
   const PessoasScreen({
     required this.onAbrirMemoria,
+    this.titulosMemorias = const {},
     super.key,
   });
 
   final void Function(int memoriaId) onAbrirMemoria;
+  final Map<int, String> titulosMemorias;
 
   @override
   State<PessoasScreen> createState() => _PessoasScreenState();
@@ -19,23 +21,42 @@ class PessoasScreen extends StatefulWidget {
 
 class _PessoasScreenState extends State<PessoasScreen> {
   List<Pessoa> _pessoas = [];
+  Map<int, List<int>> _vinculos = {};
   bool _carregando = true;
 
   @override
   void initState() {
     super.initState();
+    print('[PessoasScreen] initState -> carregando');
     _carregar();
   }
 
   Future<void> _carregar() async {
-    final pessoas = await PessoaRepository.listar();
-    if (mounted) setState(() { _pessoas = pessoas; _carregando = false; });
+    print('[PessoasScreen] _carregar() iniciando');
+    try {
+      final pessoas = await PessoaRepository.listar();
+      final vinculos = await PessoaRepository.listarVinculos();
+      print(
+          '[PessoasScreen] _carregar() recebeu ${pessoas.length} pessoas. mounted=$mounted');
+      if (mounted) {
+        setState(() {
+          _pessoas = pessoas;
+          _vinculos = vinculos;
+          _carregando = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _carregando = false);
+    }
   }
 
   Future<void> _adicionarPessoa() async {
+    print('[PessoasScreen] _adicionarPessoa -> abrindo NovaPessoaScreen');
     final criada = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const NovaPessoaScreen()),
     );
+    print(
+        '[PessoasScreen] _adicionarPessoa -> retornou criada=$criada mounted=$mounted');
     if (criada == true && mounted) _carregar();
   }
 
@@ -45,22 +66,64 @@ class _PessoasScreenState extends State<PessoasScreen> {
         builder: (_) => PessoaDetalheScreen(
           pessoa: pessoa,
           onAbrirMemoria: widget.onAbrirMemoria,
+          titulosMemorias: widget.titulosMemorias,
         ),
       ),
     ).then((_) => _carregar());
   }
 
+  int _contarMemorias(int id) {
+    return _vinculos.entries.where((e) => e.value.contains(id)).length;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Pessoas')),
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Adicionar pessoa',
-        onPressed: _adicionarPessoa,
-        backgroundColor: AppColors.dourado,
-        foregroundColor: AppColors.roxo,
-        child: const Icon(Icons.add),
+      backgroundColor: AppColors.fundo,
+      appBar: AppBar(
+        title: Image.asset('assets/logo.png', height: 44),
+        centerTitle: false,
+        backgroundColor: AppColors.fundo,
+        elevation: 0,
+        actions: [
+          Container(
+            margin: const EdgeInsets.only(right: 20),
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0EAF5),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Icon(Icons.people_outline,
+                color: AppColors.roxo, size: 20),
+          ),
+        ],
       ),
+      bottomNavigationBar: _pessoas.isEmpty || _carregando
+          ? null
+          : Container(
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: AppColors.borda)),
+              ),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  child: FilledButton.icon(
+                    onPressed: _adicionarPessoa,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.roxo,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    icon: const Icon(Icons.person_add_outlined, size: 18),
+                    label: const Text('Adicionar pessoa'),
+                  ),
+                ),
+              ),
+            ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -69,17 +132,45 @@ class _PessoasScreenState extends State<PessoasScreen> {
                 ? const Center(child: CircularProgressIndicator())
                 : _pessoas.isEmpty
                     ? _EstadoVazio(onAdicionar: _adicionarPessoa)
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
-                        itemCount: _pessoas.length,
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+                        itemCount: _pessoas.length + 1,
+                        separatorBuilder: (context, index) => const SizedBox(height: 12),
                         itemBuilder: (context, index) {
-                          final pessoa = _pessoas[index];
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _PessoaCard(
-                              pessoa: pessoa,
-                              onTap: () => _abrirDetalhe(pessoa),
-                            ),
+                          if (index == 0) {
+                            return const Padding(
+                              padding: EdgeInsets.only(bottom: 12, left: 4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Pessoas importantes',
+                                    style: TextStyle(
+                                      color: AppColors.roxo,
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  SizedBox(height: 6),
+                                  Text(
+                                    'As pessoas que fazem parte da sua história.',
+                                    style: TextStyle(
+                                      color: AppColors.textoSuave,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          final pessoa = _pessoas[index - 1];
+                          final totalMemorias = _contarMemorias(pessoa.id);
+
+                          return _PessoaCard(
+                            pessoa: pessoa,
+                            totalMemorias: totalMemorias,
+                            onTap: () => _abrirDetalhe(pessoa),
                           );
                         },
                       ),
@@ -91,80 +182,115 @@ class _PessoasScreenState extends State<PessoasScreen> {
 }
 
 class _PessoaCard extends StatelessWidget {
-  const _PessoaCard({required this.pessoa, required this.onTap});
+  const _PessoaCard({
+    required this.pessoa,
+    required this.totalMemorias,
+    required this.onTap,
+  });
 
   final Pessoa pessoa;
+  final int totalMemorias;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.borda),
+        border: Border.all(color: const Color(0xFFEDE8DC)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x062B1747),
+            blurRadius: 10,
+            offset: Offset(0, 4),
           ),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: const Color(0xFFF0EAF5),
-                backgroundImage:
-                    pessoa.fotoBytes != null ? MemoryImage(pessoa.fotoBytes!) : null,
-                child: pessoa.fotoBytes == null
-                    ? const Icon(Icons.person, color: AppColors.roxo)
-                    : null,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      pessoa.nome,
-                      style: const TextStyle(
-                        color: AppColors.roxo,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    if (pessoa.apelido != null && pessoa.apelido!.isNotEmpty)
-                      Text(
-                        pessoa.apelido!,
-                        style: const TextStyle(
-                          color: Color(0xFF7A7280),
-                          fontSize: 13,
-                        ),
-                      ),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0x26D4A84F),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        pessoa.parentesco,
-                        style: const TextStyle(
-                          color: AppColors.dourado,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: const Color(0xFFF0EAF5),
+                  backgroundImage: pessoa.fotoBytes != null
+                      ? MemoryImage(pessoa.fotoBytes!)
+                      : null,
+                  child: pessoa.fotoBytes == null
+                      ? const Icon(Icons.person, color: AppColors.roxo, size: 26)
+                      : null,
                 ),
-              ),
-              const Icon(Icons.chevron_right, color: Color(0xFF9B949D)),
-            ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pessoa.nome,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          _ParentescoChip(parentesco: pessoa.parentesco),
+                          const SizedBox(width: 10),
+                          Icon(Icons.auto_stories_outlined,
+                              size: 13, color: Colors.grey.shade400),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$totalMemorias ${totalMemorias == 1 ? 'memória' : 'memórias'}',
+                            style: const TextStyle(
+                              color: Color(0xFF817987),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.grey.shade400),
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ParentescoChip extends StatelessWidget {
+  const _ParentescoChip({required this.parentesco});
+  final String parentesco;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0x26D4A84F),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        parentesco,
+        style: const TextStyle(
+          color: AppColors.dourado,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -183,14 +309,23 @@ class _EstadoVazio extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.people_outline, size: 58, color: AppColors.dourado),
+          Container(
+            width: 64,
+            height: 64,
+            decoration: const BoxDecoration(
+              color: Color(0x26D4A84F),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.people_outline,
+                size: 32, color: AppColors.dourado),
+          ),
           const SizedBox(height: 20),
           const Text(
             'As histórias ficam mais ricas quando sabemos quem fez parte delas.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: AppColors.roxo,
-              fontSize: 24,
+              fontSize: 22,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -199,12 +334,23 @@ class _EstadoVazio extends StatelessWidget {
             'Cadastre familiares e pessoas importantes para conectar '
             'memórias e preservar relações.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Color(0xFF746D78), fontSize: 15, height: 1.4),
+            style:
+                TextStyle(color: Color(0xFF746D78), fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: onAdicionar,
-            icon: const Icon(Icons.person_add_outlined),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.roxo,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 46),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            icon: const Icon(Icons.person_add_outlined, size: 18),
             label: const Text('Adicionar primeira pessoa'),
           ),
         ],
