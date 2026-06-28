@@ -30,6 +30,13 @@ workflows:
           keychain add-certificates
           xcode-project use-profiles --project ios/Runner.xcodeproj
 
+      - name: Fix iOS pods
+        script: |
+          cd ios
+          rm -rf Pods Podfile.lock
+          pod install
+          cd ..
+
       - name: Build IPA
         script: |
           flutter build ios --release --no-codesign \
