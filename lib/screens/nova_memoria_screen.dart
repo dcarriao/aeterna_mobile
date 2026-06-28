@@ -240,6 +240,8 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
         builder: (_) => CuradorScreen(
           titulo: _tituloController.text.trim(),
           contextoOriginal: contexto,
+          dataMemoria: _dataMemoria,
+          categoria: _categoria,
           pessoas: _pessoasSelecionadas
               .map((id) {
                 final p = _todasPessoas.firstWhere(

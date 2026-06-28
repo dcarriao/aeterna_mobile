@@ -26,45 +26,45 @@ class LegacyCuratorService {
   Future<List<String>?> gerarPerguntas(
     String contextoOriginal,
     String titulo,
-    List<Map<String, String>> pessoas,
-  ) async {
+    List<Map<String, String>> pessoas, {
+    DateTime? dataMemoria,
+    String? categoria,
+  }) async {
     if (!isConfigured) return null;
 
     final buffer = StringBuffer();
-    buffer.writeln('Memória: "$titulo"');
+    buffer.writeln('Título: "$titulo"');
     buffer.writeln();
-    buffer.writeln('Conteúdo:');
+    buffer.writeln('Memória inicial:');
     buffer.writeln(contextoOriginal);
     buffer.writeln();
 
+    if (categoria != null) {
+      buffer.writeln('Categoria selecionada pelo usuário: $categoria');
+    }
+
+    if (dataMemoria != null) {
+      final dataStr = '${dataMemoria.day.toString().padLeft(2, '0')}/${dataMemoria.month.toString().padLeft(2, '0')}/${dataMemoria.year}';
+      buffer.writeln('Data do evento já cadastrada: $dataStr');
+      buffer.writeln('RECO: NUNCA pergunte quando isso aconteceu ou a data do evento.');
+    }
+
     if (pessoas.isNotEmpty) {
-      buffer.writeln('Pessoas mencionadas:');
+      buffer.writeln('Participantes já cadastrados:');
       for (final p in pessoas) {
         buffer.writeln('- ${p["nome"]} (${p["parentesco"]})');
       }
       buffer.writeln();
+      buffer.writeln('RECO: NUNCA pergunte quem participou, quem estava presente ou os nomes dessas pessoas.');
     }
 
     buffer.writeln(
-      'Primeiro classifique esta memória em uma dessas categorias: '
-      'pessoa, evento_familiar, viagem, conquista, infância, trabalho, '
-      'amizade, relacionamento, aprendizado, reflexão, data_comemorativa, '
-      'lembrança_cotidiana. '
-      'Depois gere 3 a 5 perguntas adequadas à categoria. '
-      'Exemplos por categoria:'
-      '\n- evento_familiar: O que tornou esse momento especial? Quem estava presente? '
-      'Alguma conversa ficou marcada?'
-      '\n- viagem: Para onde foram? O que mais marcou? Houve algum imprevisto?'
-      '\n- conquista: Qual era o objetivo? Quanto tempo levou? Como se sentiu ao concluir?'
-      '\n- pessoa: Como essa pessoa fazia parte da sua vida? O que mais a caracterizava? '
-      'Existe algum ensinamento marcante?'
-      '\n- reflexão: O que motivou esse pensamento? Sua forma de pensar mudou?'
-      '\n- trabalho: Como conseguiu essa oportunidade? O que aprendeu? Quem te ajudou?'
-      '\n- aprendizado: O que aprendeu? Quem ensinou? Como aplica isso hoje?'
-      '\n- infância: Quantos anos você tinha? Onde aconteceu? Como se sentia naquela época?'
-      '\nNUNCA use perguntas de pessoa quando a memória for sobre um evento. '
-      'NUNCA repita perguntas já respondidas. '
-      'Responda apenas com as perguntas, uma por linha, sem numeração.',
+      'Gere de 3 a 5 perguntas curtas, profundas e extremamente contextualizadas '
+      'com os fatos fornecidos na memória inicial. '
+      'Seja um entrevistador sensível: foque em sentimentos, conversas que marcaram, '
+      'detalhes sensoriais (cheiro, clima, risadas) ou lições/conselhos deixados. '
+      'NUNCA pergunte o que já foi fornecido acima (data, local se houver, ou participantes). '
+      'Responda apenas com as perguntas, uma por linha, sem numeração ou marcadores.',
     );
 
     try {
@@ -268,18 +268,13 @@ class LegacyCuratorService {
   }
 
   static const _systemPrompt =
-      'Você é um Entrevistador de Memórias Familiares. '
-      'Seu objetivo é ajudar o usuário a registrar uma memória de forma natural, '
-      'fazendo perguntas adequadas ao contexto. '
-      'Primeiro classifique a memória (pessoa, evento_familiar, viagem, conquista, '
-      'infância, trabalho, amizade, relacionamento, aprendizado, reflexão, '
-      'data_comemorativa, lembrança_cotidiana). '
-      'Depois use perguntas da categoria correta. '
-      'NUNCA presuma que toda memória é sobre uma pessoa. '
-      'Se a memória for um evento (almoço, formatura, viagem), NÃO pergunte '
-      '"quem era essa pessoa" ou "o que aprendeu com ela". '
-      'Se a memória for sobre uma pessoa específica, use perguntas de pessoa. '
-      'NUNCA repita perguntas já respondidas. '
-      'Pare de perguntar quando houver informações suficientes. '
-      'Nunca aja como assistente. Nunca ensine. Apenas entreviste.';
+      'Você é a Curadora de Memórias da aEterna. '
+      'Seu papel é entrevistar o usuário sobre suas memórias mais valiosas '
+      'para transformá-las em um legado escrito rico e poético. '
+      'Sua postura é sensível, calorosa e compreensiva. '
+      'Gere perguntas curtas, poéticas e de profunda conexão emocional. '
+      'NUNCA aja como um assistente corporativo, chatbot ou robô. '
+      'NUNCA responda perguntas, ensine ou comente. Apenas faça as perguntas. '
+      'NUNCA pergunte coisas que o usuário já declarou explicitamente (como quem participou se os nomes já estão listados, ou quando aconteceu se a data já está definida). '
+      'Foque em extrair sentimentos, detalhes sensoriais, conselhos repetidos, traços de personalidade e o significado profundo desse instante para as próximas gerações.';
 }

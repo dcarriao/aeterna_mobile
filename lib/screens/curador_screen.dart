@@ -15,12 +15,16 @@ class CuradorScreen extends StatefulWidget {
     required this.titulo,
     required this.contextoOriginal,
     this.pessoas,
+    this.dataMemoria,
+    this.categoria,
     super.key,
   });
 
   final String titulo;
   final String contextoOriginal;
   final List<Map<String, String>>? pessoas;
+  final DateTime? dataMemoria;
+  final String? categoria;
 
   @override
   State<CuradorScreen> createState() => _CuradorScreenState();
@@ -55,6 +59,8 @@ class _CuradorScreenState extends State<CuradorScreen> {
         widget.contextoOriginal,
         widget.titulo,
         widget.pessoas ?? [],
+        dataMemoria: widget.dataMemoria,
+        categoria: widget.categoria,
       );
       if (perguntasIA != null && perguntasIA.isNotEmpty) {
         if (mounted) {
@@ -74,7 +80,11 @@ class _CuradorScreenState extends State<CuradorScreen> {
 
     if (mounted) {
       setState(() {
-        _perguntas = const MotorPerguntas().selecionar(widget.contextoOriginal);
+        _perguntas = const MotorPerguntas().selecionar(
+          widget.contextoOriginal,
+          temPessoas: widget.pessoas != null && widget.pessoas!.isNotEmpty,
+          temData: widget.dataMemoria != null,
+        );
         _carregandoPerguntas = false;
       });
     }

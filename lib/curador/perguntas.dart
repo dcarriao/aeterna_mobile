@@ -122,21 +122,37 @@ class MotorPerguntas {
     return null;
   }
 
-  List<PerguntaCurador> selecionar(String contexto) {
+  List<PerguntaCurador> selecionar(
+    String contexto, {
+    bool temPessoas = false,
+    bool temData = false,
+  }) {
     final categoria = _classificar(contexto);
 
     List<PerguntaCurador> selecionadas;
     switch (categoria) {
       case 'evento_familiar':
         selecionadas = [..._eventoFamiliar];
+        if (temPessoas) {
+          selecionadas.removeWhere((p) => p.texto.contains('Quem estava'));
+        }
+        if (temData) {
+          selecionadas.removeWhere((p) => p.texto.contains('Quando') || p.texto.contains('onde'));
+        }
       case 'viagem':
         selecionadas = [..._viagem];
       case 'conquista':
         selecionadas = [..._conquista];
+        if (temPessoas) {
+          selecionadas.removeWhere((p) => p.texto.contains('ao seu lado'));
+        }
       case 'pessoa':
         selecionadas = [..._pessoa];
       case 'infancia':
         selecionadas = [..._infancia];
+        if (temPessoas) {
+          selecionadas.removeWhere((p) => p.texto.contains('Quem fazia'));
+        }
       case 'trabalho':
         selecionadas = [..._trabalho];
       case 'reflexao':
@@ -145,12 +161,20 @@ class MotorPerguntas {
         selecionadas = [..._aprendizado];
       default:
         selecionadas = [
-          _factuais[2],
-          _factuais[0],
+          if (!temPessoas) _factuais[2],
+          if (!temData) _factuais[0],
           _emocionais[0],
           _emocionais[1],
           _emocionais[2],
         ];
+    }
+
+    // Filtros de segurança gerais
+    if (temPessoas) {
+      selecionadas.removeWhere((p) => p.texto.toLowerCase().contains('quem estava') || p.texto.toLowerCase().contains('quem participou'));
+    }
+    if (temData) {
+      selecionadas.removeWhere((p) => p.texto.toLowerCase().contains('quando isso aconteceu'));
     }
 
     if (selecionadas.length > 7) {
