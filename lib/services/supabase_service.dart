@@ -40,7 +40,7 @@ class SupabaseService {
 
     final memoriaRows = await _client
         .from('memorias')
-        .select('id, titulo, conteudo, categoria, data_criacao')
+        .select('id, titulo, conteudo, categoria, data_criacao, data_evento')
         .eq('usuario_id', usuarioId)
         .order('data_criacao', ascending: false);
 

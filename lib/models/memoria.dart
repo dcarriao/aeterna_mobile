@@ -32,15 +32,20 @@ class Memoria {
   final String? videoUrl;
 
   factory Memoria.fromMap(Map<String, dynamic> map, {String? fotoUrl}) {
+    final dataEventoStr = map['data_evento'] as String?;
+    final dataEvento = dataEventoStr != null ? DateTime.tryParse(dataEventoStr) : null;
+    final criadaEm = dataEvento ??
+        DateTime.tryParse(map['data_criacao'] as String? ?? '') ??
+        DateTime.now();
+
     return Memoria(
       id: map['id'] as int?,
       titulo: map['titulo'] as String? ?? '',
       contexto: map['conteudo'] as String? ?? '',
       categoria: map['categoria'] as String? ?? 'momentos',
-      criadaEm:
-          DateTime.tryParse(map['data_criacao'] as String? ?? '') ??
-          DateTime.now(),
+      criadaEm: criadaEm,
       fotoUrl: fotoUrl,
+      dataMemoria: dataEvento,
     );
   }
 }
