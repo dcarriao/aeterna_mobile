@@ -247,6 +247,98 @@ class PessoaRepository {
     }
   }
 
+  static Future<String?> uploadVideoMemoria({
+    required int memoriaId,
+    required Uint8List bytes,
+    required String nomeArquivo,
+  }) async {
+    if (!isConfigured) return null;
+
+    final nomeSeguro = nomeArquivo.toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9._-]'), '_',
+    );
+    final caminho =
+        'usuario_$_usuarioId/app_mobile/${DateTime.now().millisecondsSinceEpoch}_$nomeSeguro';
+
+    try {
+      await _supabase.storage.from('fotos').uploadBinary(
+            caminho,
+            bytes,
+            fileOptions: FileOptions(
+              contentType: 'video/mp4',
+              upsert: false,
+            ),
+          );
+
+      final publicUrl =
+          _supabase.storage.from('fotos').getPublicUrl(caminho);
+
+      final video = await _supabase.from('videos').insert({
+        'usuario_id': _usuarioId,
+        'titulo': 'Vídeo da memória',
+        'caminho_arquivo': publicUrl,
+      }).select('id').single();
+
+      final videoId = (video['id'] as num).toInt();
+
+      await _supabase.from('memoria_videos').insert({
+        'memoria_id': memoriaId,
+        'video_id': videoId,
+      });
+
+      return publicUrl;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> removerVideosDaMemoria(int memoriaId) async {
+    if (!isConfigured) return;
+    try {
+      final vinculos = await _supabase
+          .from('memoria_videos')
+          .select('video_id')
+          .eq('memoria_id', memoriaId);
+      for (final v in vinculos) {
+        final videoId = (v['video_id'] as num).toInt();
+        await _supabase.from('memoria_videos').delete().eq('video_id', videoId);
+        await _supabase.from('videos').delete().eq('id', videoId);
+      }
+    } catch (_) {}
+  }
+
+  static Future<void> excluirMemoriaCompleta(int memoriaId) async {
+    if (!isConfigured) return;
+    // 1. Remover fotos e mídias vinculadas
+    await removerFotosDaMemoria(memoriaId);
+    // 2. Remover vídeos vinculados
+    await removerVideosDaMemoria(memoriaId);
+    // 3. Limpar vínculos de contatos e compartilhamento
+    await limparVinculosMemoria(memoriaId);
+    // 4. Deletar o registro da memória em si
+    await _supabase.from('memorias').delete().eq('id', memoriaId);
+  }
+
+  static Future<String?> obterVideoDaMemoria(int? memoriaId) async {
+    if (!isConfigured || memoriaId == null) return null;
+    try {
+      final rows = await _supabase
+          .from('memoria_videos')
+          .select('video_id')
+          .eq('memoria_id', memoriaId);
+      if (rows.isEmpty) return null;
+      final videoId = (rows.first['video_id'] as num).toInt();
+      final videoRows = await _supabase
+          .from('videos')
+          .select('caminho_arquivo')
+          .eq('id', videoId);
+      if (videoRows.isEmpty) return null;
+      return videoRows.first['caminho_arquivo'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<void> atualizarVisibilidadeMemoria(
     int memoriaId,
     bool isCompartilhada,

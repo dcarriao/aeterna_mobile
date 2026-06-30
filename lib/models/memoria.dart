@@ -13,6 +13,8 @@ class Memoria {
     this.isCompartilhada = false,
     this.familiaresIds,
     this.dataMemoria,
+    this.video,
+    this.videoUrl,
   });
 
   final int? id;
@@ -26,6 +28,8 @@ class Memoria {
   final bool isCompartilhada;
   final List<int>? familiaresIds;
   final DateTime? dataMemoria;
+  final Uint8List? video;
+  final String? videoUrl;
 
   factory Memoria.fromMap(Map<String, dynamic> map, {String? fotoUrl}) {
     return Memoria(
@@ -52,6 +56,8 @@ class MemoriaRascunho {
     this.isCompartilhada = false,
     this.familiaresIds,
     this.dataMemoria,
+    this.video,
+    this.nomeVideo,
   });
 
   final String titulo;
@@ -63,4 +69,6 @@ class MemoriaRascunho {
   final bool isCompartilhada;
   final List<int>? familiaresIds;
   final DateTime? dataMemoria;
+  final Uint8List? video;
+  final String? nomeVideo;
 }

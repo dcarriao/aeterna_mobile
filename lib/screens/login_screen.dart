@@ -64,8 +64,6 @@ class _LoginScreenState extends State<LoginScreen> {
         await preferencias.remove(_emailKey);
       }
 
-      // TODO: autenticar com Supabase Auth e guardar tokens apenas em storage seguro.
-      // Nunca persistir a senha em texto puro.
       if (!mounted) return;
       widget.onEntrar();
     } catch (_) {
@@ -79,7 +77,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _mostrarBiometria() {
-    // TODO: integrar local_auth no Android/iOS com flutter_secure_storage.
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Biometria disponível no app mobile.')),
     );
@@ -88,23 +85,24 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.fundo,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 440),
               child: Container(
-                padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+                padding: const EdgeInsets.all(28),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.borda),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFEDE8DC)),
                   boxShadow: const [
                     BoxShadow(
-                      color: Color(0x172B1747),
-                      blurRadius: 28,
-                      offset: Offset(0, 14),
+                      color: Color(0x062B1747),
+                      blurRadius: 16,
+                      offset: Offset(0, 8),
                     ),
                   ],
                 ),
@@ -113,53 +111,44 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Align(
-                        alignment: Alignment.centerLeft,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.all_inclusive,
-                              color: AppColors.dourado,
-                              size: 31,
-                            ),
-                            SizedBox(width: 9),
-                            Text(
-                              'aEterna',
-                              style: TextStyle(
-                                color: AppColors.roxo,
-                                fontSize: 27,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
-                        ),
+                      Center(
+                        child: Image.asset('assets/logo.png', height: 80),
                       ),
-                      const SizedBox(height: 30),
+                      const SizedBox(height: 32),
                       const Text(
-                        'Bem-vindo à aEterna',
+                        'Bem-vindo de volta',
                         style: TextStyle(
                           color: AppColors.roxo,
-                          fontSize: 26,
+                          fontSize: 24,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(height: 7),
+                      const SizedBox(height: 6),
                       const Text(
-                        'Continue construindo sua história.',
+                        'Continue construindo o legado da sua família.',
                         style: TextStyle(
                           color: AppColors.textoSuave,
-                          fontSize: 15,
+                          fontSize: 14,
                         ),
                       ),
-                      const SizedBox(height: 26),
+                      const SizedBox(height: 28),
+
+                      // ── EMAIL ──
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 6, left: 4),
+                        style: TextStyle(
+                            color: AppColors.roxo,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700),
+                      ),
                       TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
                         autofillHints: const [AutofillHints.email],
                         decoration: const InputDecoration(
-                          labelText: 'E-mail',
-                          prefixIcon: Icon(Icons.mail_outline),
+                          hintText: 'Digite seu e-mail',
+                          prefixIcon: Icon(Icons.mail_outline,
+                              color: AppColors.dourado, size: 20),
                         ),
                         validator: (valor) {
                           final email = valor?.trim() ?? '';
@@ -169,14 +158,24 @@ class _LoginScreenState extends State<LoginScreen> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 18),
+
+                      // ── SENHA ──
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 6, left: 4),
+                        style: TextStyle(
+                            color: AppColors.roxo,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700),
+                      ),
                       TextFormField(
                         controller: _senhaController,
                         obscureText: _ocultarSenha,
                         autofillHints: const [AutofillHints.password],
                         decoration: InputDecoration(
-                          labelText: 'Senha',
-                          prefixIcon: const Icon(Icons.lock_outline),
+                          hintText: 'Digite sua senha',
+                          prefixIcon: const Icon(Icons.lock_outline,
+                              color: AppColors.dourado, size: 20),
                           suffixIcon: IconButton(
                             tooltip: _ocultarSenha
                                 ? 'Mostrar senha'
@@ -188,6 +187,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               _ocultarSenha
                                   ? Icons.visibility_outlined
                                   : Icons.visibility_off_outlined,
+                              color: Colors.grey.shade400,
                             ),
                           ),
                         ),
@@ -199,8 +199,16 @@ class _LoginScreenState extends State<LoginScreen> {
                         },
                       ),
                       const SizedBox(height: 6),
-                      Material(
-                        color: Colors.transparent,
+
+                      // ── LEMBRAR ME ──
+                      Theme(
+                        data: Theme.of(context).copyWith(
+                          checkboxTheme: CheckboxThemeData(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                        ),
                         child: CheckboxListTile(
                           value: _lembrarDados,
                           onChanged: (valor) {
@@ -208,27 +216,49 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                           contentPadding: EdgeInsets.zero,
                           dense: true,
+                          activeColor: AppColors.roxo,
                           controlAffinity: ListTileControlAffinity.leading,
-                          title: const Text('Lembrar meus dados'),
+                          title: const Text(
+                            'Lembrar meus dados',
+                            style: TextStyle(
+                                color: AppColors.roxo,
+                                fontWeight: FontWeight.w600),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 18),
+
+                      // ── BOTÃO ENTRAR ──
                       FilledButton(
                         onPressed: _entrando ? null : _entrar,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.roxo,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
                         child: _entrando
                             ? const SizedBox.square(
                                 dimension: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
+                                  color: Colors.white,
                                 ),
                               )
                             : const Text('Entrar'),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
+
                       TextButton.icon(
                         onPressed: _mostrarBiometria,
-                        icon: const Icon(Icons.fingerprint),
-                        label: const Text('Entrar com biometria'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.roxo,
+                        ),
+                        icon: const Icon(Icons.fingerprint, size: 20),
+                        label: const Text('Entrar com biometria',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
                       ),
                       const Divider(height: 28),
                       TextButton(
@@ -239,7 +269,11 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           );
                         },
-                        child: const Text('Ainda não tenho conta'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.roxo,
+                        ),
+                        child: const Text('Ainda não tenho conta',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
                       ),
                     ],
                   ),

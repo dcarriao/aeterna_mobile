@@ -25,6 +25,7 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
   late Memoria _memoria;
   List<Pessoa> _familiares = [];
   List<Pessoa> _participantes = [];
+  String? _videoUrl;
   bool _carregandoDados = true;
   late AnaliseLegado _analise;
 
@@ -53,10 +54,14 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
       final partIds = _memoria.pessoasIds ??
           await PessoaRepository.obterPessoasDaMemoria(_memoria.id);
 
+      final videoUrl = _memoria.videoUrl ??
+          await PessoaRepository.obterVideoDaMemoria(_memoria.id);
+
       if (mounted) {
         setState(() {
           _familiares = todasAsPessoas.where((p) => famIds.contains(p.id)).toList();
           _participantes = todasAsPessoas.where((p) => partIds.contains(p.id)).toList();
+          _videoUrl = videoUrl;
           _carregandoDados = false;
         });
       }
@@ -85,6 +90,45 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
     }
   }
 
+  Future<void> _excluirHistoria() async {
+    final m = _memoria;
+    if (m.id == null) return;
+
+    final confirmou = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir história', style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.w800)),
+        content: const Text('Tem certeza de que deseja excluir esta história do seu legado para sempre? Esta ação não pode ser desfeita.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar', style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.w700)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmou == true && mounted) {
+      setState(() => _carregandoDados = true);
+      try {
+        await PessoaRepository.excluirMemoriaCompleta(m.id!);
+        if (mounted) Navigator.of(context).pop('deletada');
+      } catch (_) {
+        if (mounted) {
+          setState(() => _carregandoDados = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Não foi possível excluir a história.')),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -98,6 +142,14 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(_memoria),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: AppColors.roxo),
+            tooltip: 'Excluir história',
+            onPressed: _carregandoDados ? null : _excluirHistoria,
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: SafeArea(
         child: Center(
@@ -226,6 +278,66 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                           ),
                         ),
                       ),
+
+                      // ── CARD VÍDEO (Se existir) ──
+                      if (_videoUrl != null) ...[
+                        const SizedBox(height: 16),
+                        _DetalheCard(
+                          icon: Icons.video_library_outlined,
+                          titulo: 'Vídeo da memória',
+                          color: AppColors.roxo,
+                          child: InkWell(
+                            onTap: () {
+                              showDialog<void>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Vídeo da memória', style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.w800)),
+                                  content: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Este vídeo está salvo com segurança no Supabase Storage do seu legado.', style: TextStyle(color: Color(0xFF625B67))),
+                                      const SizedBox(height: 12),
+                                      SelectableText(_videoUrl!, style: const TextStyle(color: AppColors.roxo, fontSize: 12, fontWeight: FontWeight.w600)),
+                                    ],
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(ctx).pop(),
+                                      child: const Text('Fechar', style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.w700)),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFBF4E8),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFFEDE8DC)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.play_circle_outline, size: 36, color: AppColors.dourado),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text('Assistir vídeo', style: TextStyle(color: AppColors.roxo, fontSize: 15, fontWeight: FontWeight.w800)),
+                                        const SizedBox(height: 2),
+                                        Text('Toque para ver a referência do vídeo salvo.', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(Icons.chevron_right, color: Colors.grey),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
 
                       // ── CARD 2: PARTICIPANTES ──
                       if (_participantes.isNotEmpty) ...[

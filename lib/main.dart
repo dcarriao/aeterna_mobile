@@ -132,7 +132,7 @@ class _AeternaAppState extends State<AeternaApp> {
   }
 
   Future<void> _abrirDetalhe(BuildContext context, Memoria memoria) async {
-    final atualizada = await Navigator.of(context).push<Memoria>(
+    final resultado = await Navigator.of(context).push<dynamic>(
       MaterialPageRoute(
         builder: (_) => MemoriaDetalheScreen(
           memoria: memoria,
@@ -140,11 +140,18 @@ class _AeternaAppState extends State<AeternaApp> {
       ),
     );
 
-    if (atualizada != null && context.mounted) {
+    if (resultado == 'deletada' && context.mounted) {
       setState(() {
-        final index = _memorias.indexWhere((m) => m.id == atualizada.id);
+        _memorias.removeWhere((m) => m.id == memoria.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('História excluída com sucesso.')),
+      );
+    } else if (resultado is Memoria && context.mounted) {
+      setState(() {
+        final index = _memorias.indexWhere((m) => m.id == resultado.id);
         if (index >= 0) {
-          _memorias[index] = atualizada;
+          _memorias[index] = resultado;
         }
       });
     }

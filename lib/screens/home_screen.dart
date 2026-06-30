@@ -84,24 +84,27 @@ class HomeScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Suas memórias',
-                            style: TextStyle(
-                                color: AppColors.roxo,
-                                fontSize: 26,
-                                fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 4),
-                        Text(
-                          memorias.isEmpty
-                              ? 'Nenhuma ainda'
-                              : '${memorias.length} ${memorias.length == 1 ? 'registro' : 'registros'}',
-                          style: const TextStyle(
-                              color: Color(0xFF9B949D), fontSize: 14),
-                        ),
-                      ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Suas memórias',
+                              style: TextStyle(
+                                  color: AppColors.roxo,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 4),
+                          Text(
+                            memorias.isEmpty
+                                ? 'Nenhuma ainda'
+                                : '${memorias.length} ${memorias.length == 1 ? 'registro' : 'registros'}',
+                            style: const TextStyle(
+                                color: Color(0xFF9B949D), fontSize: 14),
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     FilledButton.icon(
                       onPressed: onRegistrar,
                       style: FilledButton.styleFrom(

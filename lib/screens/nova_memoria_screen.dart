@@ -37,6 +37,12 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
   String? _nomeArquivo;
   String? _fotoUrlExistente;
   bool _fotoRemovida = false;
+
+  Uint8List? _videoBytes;
+  String? _nomeVideo;
+  String? _videoUrlExistente;
+  bool _videoRemovido = false;
+
   String _categoria = 'momentos';
   List<int> _pessoasSelecionadas = [];
   List<Pessoa> _todasPessoas = [];
@@ -70,6 +76,16 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       _familiaresSelecionados = List<int>.from(m.familiaresIds ?? []);
       _foto = m.foto;
       _fotoUrlExistente = m.fotoUrl;
+      _carregarVideoExistente(m.id!);
+    }
+  }
+
+  Future<void> _carregarVideoExistente(int memoriaId) async {
+    final url = await PessoaRepository.obterVideoDaMemoria(memoriaId);
+    if (mounted && url != null) {
+      setState(() {
+        _videoUrlExistente = url;
+      });
     }
   }
 
@@ -112,6 +128,29 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(mensagem)));
+    }
+  }
+
+  Future<void> _capturarVideo() async {
+    try {
+      final video = await _picker.pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: const Duration(minutes: 5),
+      );
+      if (video == null) return;
+
+      final bytes = await video.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _videoBytes = bytes;
+        _nomeVideo = video.name;
+        _videoRemovido = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível carregar o vídeo.')),
+      );
     }
   }
 
@@ -212,7 +251,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       builder: (ctx) {
         return _PessoaPickerSheet(
           selecionadas: selecionados,
-          titulo: 'Selecionar familiares',
+          titulo: 'Selecionar contatos',
         );
       },
     );
@@ -320,6 +359,19 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           );
         }
 
+        String? novoVideoUrl = m.videoUrl;
+        if (_videoRemovido) {
+          await PessoaRepository.removerVideosDaMemoria(m.id!);
+          novoVideoUrl = null;
+        } else if (_videoBytes != null) {
+          await PessoaRepository.removerVideosDaMemoria(m.id!);
+          novoVideoUrl = await PessoaRepository.uploadVideoMemoria(
+            memoriaId: m.id!,
+            bytes: _videoBytes!,
+            nomeArquivo: _nomeVideo ?? 'video.mp4',
+          );
+        }
+
         if (_dataMemoriaFoiAlterada && _dataMemoria != null) {
           await PessoaRepository.salvarDataMemoria(m.id!, _dataMemoria!);
         }
@@ -337,6 +389,8 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
             isCompartilhada: _isCompartilhada,
             familiaresIds: rascunho.familiaresIds,
             dataMemoria: _dataMemoria,
+            video: _videoBytes ?? (_videoRemovido ? null : m.video),
+            videoUrl: novoVideoUrl,
           );
           Navigator.of(context).pop(atualizada);
         }
@@ -358,6 +412,8 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
               ? null
               : List<int>.from(_familiaresSelecionados),
           dataMemoria: _dataMemoria,
+          video: _videoBytes,
+          nomeVideo: _nomeVideo,
         ),
       );
       if (_pessoasSelecionadas.isNotEmpty && memoria.id != null) {
@@ -381,7 +437,34 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       if (_dataMemoriaFoiAlterada && _dataMemoria != null && memoria.id != null) {
         await _salvarDataMemoria(memoria.id!, _dataMemoria!);
       }
-      if (mounted) Navigator.of(context).pop(memoria);
+
+      String? criadoVideoUrl;
+      if (_videoBytes != null && memoria.id != null) {
+        criadoVideoUrl = await PessoaRepository.uploadVideoMemoria(
+          memoriaId: memoria.id!,
+          bytes: _videoBytes!,
+          nomeArquivo: _nomeVideo ?? 'video.mp4',
+        );
+      }
+
+      if (mounted) {
+        final finalMemoria = Memoria(
+          titulo: memoria.titulo,
+          contexto: memoria.contexto,
+          categoria: memoria.categoria,
+          criadaEm: _dataMemoria ?? memoria.criadaEm, // Bug 5 Fix!
+          id: memoria.id,
+          foto: memoria.foto,
+          fotoUrl: memoria.fotoUrl,
+          pessoasIds: _pessoasSelecionadas.isEmpty ? null : _pessoasSelecionadas,
+          isCompartilhada: _isCompartilhada,
+          familiaresIds: _familiaresSelecionados.isEmpty ? null : _familiaresSelecionados,
+          dataMemoria: _dataMemoria,
+          video: _videoBytes,
+          videoUrl: criadoVideoUrl,
+        );
+        Navigator.of(context).pop(finalMemoria);
+      }
     } catch (erro) {
       if (!mounted) return;
       setState(() => _salvando = false);
@@ -504,6 +587,109 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     );
   }
 
+  Widget _buildVideoHero() {
+    final temVideo = _videoBytes != null || (_videoUrlExistente != null && !_videoRemovido);
+    return Center(
+      child: Container(
+        height: 140,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFEDE8DC)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x062B1747),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (temVideo)
+                Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.video_library_outlined, size: 40, color: AppColors.roxo),
+                      const SizedBox(height: 8),
+                      Text(
+                        _nomeVideo ?? 'Vídeo da memória',
+                        style: const TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (_videoUrlExistente != null && _videoBytes == null)
+                        const Text(
+                          'Vídeo salvo no Supabase',
+                          style: TextStyle(color: AppColors.textoSuave, fontSize: 11),
+                        ),
+                    ],
+                  ),
+                )
+              else
+                const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.video_call_outlined, size: 42, color: AppColors.dourado),
+                      SizedBox(height: 8),
+                      Text(
+                        'Adicione um vídeo',
+                        style: TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              // Botão de câmera/vídeo sobreposto no canto inferior direito
+              Positioned(
+                bottom: 12,
+                right: 12,
+                child: FloatingActionButton.small(
+                  heroTag: 'video_btn',
+                  onPressed: _salvando ? null : _capturarVideo,
+                  backgroundColor: AppColors.roxo,
+                  foregroundColor: Colors.white,
+                  child: const Icon(Icons.video_call_outlined, size: 18),
+                ),
+              ),
+              // Botão de remover vídeo se houver
+              if (temVideo)
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: CircleAvatar(
+                    backgroundColor: Colors.black.withValues(alpha: 0.5),
+                    radius: 18,
+                    child: IconButton(
+                      icon: const Icon(Icons.close, size: 16, color: Colors.white),
+                      onPressed: () {
+                        setState(() {
+                          _videoBytes = null;
+                          _nomeVideo = null;
+                          _videoRemovido = true;
+                        });
+                      },
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -525,6 +711,9 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
                 children: [
                   // ── HERO DE FOTO ──
                   _buildPhotoHero(),
+                  const SizedBox(height: 16),
+                  // ── HERO DE VÍDEO ──
+                  _buildVideoHero(),
                   const SizedBox(height: 24),
 
                   // ── CAMPO TÍTULO ──
