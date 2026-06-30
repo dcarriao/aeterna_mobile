@@ -1,4 +1,4 @@
-package com.example.aeterna_mobile
+package com.aeterna.app
 
 import io.flutter.embedding.android.FlutterActivity
 
