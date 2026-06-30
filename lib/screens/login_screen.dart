@@ -136,10 +136,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       // ── EMAIL ──
                       const Padding(
                         padding: EdgeInsets.only(bottom: 6, left: 4),
-                        style: TextStyle(
-                            color: AppColors.roxo,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700),
+                        child: Text(
+                          'E-mail',
+                          style: TextStyle(
+                              color: AppColors.roxo,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700),
+                        ),
                       ),
                       TextFormField(
                         controller: _emailController,
@@ -163,10 +166,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       // ── SENHA ──
                       const Padding(
                         padding: EdgeInsets.only(bottom: 6, left: 4),
-                        style: TextStyle(
-                            color: AppColors.roxo,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700),
+                        child: Text(
+                          'Senha',
+                          style: TextStyle(
+                              color: AppColors.roxo,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700),
+                        ),
                       ),
                       TextFormField(
                         controller: _senhaController,
