@@ -40,7 +40,8 @@ workflows:
       - name: Build IPA
         script: |
           flutter build ios --release --no-codesign \
-            --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
+            --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY \
+            --dart-define=OPENAI_API_KEY=$OPENAI_API_KEY
           xcode-project use-profiles --project ios/Runner.xcodeproj
           xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner
 
