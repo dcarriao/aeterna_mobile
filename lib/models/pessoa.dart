@@ -307,6 +307,56 @@ class PessoaRepository {
     } catch (_) {}
   }
 
+  // ── USUÁRIO (Supabase usuarios) ──
+
+  static Future<Map<String, dynamic>?> obterUsuario() async {
+    if (!isConfigured) return null;
+    try {
+      final rows = await _supabase
+          .from('usuarios')
+          .select('nome, sobrenome, email, telefone, data_nascimento, foto_perfil')
+          .eq('id', _usuarioId);
+      if (rows.isEmpty) return null;
+      return rows.first as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> salvarUsuario(Map<String, dynamic> data) async {
+    if (!isConfigured) return;
+    try {
+      await _supabase.from('usuarios').update(data).eq('id', _usuarioId);
+    } catch (_) {}
+  }
+
+  static Future<String?> uploadFotoPerfil(Uint8List bytes, String nomeArquivo) async {
+    if (!isConfigured) return null;
+
+    final nomeSeguro = nomeArquivo.toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9._-]'), '_',
+    );
+    final caminho =
+        'usuario_$_usuarioId/app_mobile/perfil_${DateTime.now().millisecondsSinceEpoch}_$nomeSeguro';
+
+    try {
+      await _supabase.storage.from('fotos').uploadBinary(
+            caminho,
+            bytes,
+            fileOptions: FileOptions(
+              contentType: nomeArquivo.endsWith('.png') ? 'image/png' : 'image/jpeg',
+              upsert: false,
+            ),
+          );
+
+      final publicUrl = _supabase.storage.from('fotos').getPublicUrl(caminho);
+      await salvarUsuario({'foto_perfil': publicUrl});
+      return publicUrl;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<void> excluirMemoriaCompleta(int memoriaId) async {
     if (!isConfigured) return;
     // 1. Remover fotos e mídias vinculadas

@@ -12,6 +12,7 @@ class HomeScreen extends StatelessWidget {
     required this.onPessoas,
     required this.onTimeline,
     required this.onCompartilhadas,
+    required this.onPerfil,
     this.memorias = const [],
     super.key,
   });
@@ -22,6 +23,7 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onPessoas;
   final VoidCallback onTimeline;
   final VoidCallback onCompartilhadas;
+  final VoidCallback onPerfil;
   final List<Memoria> memorias;
 
   @override
@@ -67,15 +69,18 @@ class HomeScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Image.asset('assets/logo.png', height: 72),
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0EAF5),
-                        borderRadius: BorderRadius.circular(20),
+                    GestureDetector(
+                      onTap: onPerfil,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0EAF5),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Icon(Icons.person_outline,
+                            color: AppColors.roxo, size: 20),
                       ),
-                      child: const Icon(Icons.person_outline,
-                          color: AppColors.roxo, size: 20),
                     ),
                   ],
                 ),

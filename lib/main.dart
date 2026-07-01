@@ -8,6 +8,7 @@ import 'screens/memoria_detalhe_screen.dart';
 import 'screens/minha_historia_screen.dart';
 import 'screens/nova_memoria_screen.dart';
 import 'screens/onboarding_screen.dart';
+import 'screens/perfil_screen.dart';
 import 'services/legacy_curator_service.dart';
 import 'screens/compartilhadas_screen.dart';
 import 'screens/pessoas_screen.dart';
@@ -201,6 +202,26 @@ class _AeternaAppState extends State<AeternaApp> {
     );
   }
 
+  void _abrirPerfil(BuildContext context) async {
+    final totalPessoas = (await PessoaRepository.listar()).length;
+    if (context.mounted) {
+      Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => PerfilScreen(
+            totalMemorias: _memorias.length,
+            totalPessoas: totalPessoas,
+            onLogout: () {
+              setState(() {
+                _entrou = false;
+              });
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            },
+          ),
+        ),
+      );
+    }
+  }
+
   void _abrirMinhaHistoria(BuildContext context) {
     Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -238,6 +259,7 @@ class _AeternaAppState extends State<AeternaApp> {
                     onPessoas: () => _abrirPessoas(context),
                     onTimeline: () => _abrirTimeline(context),
                     onCompartilhadas: () => _abrirCompartilhadas(context),
+                    onPerfil: () => _abrirPerfil(context),
                   ),
                 )
               : LoginScreen(onEntrar: () => setState(() => _entrou = true)),

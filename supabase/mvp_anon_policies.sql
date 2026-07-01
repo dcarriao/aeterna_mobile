@@ -167,3 +167,17 @@ on public.contatos
 for delete
 to anon
 using (usuario_id = 2);
+
+-- Usuários (Perfil)
+grant select, update on table public.usuarios to anon;
+alter table public.usuarios enable row level security;
+
+drop policy if exists "mvp anon select usuarios usuario 2" on public.usuarios;
+create policy "mvp anon select usuarios usuario 2"
+on public.usuarios for select to anon
+using (id = 2);
+
+drop policy if exists "mvp anon update usuarios usuario 2" on public.usuarios;
+create policy "mvp anon update usuarios usuario 2"
+on public.usuarios for update to anon
+using (id = 2);
