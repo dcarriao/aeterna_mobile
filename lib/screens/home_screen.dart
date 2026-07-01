@@ -13,6 +13,7 @@ class HomeScreen extends StatelessWidget {
     required this.onTimeline,
     required this.onCompartilhadas,
     required this.onPerfil,
+    this.fotoUrl,
     this.memorias = const [],
     super.key,
   });
@@ -24,6 +25,7 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onTimeline;
   final VoidCallback onCompartilhadas;
   final VoidCallback onPerfil;
+  final String? fotoUrl;
   final List<Memoria> memorias;
 
   @override
@@ -69,17 +71,29 @@ class HomeScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Image.asset('assets/logo.png', height: 72),
-                    GestureDetector(
-                      onTap: onPerfil,
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF0EAF5),
-                          borderRadius: BorderRadius.circular(20),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: onPerfil,
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0EAF5),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: AppColors.borda),
+                            image: fotoUrl != null && fotoUrl!.isNotEmpty
+                                ? DecorationImage(
+                                    image: NetworkImage(fotoUrl!),
+                                    fit: BoxFit.cover,
+                                  )
+                                : null,
+                          ),
+                          child: fotoUrl == null || fotoUrl!.isEmpty
+                              ? const Icon(Icons.person_outline,
+                                  color: AppColors.roxo, size: 20)
+                              : null,
                         ),
-                        child: const Icon(Icons.person_outline,
-                            color: AppColors.roxo, size: 20),
                       ),
                     ),
                   ],

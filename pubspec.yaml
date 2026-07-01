@@ -40,6 +40,7 @@ dependencies:
   supabase: ^2.13.0
   shared_preferences: ^2.5.5
   http: ^1.4.0
+  local_auth: ^2.2.0
 
 dev_dependencies:
   flutter_test:

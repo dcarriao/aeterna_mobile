@@ -16,6 +16,8 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>aEterna</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>aEterna precisa usar o Face ID para autenticar seu acesso com segurança.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>aEterna precisa acessar a câmera para registrar fotos das suas memórias.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

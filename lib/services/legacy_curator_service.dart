@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -255,6 +256,90 @@ class LegacyCuratorService {
       if (choices.isEmpty) return null;
 
       return choices[0]['message']['content'] as String;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, String>?> analisarMidia({
+    required Uint8List bytes,
+    required String nomeArquivo,
+    required bool isVideo,
+  }) async {
+    if (!isConfigured) return null;
+
+    try {
+      final String systemMessage =
+          'Você é a assistente de Inteligência de Mídia da aEterna. '
+          'Seu papel é analisar uma foto ou metadados de vídeo e sugerir metadados para uma nova memória. '
+          'Responda estritamente em formato JSON com chaves: '
+          '{"titulo": "título curto e poético", "descricao": "descrição curta de 1-2 parágrafos", "categoria": "categoria ideal (momentos, familia, viagens, aprendizados, tradicoes)"}';
+
+      dynamic contentPayload;
+
+      if (isVideo) {
+        contentPayload = 'Analise o nome deste arquivo de vídeo familiar: "$nomeArquivo". '
+            'Sugira um título poético, descrição acolhedora de 1 parágrafo e a melhor categoria '
+            '("momentos", "familia", "viagens", "aprendizados" ou "tradicoes") baseados nesse contexto.';
+      } else {
+        final base64Image = base64Encode(bytes);
+        contentPayload = [
+          {
+            'type': 'text',
+            'text':
+                'Analise esta foto de família e sugira: 1. Um título curto, caloroso e poético. '
+                '2. Uma descrição inicial de 1 a 2 parágrafos sobre a cena (seja natural, evite termos técnicos, foque na emoção). '
+                '3. A melhor categoria entre: momentos, familia, viagens, aprendizados, tradicoes.'
+          },
+          {
+            'type': 'image_url',
+            'image_url': {
+              'url': 'data:image/jpeg;base64,$base64Image',
+            }
+          }
+        ];
+      }
+
+      final response = await http
+          .post(
+            Uri.parse(_baseUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $_apiKey',
+            },
+            body: jsonEncode({
+              'model': _model,
+              'messages': [
+                {
+                  'role': 'system',
+                  'content': systemMessage,
+                },
+                {
+                  'role': 'user',
+                  'content': contentPayload,
+                },
+              ],
+              'temperature': 0.5,
+              'max_tokens': 400,
+              'response_format': {'type': 'json_object'},
+            }),
+          )
+          .timeout(const Duration(seconds: 25));
+
+      if (response.statusCode != 200) return null;
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final choices = data['choices'] as List<dynamic>;
+      if (choices.isEmpty) return null;
+
+      final textResult = choices[0]['message']['content'] as String;
+      final json = jsonDecode(textResult) as Map<String, dynamic>;
+
+      return {
+        'titulo': (json['titulo'] as String?) ?? 'Momento especial',
+        'descricao': (json['descricao'] as String?) ?? '',
+        'categoria': (json['categoria'] as String?) ?? 'momentos',
+      };
     } catch (_) {
       return null;
     }
