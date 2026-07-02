@@ -75,7 +75,9 @@ class PessoaRepository {
     defaultValue: 'https://zfpvfljmnlgsqiqdxmka.supabase.co',
   );
   static const _anonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
-  static const int _usuarioId = 2;
+  
+  // ID de usuário dinâmico para isolamento de dados
+  static int usuarioId = 2;
 
   static bool get isConfigured => _anonKey.isNotEmpty;
 
@@ -86,6 +88,20 @@ class PessoaRepository {
       throw Exception('SUPABASE_ANON_KEY não configurada.');
     }
     return _client ??= SupabaseClient(_url, _anonKey);
+  }
+
+  static Future<int?> obterUsuarioIdPorEmail(String email) async {
+    if (!isConfigured) return null;
+    try {
+      final rows = await _supabase
+          .from('usuarios')
+          .select('id')
+          .eq('email', email.trim().toLowerCase());
+      if (rows.isEmpty) return null;
+      return (rows.first['id'] as num).toInt();
+    } catch (_) {
+      return null;
+    }
   }
 
   // ── CONTATOS (Supabase) ──
@@ -115,7 +131,7 @@ class PessoaRepository {
 
     print('[PessoaRepo] salvar() isUpdate=$isUpdate nome=${pessoa.nome} id=${pessoa.id}');
     final data = <String, dynamic>{
-      'usuario_id': _usuarioId,
+      'usuario_id': usuarioId,
       'nome': pessoa.nome,
       'parentesco': pessoa.parentesco,
     };
@@ -152,7 +168,7 @@ class PessoaRepository {
           .from('contatos')
           .delete()
           .eq('id', pessoaId)
-          .eq('usuario_id', _usuarioId);
+          .eq('usuario_id', usuarioId);
     } catch (_) {
       rethrow;
     }
@@ -204,7 +220,7 @@ class PessoaRepository {
       RegExp(r'[^a-z0-9._-]'), '_',
     );
     final caminho =
-        'usuario_$_usuarioId/app_mobile/${DateTime.now().millisecondsSinceEpoch}_$nomeSeguro';
+        'usuario_$usuarioId/app_mobile/${DateTime.now().millisecondsSinceEpoch}_$nomeSeguro';
 
     await _supabase.storage.from('fotos').uploadBinary(
           caminho,
@@ -219,7 +235,7 @@ class PessoaRepository {
         _supabase.storage.from('fotos').getPublicUrl(caminho);
 
     final foto = await _supabase.from('fotos').insert({
-      'usuario_id': _usuarioId,
+      'usuario_id': usuarioId,
       'titulo': 'Foto da memória',
       'caminho_arquivo': publicUrl,
     }).select('id').single();
@@ -258,7 +274,7 @@ class PessoaRepository {
       RegExp(r'[^a-z0-9._-]'), '_',
     );
     final caminho =
-        'usuario_$_usuarioId/app_mobile/${DateTime.now().millisecondsSinceEpoch}_$nomeSeguro';
+        'usuario_$usuarioId/app_mobile/${DateTime.now().millisecondsSinceEpoch}_$nomeSeguro';
 
     try {
       await _supabase.storage.from('fotos').uploadBinary(
@@ -274,7 +290,7 @@ class PessoaRepository {
           _supabase.storage.from('fotos').getPublicUrl(caminho);
 
       final video = await _supabase.from('videos').insert({
-        'usuario_id': _usuarioId,
+        'usuario_id': usuarioId,
         'titulo': 'Vídeo da memória',
         'caminho_arquivo': publicUrl,
       }).select('id').single();
@@ -315,7 +331,7 @@ class PessoaRepository {
       final rows = await _supabase
           .from('usuarios')
           .select('nome, sobrenome, email, telefone, data_nascimento, foto_perfil')
-          .eq('id', _usuarioId);
+          .eq('id', usuarioId);
       if (rows.isEmpty) return null;
       return rows.first as Map<String, dynamic>;
     } catch (_) {
@@ -326,7 +342,7 @@ class PessoaRepository {
   static Future<void> salvarUsuario(Map<String, dynamic> data) async {
     if (!isConfigured) return;
     try {
-      await _supabase.from('usuarios').update(data).eq('id', _usuarioId);
+      await _supabase.from('usuarios').update(data).eq('id', usuarioId);
     } catch (_) {}
   }
 
@@ -337,7 +353,7 @@ class PessoaRepository {
       RegExp(r'[^a-z0-9._-]'), '_',
     );
     final caminho =
-        'usuario_$_usuarioId/app_mobile/perfil_${DateTime.now().millisecondsSinceEpoch}_$nomeSeguro';
+        'usuario_$usuarioId/app_mobile/perfil_${DateTime.now().millisecondsSinceEpoch}_$nomeSeguro';
 
     try {
       await _supabase.storage.from('fotos').uploadBinary(
@@ -367,6 +383,11 @@ class PessoaRepository {
     await limparVinculosMemoria(memoriaId);
     // 4. Deletar o registro da memória em si
     await _supabase.from('memorias').delete().eq('id', memoriaId);
+  }
+
+  static Future<void> recuperarSenha(String email) async {
+    if (!isConfigured) return;
+    await _supabase.auth.resetPasswordForEmail(email);
   }
 
   static Future<String?> obterVideoDaMemoria(int? memoriaId) async {

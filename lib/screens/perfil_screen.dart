@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
@@ -22,6 +24,8 @@ class PerfilScreen extends StatefulWidget {
 
 class _PerfilScreenState extends State<PerfilScreen> {
   final _picker = ImagePicker();
+  final LocalAuthentication _auth = LocalAuthentication();
+  static const _biometriaHabilitadaKey = 'biometria_habilitada';
 
   Map<String, dynamic> _usuario = {};
   bool _carregando = true;
@@ -35,6 +39,17 @@ class _PerfilScreenState extends State<PerfilScreen> {
   void initState() {
     super.initState();
     _carregarUsuario();
+    _carregarConfiguracaoBiometria();
+  }
+
+  Future<void> _carregarConfiguracaoBiometria() async {
+    final prefs = await SharedPreferences.getInstance();
+    final habilitada = prefs.getBool(_biometriaHabilitadaKey) ?? false;
+    if (mounted) {
+      setState(() {
+        _biometria = habilitada;
+      });
+    }
   }
 
   Future<void> _carregarUsuario() async {

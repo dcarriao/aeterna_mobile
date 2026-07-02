@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:supabase/supabase.dart';
 
 import '../models/memoria.dart';
+import '../models/memorial.dart';
+import '../models/contribuicao.dart';
 
 class SupabaseService {
   SupabaseService._();
@@ -16,8 +18,8 @@ class SupabaseService {
   static const _anonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
   static const _bucketFotos = 'fotos';
 
-  // TODO: trocar pelo ID do usuário autenticado via Supabase Auth.
-  static const int usuarioId = 2;
+  // ID de usuário dinâmico para isolamento de dados
+  static int usuarioId = 2;
 
   bool get isConfigured => _anonKey.isNotEmpty;
 
@@ -225,6 +227,151 @@ class SupabaseService {
       }
     } catch (_) {
       // Mantém o erro original; políticas RLS podem impedir a limpeza.
+    }
+  }
+
+  // ── MEMORIAIS (Supabase) ──
+
+  Future<List<Memorial>> listarMemoriais() async {
+    if (!isConfigured) return const [];
+    try {
+      final rows = await _client
+          .from('memoriais')
+          .select('id, nome, parentesco, data_nascimento, data_falecimento, biografia, foto_url, contato_id, usuario_id, created_at')
+          .eq('usuario_id', usuarioId)
+          .order('created_at', ascending: false);
+      return rows.map<Memorial>((row) => Memorial.fromMap(row)).toList();
+    } catch (e) {
+      print('Erro ao listar memoriais: $e');
+      return const [];
+    }
+  }
+
+  Future<Memorial> salvarMemorial(Memorial memorial) async {
+    if (!isConfigured) return memorial;
+    final agora = DateTime.now();
+    String? publicUrl = memorial.fotoUrl;
+
+    if (memorial.fotoBytes != null) {
+      final caminhoStorage = _criarCaminhoArquivo(
+        agora,
+        'memorial_${agora.millisecondsSinceEpoch}.jpg',
+      );
+      await _uploadFoto(
+        caminho: caminhoStorage,
+        bytes: memorial.fotoBytes!,
+        nomeArquivo: 'foto.jpg',
+      );
+      publicUrl = _client.storage
+          .from(_bucketFotos)
+          .getPublicUrl(caminhoStorage);
+    }
+
+    final data = memorial.toMap();
+    if (publicUrl != null) {
+      data['foto_url'] = publicUrl;
+    }
+
+    final row = await _client
+        .from('memoriais')
+        .insert(data)
+        .select('id, nome, parentesco, data_nascimento, data_falecimento, biografia, foto_url, contato_id, usuario_id, created_at')
+        .single();
+
+    return Memorial.fromMap(row);
+  }
+
+  Future<void> excluirMemorial(int id) async {
+    if (!isConfigured) return;
+    try {
+      await _client.from('contribuicoes').delete().eq('memorial_id', id);
+    } catch (_) {}
+    try {
+      await _client.from('memoriais').delete().eq('id', id);
+    } catch (_) {}
+  }
+
+  // ── CONTRIBUIÇÕES (Supabase) ──
+
+  Future<List<Contribuicao>> listarContribuicoes(int memorialId, {bool apenasAprovadas = false}) async {
+    if (!isConfigured) return const [];
+    try {
+      var query = _client
+          .from('contribuicoes')
+          .select('id, memorial_id, autor, relacao, conteudo, foto_url, video_url, aprovado, created_at')
+          .eq('memorial_id', memorialId);
+      
+      if (apenasAprovadas) {
+        query = query.eq('aprovado', true);
+      }
+      
+      final rows = await query.order('created_at', ascending: false);
+      return rows.map<Contribuicao>((row) => Contribuicao.fromMap(row)).toList();
+    } catch (e) {
+      print('Erro ao listar contribuicoes: $e');
+      return const [];
+    }
+  }
+
+  Future<Contribuicao> salvarContribuicao(Contribuicao contribuicao) async {
+    if (!isConfigured) return contribuicao;
+    final agora = DateTime.now();
+    String? fotoPublicUrl = contribuicao.fotoUrl;
+    String? videoPublicUrl = contribuicao.videoUrl;
+
+    if (contribuicao.fotoBytes != null) {
+      final caminhoStorage = _criarCaminhoArquivo(
+        agora,
+        'contrib_foto_${agora.millisecondsSinceEpoch}.jpg',
+      );
+      await _uploadFoto(
+        caminho: caminhoStorage,
+        bytes: contribuicao.fotoBytes!,
+        nomeArquivo: 'foto.jpg',
+      );
+      fotoPublicUrl = _client.storage
+          .from(_bucketFotos)
+          .getPublicUrl(caminhoStorage);
+    }
+
+    if (contribuicao.videoBytes != null) {
+      final caminhoStorage = _criarCaminhoArquivo(
+        agora,
+        'contrib_video_${agora.millisecondsSinceEpoch}.mp4',
+      );
+      await _client.storage.from(_bucketFotos).uploadBinary(
+        caminhoStorage,
+        contribuicao.videoBytes!,
+        fileOptions: const FileOptions(contentType: 'video/mp4'),
+      );
+      videoPublicUrl = _client.storage
+          .from(_bucketFotos)
+          .getPublicUrl(caminhoStorage);
+    }
+
+    final data = contribuicao.toMap();
+    if (fotoPublicUrl != null) data['foto_url'] = fotoPublicUrl;
+    if (videoPublicUrl != null) data['video_url'] = videoPublicUrl;
+
+    final row = await _client
+        .from('contribuicoes')
+        .insert(data)
+        .select('id, memorial_id, autor, relacao, conteudo, foto_url, video_url, aprovado, created_at')
+        .single();
+
+    return Contribuicao.fromMap(row);
+  }
+
+  Future<void> moderarContribuicao(int id, bool aprovado) async {
+    if (!isConfigured) return;
+    try {
+      if (aprovado) {
+        await _client.from('contribuicoes').update({'aprovado': true}).eq('id', id);
+      } else {
+        await _client.from('contribuicoes').delete().eq('id', id);
+      }
+    } catch (e) {
+      print('Erro ao moderar contribuicao: $e');
     }
   }
 }

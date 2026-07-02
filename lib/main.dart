@@ -13,6 +13,7 @@ import 'services/legacy_curator_service.dart';
 import 'screens/compartilhadas_screen.dart';
 import 'screens/pessoas_screen.dart';
 import 'screens/timeline_screen.dart';
+import 'screens/memoriais_screen.dart';
 import 'services/supabase_service.dart';
 import 'theme/app_theme.dart';
 
@@ -36,12 +37,23 @@ class _AeternaAppState extends State<AeternaApp> {
   bool _mostrarOnboarding = true;
   bool _entrou = false;
   bool _carregandoMemorias = false;
+  String? _usuarioFotoUrl;
 
   @override
   void initState() {
     super.initState();
     _verificarOnboarding();
     _carregarMemorias();
+    _carregarUsuario();
+  }
+
+  Future<void> _carregarUsuario() async {
+    final dados = await PessoaRepository.obterUsuario();
+    if (mounted && dados != null) {
+      setState(() {
+        _usuarioFotoUrl = dados['foto_perfil'] as String?;
+      });
+    }
   }
 
   Future<void> _verificarOnboarding() async {
@@ -182,6 +194,14 @@ class _AeternaAppState extends State<AeternaApp> {
     );
   }
 
+  void _abrirMemoriais(BuildContext context) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => const MemoriaisScreen(),
+      ),
+    );
+  }
+
   void _abrirPessoas(BuildContext context) {
     Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -205,7 +225,7 @@ class _AeternaAppState extends State<AeternaApp> {
   void _abrirPerfil(BuildContext context) async {
     final totalPessoas = (await PessoaRepository.listar()).length;
     if (context.mounted) {
-      Navigator.of(context).push<void>(
+      await Navigator.of(context).push<void>(
         MaterialPageRoute(
           builder: (_) => PerfilScreen(
             totalMemorias: _memorias.length,
@@ -213,12 +233,15 @@ class _AeternaAppState extends State<AeternaApp> {
             onLogout: () {
               setState(() {
                 _entrou = false;
+                _memorias.clear(); // Limpa cache local de memórias
+                _usuarioFotoUrl = null; // Limpa cache local da foto
               });
               Navigator.of(context).popUntil((route) => route.isFirst);
             },
           ),
         ),
       );
+      _carregarUsuario();
     }
   }
 
@@ -253,6 +276,7 @@ class _AeternaAppState extends State<AeternaApp> {
               ? Builder(
                   builder: (context) => HomeScreen(
                     memorias: _memorias,
+                    fotoUrl: _usuarioFotoUrl,
                     onRegistrar: () => _abrirNovaMemoria(context),
                     onMinhaHistoria: () => _abrirMinhaHistoria(context),
                     onAbrirMemoria: (memoria) => _abrirDetalhe(context, memoria),
@@ -260,6 +284,7 @@ class _AeternaAppState extends State<AeternaApp> {
                     onTimeline: () => _abrirTimeline(context),
                     onCompartilhadas: () => _abrirCompartilhadas(context),
                     onPerfil: () => _abrirPerfil(context),
+                    onMemoriais: () => _abrirMemoriais(context),
                   ),
                 )
               : LoginScreen(onEntrar: () => setState(() => _entrou = true)),

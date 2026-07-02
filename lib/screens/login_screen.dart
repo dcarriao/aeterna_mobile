@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/pessoa.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -15,19 +18,23 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   static const _emailKey = 'login_email';
   static const _lembrarKey = 'login_lembrar_email';
+  static const _biometriaHabilitadaKey = 'biometria_habilitada';
 
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _senhaController = TextEditingController();
+  final LocalAuthentication _auth = LocalAuthentication();
 
   bool _lembrarDados = false;
   bool _ocultarSenha = true;
   bool _entrando = false;
+  bool _podeUsarBiometria = false;
 
   @override
   void initState() {
     super.initState();
     _carregarPreferencias();
+    _verificarConfiguracaoBiometria();
   }
 
   @override
@@ -35,6 +42,23 @@ class _LoginScreenState extends State<LoginScreen> {
     _emailController.dispose();
     _senhaController.dispose();
     super.dispose();
+  }
+
+  Future<void> _verificarConfiguracaoBiometria() async {
+    try {
+      final canAuthenticateWithBiometrics = await _auth.canCheckBiometrics;
+      final canAuthenticate = canAuthenticateWithBiometrics || await _auth.isDeviceSupported();
+      if (!canAuthenticate) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      final habilitada = prefs.getBool(_biometriaHabilitadaKey) ?? false;
+
+      if (mounted) {
+        setState(() {
+          _podeUsarBiometria = habilitada;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _carregarPreferencias() async {
@@ -55,11 +79,27 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _entrando = true);
     try {
+      final email = _emailController.text.trim();
+      final uid = await PessoaRepository.obterUsuarioIdPorEmail(email);
+      if (uid == null) {
+        if (mounted) {
+          setState(() => _entrando = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('E-mail não cadastrado na plataforma.')),
+          );
+        }
+        return;
+      }
+
+      // Define a sessão dinâmica
+      PessoaRepository.usuarioId = uid;
+      SupabaseService.usuarioId = uid;
+
       final preferencias = await SharedPreferences.getInstance();
       await preferencias.setBool(_lembrarKey, _lembrarDados);
 
       if (_lembrarDados) {
-        await preferencias.setString(_emailKey, _emailController.text.trim());
+        await preferencias.setString(_emailKey, email);
       } else {
         await preferencias.remove(_emailKey);
       }
@@ -76,9 +116,102 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _mostrarBiometria() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Biometria disponível no app mobile.')),
+  Future<void> _autenticarComBiometria() async {
+    try {
+      final autenticado = await _auth.authenticate(
+        localizedReason: 'Acesse seu legado familiar na aEterna',
+        options: const AuthenticationOptions(
+          biometricOnly: true,
+          stickyAuth: true,
+        ),
+      );
+
+      if (autenticado && mounted) {
+        final email = _emailController.text.trim();
+        final uid = await PessoaRepository.obterUsuarioIdPorEmail(email);
+        if (uid != null) {
+          PessoaRepository.usuarioId = uid;
+          SupabaseService.usuarioId = uid;
+        }
+        widget.onEntrar();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Falha na biometria: $e')),
+        );
+      }
+    }
+  }
+
+  void _recuperarSenhaDialog() {
+    final controller = TextEditingController(text: _emailController.text);
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        bool enviando = false;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              title: const Text('Recuperar senha', style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.w800)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Digite seu e-mail cadastrado para receber um link de redefinição de senha.', style: TextStyle(color: Color(0xFF625B67), fontSize: 14)),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: controller,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: InputDecoration(
+                      labelText: 'E-mail',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancelar', style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.w700)),
+                ),
+                FilledButton(
+                  onPressed: enviando ? null : () async {
+                    final email = controller.text.trim();
+                    if (email.isEmpty || !email.contains('@')) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Por favor, insira um e-mail válido.')),
+                      );
+                      return;
+                    }
+                    setDialogState(() => enviando = true);
+                    try {
+                      await PessoaRepository.recuperarSenha(email);
+                      if (ctx.mounted) Navigator.of(ctx).pop();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Link de recuperação enviado com sucesso! Verifique seu e-mail.')),
+                        );
+                      }
+                    } catch (e) {
+                      setDialogState(() => enviando = false);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Erro ao enviar: $e')),
+                        );
+                      }
+                    }
+                  },
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.roxo),
+                  child: enviando
+                      ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Enviar'),
+                ),
+              ],
+            );
+          }
+        );
+      },
     );
   }
 
@@ -206,31 +339,59 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 6),
 
-                      // ── LEMBRAR ME ──
-                      Theme(
-                        data: Theme.of(context).copyWith(
-                          checkboxTheme: CheckboxThemeData(
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(4),
+                      // ── LEMBRAR ME & RECUPERAR SENHA ──
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Theme(
+                                data: Theme.of(context).copyWith(
+                                  checkboxTheme: CheckboxThemeData(
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                  ),
+                                ),
+                                child: SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: Checkbox(
+                                    value: _lembrarDados,
+                                    activeColor: AppColors.roxo,
+                                    onChanged: (valor) {
+                                      setState(() => _lembrarDados = valor ?? false);
+                                    },
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Lembrar meus dados',
+                                style: TextStyle(
+                                  color: AppColors.roxo,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: GestureDetector(
+                              onTap: _recuperarSenhaDialog,
+                              child: const Text(
+                                'Esqueceu a senha?',
+                                style: TextStyle(
+                                  color: AppColors.roxo,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                        child: CheckboxListTile(
-                          value: _lembrarDados,
-                          onChanged: (valor) {
-                            setState(() => _lembrarDados = valor ?? false);
-                          },
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                          activeColor: AppColors.roxo,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          title: const Text(
-                            'Lembrar meus dados',
-                            style: TextStyle(
-                                color: AppColors.roxo,
-                                fontWeight: FontWeight.w600),
-                          ),
-                        ),
+                        ],
                       ),
                       const SizedBox(height: 18),
 
@@ -255,17 +416,18 @@ class _LoginScreenState extends State<LoginScreen> {
                               )
                             : const Text('Entrar'),
                       ),
-                      const SizedBox(height: 12),
-
-                      TextButton.icon(
-                        onPressed: _mostrarBiometria,
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppColors.roxo,
+                      if (_podeUsarBiometria) ...[
+                        const SizedBox(height: 12),
+                        TextButton.icon(
+                          onPressed: _autenticarComBiometria,
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.roxo,
+                          ),
+                          icon: const Icon(Icons.fingerprint, size: 20),
+                          label: const Text('Entrar com biometria',
+                              style: TextStyle(fontWeight: FontWeight.w600)),
                         ),
-                        icon: const Icon(Icons.fingerprint, size: 20),
-                        label: const Text('Entrar com biometria',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
-                      ),
+                      ],
                       const Divider(height: 28),
                       TextButton(
                         onPressed: () {

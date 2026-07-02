@@ -13,6 +13,7 @@ class HomeScreen extends StatelessWidget {
     required this.onTimeline,
     required this.onCompartilhadas,
     required this.onPerfil,
+    required this.onMemoriais,
     this.fotoUrl,
     this.memorias = const [],
     super.key,
@@ -25,6 +26,7 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onTimeline;
   final VoidCallback onCompartilhadas;
   final VoidCallback onPerfil;
+  final VoidCallback onMemoriais;
   final String? fotoUrl;
   final List<Memoria> memorias;
 
@@ -51,6 +53,10 @@ class HomeScreen extends StatelessWidget {
                     icon: Icons.timeline_outlined,
                     label: 'Timeline',
                     onTap: onTimeline),
+                _NavItem(
+                    icon: Icons.favorite_outline,
+                    label: 'Memoriais',
+                    onTap: onMemoriais),
                 _NavItem(
                     icon: Icons.share_outlined,
                     label: 'Compartilhadas',
