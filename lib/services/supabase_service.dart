@@ -33,6 +33,13 @@ class SupabaseService {
   }
 
   static Future<void> initialize() async {
+    final anonMasked = _anonKey.length > 8 ? '${_anonKey.substring(0, 8)}...' : '(vazio)';
+    print('[Supabase] Inicializando SupabaseService...');
+    print('[Supabase] URL: $_url');
+    print('[Supabase] ANON_KEY: $anonMasked');
+    if (!instance.isConfigured) {
+      print('[Supabase] ALERTA: SUPABASE_ANON_KEY está vazia! O app funcionará em modo offline.');
+    }
     if (!instance.isConfigured) return;
     instance._supabaseClient = SupabaseClient(_url, _anonKey);
   }

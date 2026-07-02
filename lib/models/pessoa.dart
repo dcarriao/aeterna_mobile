@@ -92,7 +92,13 @@ class PessoaRepository {
   }
 
   static Future<int?> obterUsuarioIdPorEmail(String email) async {
-    if (!isConfigured) return null;
+    final anonMasked = _anonKey.length > 8 ? '${_anonKey.substring(0, 8)}...' : '(vazio)';
+    print('[PessoaRepo] obterUsuarioIdPorEmail: email=$email');
+    print('[PessoaRepo] SUPABASE_ANON_KEY: $anonMasked');
+    if (!isConfigured) {
+      print('[PessoaRepo] ALERTA: SUPABASE_ANON_KEY está vazia! Não é possível conectar ao Supabase.');
+      return null;
+    }
     try {
       final rows = await _supabase
           .from('usuarios')
