@@ -16,6 +16,7 @@ workflows:
           - apple_distribution
         provisioning_profiles:
           - appstore_profile
+          - aeterna_share_extension_appstore
       groups:
         - aeterna
 
