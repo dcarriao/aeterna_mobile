@@ -22,7 +22,6 @@ share_ext_group.set_path('ShareExtension')
 swift_file = share_ext_group.new_file('ShareViewController.swift')
 plist_file = share_ext_group.new_file('Info.plist')
 
-extension_target.add_resources([plist_file])
 extension_target.source_build_phase.add_file_reference(swift_file)
 
 # 3. Configure build settings
