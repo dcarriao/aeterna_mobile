@@ -27,12 +27,16 @@ extension_target.source_build_phase.add_file_reference(swift_file)
 
 # 3. Configure build settings
 extension_target.build_configurations.each do |config|
+  config.build_settings['PRODUCT_NAME'] = 'ShareExtension'
   config.build_settings['INFOPLIST_FILE'] = 'ShareExtension/Info.plist'
-  config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'com.aeterna.app.ShareExtension'
+  config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'br.com.aeternalegado.app.ShareExtension'
   config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
   config.build_settings['TARGETED_DEVICE_FAMILY'] = '1,2'
   config.build_settings['SWIFT_VERSION'] = '5.0'
   config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = '$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks'
+  config.build_settings['DEVELOPMENT_TEAM'] = 'R2KU8Q68QG'
+  config.build_settings['CODE_SIGN_IDENTITY'] = 'Apple Distribution'
+  config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
 end
 
 # 4. Embed in main app's build phase
