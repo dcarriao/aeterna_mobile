@@ -55,8 +55,8 @@ if main_target
   build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
 
   # 5. Reorder build phases to avoid dependency cycles (Embed App Extensions before Thin Binary)
-  embed_phase = main_target.build_phases.find { |p| p.name == 'Embed App Extensions' }
-  thin_phase = main_target.build_phases.find { |p| p.name == 'Thin Binary' || (p.respond_to?(:shell_script) && p.shell_script&.include?('thin')) }
+  embed_phase = main_target.build_phases.find { |p| p.respond_to?(:name) && p.name == 'Embed App Extensions' }
+  thin_phase = main_target.build_phases.find { |p| p.respond_to?(:name) && p.name == 'Thin Binary' || (p.respond_to?(:shell_script) && p.shell_script&.include?('thin')) }
   if embed_phase && thin_phase
     main_target.build_phases.delete(embed_phase)
     thin_index = main_target.build_phases.index(thin_phase)
