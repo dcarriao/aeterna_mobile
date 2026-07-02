@@ -41,7 +41,7 @@ if main_target
   embed_extensions_phase = main_target.copy_files_build_phases.find { |p| p.name == 'Embed App Extensions' }
   unless embed_extensions_phase
     embed_extensions_phase = main_target.new_copy_files_build_phase('Embed App Extensions')
-    embed_extensions_phase.symbol_dst_subfolderSpec = :plug_ins
+    embed_extensions_phase.symbol_dst_subfolder_spec = :plug_ins
   end
   
   # Link target build dependency
