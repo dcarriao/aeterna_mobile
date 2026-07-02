@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:supabase/supabase.dart';
 
 class Pessoa {
@@ -99,6 +100,35 @@ class PessoaRepository {
           .eq('email', email.trim().toLowerCase());
       if (rows.isEmpty) return null;
       return (rows.first['id'] as num).toInt();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<int?> autenticarUsuario(String email, String senha) async {
+    if (!isConfigured) return null;
+    try {
+      final rows = await _supabase
+          .from('usuarios')
+          .select('id, senha_hash, salt')
+          .eq('email', email.trim().toLowerCase());
+      if (rows.isEmpty) return null;
+
+      final user = rows.first;
+      final uid = (user['id'] as num).toInt();
+      final hashDb = user['senha_hash'] as String?;
+      final salt = user['salt'] as String?;
+
+      if (hashDb == null || salt == null) return null;
+
+      // Calcular hash SHA-256 de (senha + salt)
+      final bytes = utf8.encode(senha + salt);
+      final hashCalculado = sha256.convert(bytes).toString();
+
+      if (hashCalculado == hashDb) {
+        return uid;
+      }
+      return null;
     } catch (_) {
       return null;
     }

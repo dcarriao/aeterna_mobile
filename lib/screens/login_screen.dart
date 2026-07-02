@@ -80,12 +80,13 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _entrando = true);
     try {
       final email = _emailController.text.trim();
-      final uid = await PessoaRepository.obterUsuarioIdPorEmail(email);
+      final senha = _senhaController.text;
+      final uid = await PessoaRepository.autenticarUsuario(email, senha);
       if (uid == null) {
         if (mounted) {
           setState(() => _entrando = false);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('E-mail não cadastrado na plataforma.')),
+            const SnackBar(content: Text('E-mail ou senha incorretos.')),
           );
         }
         return;
