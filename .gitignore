@@ -47,6 +47,11 @@ app.*.map.json
 # API keys
 openia.txt
 
+# Android signing keys
+*.jks
+*.keystore
+/android/keystore.properties
+
 # Prompt files
 novoprompt.txt
 promptfinal1706.txt
