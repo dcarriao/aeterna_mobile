@@ -150,6 +150,7 @@ class PessoaRepository {
       final rows = await _supabase
           .from('contatos')
           .select('id, nome, sobrenome, parentesco, data_nascimento, foto_perfil, data_criacao')
+          .eq('usuario_id', usuarioId)
           .order('nome');
       print('[PessoaRepo] listar() -> ${rows.length} contatos recebidos');
       for (final r in rows) {
