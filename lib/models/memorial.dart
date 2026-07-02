@@ -35,10 +35,10 @@ class Memorial {
       dataNascimento: DateTime.tryParse(map['data_nascimento'] as String? ?? '') ?? DateTime.now(),
       dataFalecimento: DateTime.tryParse(map['data_falecimento'] as String? ?? '') ?? DateTime.now(),
       biografia: map['biografia'] as String? ?? '',
-      fotoUrl: map['foto_url'] as String?,
+      fotoUrl: map['foto_perfil'] as String?,
       contatoId: map['contato_id'] as int?,
       usuarioId: (map['usuario_id'] as num? ?? 0).toInt(),
-      createdAt: DateTime.tryParse(map['created_at'] as String? ?? '') ?? DateTime.now(),
+      createdAt: DateTime.tryParse(map['criado_em'] as String? ?? '') ?? DateTime.now(),
     );
   }
 
@@ -49,10 +49,10 @@ class Memorial {
       'data_nascimento': '${dataNascimento.year}-${dataNascimento.month.toString().padLeft(2, '0')}-${dataNascimento.day.toString().padLeft(2, '0')}',
       'data_falecimento': '${dataFalecimento.year}-${dataFalecimento.month.toString().padLeft(2, '0')}-${dataFalecimento.day.toString().padLeft(2, '0')}',
       'biografia': biografia,
-      if (fotoUrl != null) 'foto_url': fotoUrl,
+      if (fotoUrl != null) 'foto_perfil': fotoUrl,
       if (contatoId != null) 'contato_id': contatoId,
       'usuario_id': usuarioId,
-      'created_at': createdAt.toIso8601String(),
+      'criado_em': createdAt.toIso8601String(),
     };
   }
 }
