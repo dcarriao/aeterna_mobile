@@ -242,9 +242,9 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
                                       if (pessoa != null) {
                                         setState(() {
                                           _pessoaSelecionada = pessoa;
-                                          _nomeController.text = p.nome;
-                                          _parentescoController.text = p.parentesco;
-                                          _dataNascimento = p.dataNascimento;
+                                          _nomeController.text = pessoa.nome;
+                                          _parentescoController.text = pessoa.parentesco;
+                                          _dataNascimento = pessoa.dataNascimento;
                                         });
                                       }
                                     },

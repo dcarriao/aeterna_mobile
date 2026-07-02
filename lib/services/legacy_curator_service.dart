@@ -345,6 +345,84 @@ class LegacyCuratorService {
     }
   }
 
+  Future<String?> responderComoCurador({
+    required String nome,
+    required String parentesco,
+    required String biografia,
+    required List<String> memoriasEContribuicoes,
+    required List<Map<String, String>> historicoConversa,
+  }) async {
+    if (!isConfigured) {
+      return "Olá, sou o curador de memórias de $nome. (Chave OpenAI não configurada. Ative as chaves para conversar com a IA!)";
+    }
+
+    final buffer = StringBuffer();
+    buffer.writeln('Você é o Curador de Memórias e Guardião do Legado de $nome ($parentesco).');
+    buffer.writeln('Seu papel é conversar de forma acolhedora, sensível, empática e respeitosa com familiares, amigos ou visitantes.');
+    buffer.writeln('Responda sempre na primeira pessoa do Curador ("Eu sou o curador de..."). Nunca finja ser a pessoa falecida diretamente, mas fale sobre ela com imenso carinho e profundo conhecimento de sua vida.');
+    buffer.writeln();
+    buffer.writeln('Biografia de $nome:');
+    buffer.writeln(biografia);
+    buffer.writeln();
+    
+    if (memoriasEContribuicoes.isNotEmpty) {
+      buffer.writeln('Recordações e histórias compartilhadas sobre $nome:');
+      for (final story in memoriasEContribuicoes) {
+        buffer.writeln('- $story');
+      }
+      buffer.writeln();
+    }
+    
+    buffer.writeln('REGRAS DE CONDUTA:');
+    buffer.writeln('1. NUNCA invente fatos, datas ou relacionamentos que não constem na biografia ou nas recordações fornecidas.');
+    buffer.writeln('2. Caso lhe perguntem algo não documentado, responda com sensibilidade: "Infelizmente não temos essa recordação guardada, mas adoraria ouvir se você tiver essa lembrança para registrar."');
+    buffer.writeln('3. Mantenha as respostas curtas (máximo 2 parágrafos), calorosas e humanizadas.');
+
+    final messages = <Map<String, dynamic>>[
+      {
+        'role': 'system',
+        'content': buffer.toString(),
+      },
+    ];
+
+    for (final msg in historicoConversa) {
+      messages.add({
+        'role': msg['role']!,
+        'content': msg['content']!,
+      });
+    }
+
+    try {
+      final response = await http
+          .post(
+            Uri.parse(_baseUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $_apiKey',
+            },
+            body: jsonEncode({
+              'model': _model,
+              'messages': messages,
+              'temperature': 0.7,
+              'max_tokens': 400,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode != 200) {
+        return "Desculpe, tive um contratempo temporário para acessar a memória de $nome. Por favor, tente novamente.";
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final choices = data['choices'] as List<dynamic>;
+      if (choices.isEmpty) return null;
+
+      return choices[0]['message']['content'] as String;
+    } catch (e) {
+      return "Ocorreu um erro de conexão com o curador: $e";
+    }
+  }
+
   List<String> _parseToStringList(dynamic value) {
     if (value is List) {
       return value.map((e) => e.toString()).toList();
