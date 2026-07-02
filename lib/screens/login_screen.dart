@@ -340,58 +340,63 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 6),
 
                       // ── LEMBRAR ME & RECUPERAR SENHA ──
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Theme(
-                                data: Theme.of(context).copyWith(
-                                  checkboxTheme: CheckboxThemeData(
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(4),
+                      SizedBox(
+                        width: double.infinity,
+                        child: Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          runSpacing: 8,
+                          children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Theme(
+                                  data: Theme.of(context).copyWith(
+                                    checkboxTheme: CheckboxThemeData(
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                    ),
+                                  ),
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: Checkbox(
+                                      value: _lembrarDados,
+                                      activeColor: AppColors.roxo,
+                                      onChanged: (valor) {
+                                        setState(() => _lembrarDados = valor ?? false);
+                                      },
                                     ),
                                   ),
                                 ),
-                                child: SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: Checkbox(
-                                    value: _lembrarDados,
-                                    activeColor: AppColors.roxo,
-                                    onChanged: (valor) {
-                                      setState(() => _lembrarDados = valor ?? false);
-                                    },
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Lembrar meus dados',
+                                  style: TextStyle(
+                                    color: AppColors.roxo,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            MouseRegion(
+                              cursor: SystemMouseCursors.click,
+                              child: GestureDetector(
+                                onTap: _recuperarSenhaDialog,
+                                child: const Text(
+                                  'Esqueceu a senha?',
+                                  style: TextStyle(
+                                    color: AppColors.roxo,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Lembrar meus dados',
-                                style: TextStyle(
-                                  color: AppColors.roxo,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                          MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            child: GestureDetector(
-                              onTap: _recuperarSenhaDialog,
-                              child: const Text(
-                                'Esqueceu a senha?',
-                                style: TextStyle(
-                                  color: AppColors.roxo,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 18),
 

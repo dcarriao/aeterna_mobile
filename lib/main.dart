@@ -262,6 +262,14 @@ class _AeternaAppState extends State<AeternaApp> {
     );
   }
 
+  void _efetuarLogin() {
+    setState(() {
+      _entrou = true;
+    });
+    _carregarUsuario();
+    _carregarMemorias();
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -287,7 +295,7 @@ class _AeternaAppState extends State<AeternaApp> {
                     onMemoriais: () => _abrirMemoriais(context),
                   ),
                 )
-              : LoginScreen(onEntrar: () => setState(() => _entrou = true)),
+              : LoginScreen(onEntrar: _efetuarLogin),
     );
   }
 }

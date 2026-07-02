@@ -398,7 +398,11 @@ class _PerfilScreenState extends State<PerfilScreen> {
                     ),
                     SwitchListTile(
                       value: _biometria,
-                      onChanged: (val) => setState(() => _biometria = val),
+                      onChanged: (val) async {
+                        setState(() => _biometria = val);
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setBool(_biometriaHabilitadaKey, val);
+                      },
                       activeThumbColor: AppColors.roxo,
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Entrar com Biometria', style: TextStyle(color: AppColors.roxo, fontSize: 14, fontWeight: FontWeight.w600)),
