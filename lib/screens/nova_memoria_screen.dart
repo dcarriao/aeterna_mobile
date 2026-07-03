@@ -318,6 +318,8 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           isProativo: isProativo,
           proativoMediaBytes: _foto ?? _videoBytes,
           proativoMediaIsVideo: _videoBytes != null,
+          proativoFotosCount: widget.sugestaoGrupo?.totalFotos ?? 0,
+          proativoVideosCount: widget.sugestaoGrupo?.totalVideos ?? 0,
           pessoas: _pessoasSelecionadas
               .map((id) {
                 final p = _todasPessoas.firstWhere(

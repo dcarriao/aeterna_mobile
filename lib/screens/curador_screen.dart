@@ -21,6 +21,8 @@ class CuradorScreen extends StatefulWidget {
     this.isProativo = false,
     this.proativoMediaBytes,
     this.proativoMediaIsVideo = false,
+    this.proativoFotosCount = 0,
+    this.proativoVideosCount = 0,
     super.key,
   });
 
@@ -32,6 +34,8 @@ class CuradorScreen extends StatefulWidget {
   final bool isProativo;
   final Uint8List? proativoMediaBytes;
   final bool proativoMediaIsVideo;
+  final int proativoFotosCount;
+  final int proativoVideosCount;
 
   @override
   State<CuradorScreen> createState() => _CuradorScreenState();
@@ -61,6 +65,36 @@ class _CuradorScreenState extends State<CuradorScreen> {
 
   Future<void> _carregarPerguntas() async {
     if (widget.isProativo) {
+      if (LegacyCuratorService.instance.isConfigured) {
+        final dataStr = widget.dataMemoria != null
+            ? '${widget.dataMemoria!.year}-${widget.dataMemoria!.month.toString().padLeft(2, '0')}-${widget.dataMemoria!.day.toString().padLeft(2, '0')}'
+            : 'hoje';
+        final horaStr = widget.dataMemoria != null
+            ? '${widget.dataMemoria!.hour.toString().padLeft(2, '0')}:${widget.dataMemoria!.minute.toString().padLeft(2, '0')}'
+            : 'agora';
+            
+        final perguntasIA = await LegacyCuratorService.instance.gerarPerguntasContextuais(
+          tipo: widget.proativoMediaIsVideo ? 'video' : 'foto',
+          data: dataStr,
+          hora: horaStr,
+          quantidadeFotos: widget.proativoFotosCount,
+          quantidadeVideos: widget.proativoVideosCount,
+        );
+        
+        if (perguntasIA != null && perguntasIA.isNotEmpty && mounted) {
+          setState(() {
+            _perguntas = perguntasIA
+                .map((p) => PerguntaCurador(
+                      texto: p,
+                      categoria: CategoriaPergunta.legado,
+                    ))
+                .toList();
+            _carregandoPerguntas = false;
+          });
+          return;
+        }
+      }
+
       if (mounted) {
         setState(() {
           _perguntas = [
@@ -313,6 +347,17 @@ class _CuradorScreenState extends State<CuradorScreen> {
                     child: Icon(Icons.play_circle_fill, size: 48, color: AppColors.roxo),
                   )
                 : null,
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              '${widget.proativoMediaIsVideo ? '📹 Vídeo' : '📷 Foto'} registrado em ${_formatarDataHora(widget.dataMemoria)}',
+              style: const TextStyle(
+                color: Color(0xFF7A7280),
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
           const SizedBox(height: 20),
         ],
@@ -694,6 +739,24 @@ class _CuradorScreenState extends State<CuradorScreen> {
         ),
       ],
     );
+  }
+
+  String _formatarDataHora(DateTime? date) {
+    if (date == null) return 'agora';
+    final hoje = DateTime.now();
+    final ontem = hoje.subtract(const Duration(days: 1));
+    
+    String diaStr;
+    if (date.year == hoje.year && date.month == hoje.month && date.day == hoje.day) {
+      diaStr = 'hoje';
+    } else if (date.year == ontem.year && date.month == ontem.month && date.day == ontem.day) {
+      diaStr = 'ontem';
+    } else {
+      diaStr = '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+    }
+    
+    final horaStr = '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    return '$diaStr às $horaStr';
   }
 }
 

@@ -24,6 +24,78 @@ class LegacyCuratorService {
     debugPrint('LegacyCuratorService: configurado (model: $_model)');
   }
 
+  Future<List<String>?> gerarPerguntasContextuais({
+    required String tipo,
+    required String data,
+    required String hora,
+    required int quantidadeFotos,
+    required int quantidadeVideos,
+  }) async {
+    if (!isConfigured) return null;
+
+    final buffer = StringBuffer();
+    buffer.writeln('Você é a Curadora de Memórias da aEterna.');
+    buffer.writeln('Seu papel é conduzir um diálogo caloroso e poético para registrar a história por trás de mídias recém-carregadas da galeria do usuário.');
+    buffer.writeln('Dados do momento selecionado pelo usuário:');
+    buffer.writeln('- Tipo principal de mídia: $tipo');
+    buffer.writeln('- Data de registro: $data');
+    buffer.writeln('- Horário aproximado: $hora');
+    buffer.writeln('- Quantidade de fotos: $quantidadeFotos');
+    buffer.writeln('- Quantidade de vídeos: $quantidadeVideos');
+    buffer.writeln();
+    buffer.writeln(
+      'Gere de 3 a 4 perguntas curtas, acolhedoras e de profunda conexão emocional para que o usuário reviva esse instante concreto. '
+      'Sua primeira pergunta DEVE ser obrigatoriamente: "O que estava acontecendo?" '
+      'As próximas perguntas devem guiar o usuário de forma sutil (ex: "Quem estava com você?", "O que tornou esse momento especial?", ou sobre algum detalhe que uma foto não mostraria). '
+      'Responda estritamente apenas com as perguntas, uma por linha, sem numeração, marcadores ou preâmbulos.'
+    );
+
+    try {
+      final response = await http
+          .post(
+            Uri.parse(_baseUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $_apiKey',
+            },
+            body: jsonEncode({
+              'model': _model,
+              'messages': [
+                {
+                  'role': 'system',
+                  'content': _systemPrompt,
+                },
+                {
+                  'role': 'user',
+                  'content': buffer.toString(),
+                },
+              ],
+              'temperature': 0.7,
+              'max_tokens': 300,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode != 200) return null;
+
+      final dataJson = jsonDecode(response.body) as Map<String, dynamic>;
+      final choices = dataJson['choices'] as List<dynamic>;
+      if (choices.isEmpty) return null;
+
+      final texto = choices[0]['message']['content'] as String;
+      final perguntas = texto
+          .split('\n')
+          .map((l) => l.replaceAll(RegExp(r'^\d+[\.\)]\s*'), '').trim())
+          .where((l) => l.length > 5)
+          .take(4)
+          .toList();
+
+      return perguntas.isNotEmpty ? perguntas : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<String>?> gerarPerguntas(
     String contextoOriginal,
     String titulo,
