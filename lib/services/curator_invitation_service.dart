@@ -62,7 +62,7 @@ class CuratorInvitationService {
       'verificarNovasMidiasEConvidar',
       frequency: const Duration(hours: 12),
       constraints: Constraints(
-        networkType: NetworkType.not_required,
+        networkType: NetworkType.notRequired,
         requiresBatteryNotLow: true,
       ),
     );
