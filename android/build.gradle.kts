@@ -20,14 +20,19 @@ subprojects {
 }
 
 subprojects {
-    plugins.withId("com.android.application") {
-        configure<com.android.build.gradle.BaseExtension> {
-            compileSdkVersion(36)
+    val configureAndroid = Action<Project> {
+        val ext = extensions.findByName("android")
+        if (ext != null) {
+            val android = ext as? com.android.build.gradle.BaseExtension
+            android?.compileSdkVersion(36)
         }
     }
-    plugins.withId("com.android.library") {
-        configure<com.android.build.gradle.BaseExtension> {
-            compileSdkVersion(36)
+
+    if (state.executed) {
+        configureAndroid.execute(this)
+    } else {
+        afterEvaluate {
+            configureAndroid.execute(this)
         }
     }
 }
