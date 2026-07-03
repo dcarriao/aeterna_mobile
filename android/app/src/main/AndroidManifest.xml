@@ -3,6 +3,11 @@
         android:label="aEterna"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <provider  
+            android:name="androidx.work.impl.WorkManagerInitializer"  
+            android:authorities="${applicationId}.workmanager-init"  
+            android:enabled="false"  
+            android:exported="false"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"
