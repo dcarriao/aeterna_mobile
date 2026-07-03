@@ -15,7 +15,7 @@ plugins {
 
 android {
     namespace = "com.aeterna.app"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 34
     ndkVersion = flutter.ndkVersion
 
     signingConfigs {
