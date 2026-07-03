@@ -21,10 +21,21 @@ subprojects {
 
 subprojects {
     val configureAndroid = Action<Project> {
-        val ext = extensions.findByName("android")
-        if (ext != null) {
-            val android = ext as? com.android.build.gradle.BaseExtension
-            android?.compileSdkVersion(36)
+        val android = extensions.findByName("android")
+        if (android != null) {
+            try {
+                val method = android::class.java.getMethod("compileSdkVersion", Int::class.javaPrimitiveType)
+                method.invoke(android, 36)
+                println("[Gradle] Forçado compileSdkVersion 36 para ${project.name} via Reflexão!")
+            } catch (e: Exception) {
+                try {
+                    val methodObj = android::class.java.getMethod("compileSdkVersion", Object::class.java)
+                    methodObj.invoke(android, 36)
+                    println("[Gradle] Forçado compileSdkVersion 36 para ${project.name} via Reflexão (Object)!")
+                } catch (ex: Exception) {
+                    println("[Gradle] Erro ao forçar compileSdkVersion para ${project.name}: $ex")
+                }
+            }
         }
     }
 
