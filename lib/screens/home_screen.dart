@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../models/memoria.dart';
+import '../models/media_group.dart';
+import '../services/media_suggestion_service.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/memory_card.dart';
+import '../widgets/home/media_suggestions_card.dart';
+import 'nova_memoria_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({
     required this.onRegistrar,
     required this.onMinhaHistoria,
@@ -31,8 +36,46 @@ class HomeScreen extends StatelessWidget {
   final List<Memoria> memorias;
 
   @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  List<MediaGroup> _sugestoes = [];
+  bool _carregandoSugestoes = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarSugestoes();
+  }
+
+  Future<void> _carregarSugestoes() async {
+    if (mounted) setState(() => _carregandoSugestoes = true);
+    final lista = await MediaSuggestionService.instance.obterSugestoes();
+    if (mounted) {
+      setState(() {
+        _sugestoes = lista;
+        _carregandoSugestoes = false;
+      });
+    }
+  }
+
+  void _iniciarCriacaoMemoriaComGrupo(MediaGroup grupo) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NovaMemoriaScreen(
+          onSalvar: SupabaseService.instance.salvarMemoriaComFoto,
+          sugestaoGrupo: grupo,
+        ),
+      ),
+    ).then((_) {
+      _carregarSugestoes();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final recentes = memorias.take(3).toList();
+    final recentes = widget.memorias.take(3).toList();
 
     return Scaffold(
       bottomNavigationBar: Container(
@@ -48,19 +91,19 @@ class HomeScreen extends StatelessWidget {
                 _NavItem(
                     icon: Icons.people_outline,
                     label: 'Pessoas',
-                    onTap: onPessoas),
+                    onTap: widget.onPessoas),
                 _NavItem(
                     icon: Icons.timeline_outlined,
                     label: 'Timeline',
-                    onTap: onTimeline),
+                    onTap: widget.onTimeline),
                 _NavItem(
                     icon: Icons.favorite_outline,
                     label: 'Memoriais',
-                    onTap: onMemoriais),
+                    onTap: widget.onMemoriais),
                 _NavItem(
                     icon: Icons.share_outlined,
                     label: 'Compartilhadas',
-                    onTap: onCompartilhadas),
+                    onTap: widget.onCompartilhadas),
               ],
             ),
           ),
@@ -80,7 +123,7 @@ class HomeScreen extends StatelessWidget {
                     MouseRegion(
                       cursor: SystemMouseCursors.click,
                       child: GestureDetector(
-                        onTap: onPerfil,
+                        onTap: widget.onPerfil,
                         child: Container(
                           width: 40,
                           height: 40,
@@ -88,14 +131,14 @@ class HomeScreen extends StatelessWidget {
                             color: const Color(0xFFF0EAF5),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(color: AppColors.borda),
-                            image: fotoUrl != null && fotoUrl!.isNotEmpty
+                            image: widget.fotoUrl != null && widget.fotoUrl!.isNotEmpty
                                 ? DecorationImage(
-                                    image: NetworkImage(fotoUrl!),
+                                    image: NetworkImage(widget.fotoUrl!),
                                     fit: BoxFit.cover,
                                   )
                                 : null,
                           ),
-                          child: fotoUrl == null || fotoUrl!.isEmpty
+                          child: widget.fotoUrl == null || widget.fotoUrl!.isEmpty
                               ? const Icon(Icons.person_outline,
                                   color: AppColors.roxo, size: 20)
                               : null,
@@ -104,6 +147,16 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ],
                 ),
+                
+                // Card de Sugestões de Mídia Proativas
+                if (!_carregandoSugestoes && _sugestoes.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  MediaSuggestionsCard(
+                    sugestoes: _sugestoes,
+                    onCriarMemoria: _iniciarCriacaoMemoriaComGrupo,
+                  ),
+                ],
+
                 const SizedBox(height: 28),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -120,9 +173,9 @@ class HomeScreen extends StatelessWidget {
                                   fontWeight: FontWeight.w800)),
                           const SizedBox(height: 4),
                           Text(
-                            memorias.isEmpty
+                            widget.memorias.isEmpty
                                 ? 'Nenhuma ainda'
-                                : '${memorias.length} ${memorias.length == 1 ? 'registro' : 'registros'}',
+                                : '${widget.memorias.length} ${widget.memorias.length == 1 ? 'registro' : 'registros'}',
                             style: const TextStyle(
                                 color: Color(0xFF9B949D), fontSize: 14),
                           ),
@@ -131,7 +184,7 @@ class HomeScreen extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     FilledButton.icon(
-                      onPressed: onRegistrar,
+                      onPressed: widget.onRegistrar,
                       style: FilledButton.styleFrom(
                         backgroundColor: AppColors.roxo,
                         foregroundColor: Colors.white,
@@ -150,25 +203,25 @@ class HomeScreen extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 24),
-                if (memorias.isEmpty)
-                  _EstadoVazio(onRegistrar: onRegistrar)
+                if (widget.memorias.isEmpty)
+                  _EstadoVazio(onRegistrar: widget.onRegistrar)
                 else ...[
                   ...recentes.map(
                     (memoria) => Padding(
                       padding: const EdgeInsets.only(bottom: 16),
                       child: MemoryCard(
                         memoria: memoria,
-                        onLer: () => onAbrirMemoria(memoria),
+                        onLer: () => widget.onAbrirMemoria(memoria),
                       ),
                     ),
                   ),
-                  if (memorias.length > 3)
+                  if (widget.memorias.length > 3)
                     Padding(
                       padding: const EdgeInsets.only(top: 4, bottom: 8),
                       child: Align(
                         alignment: Alignment.centerRight,
                         child: TextButton.icon(
-                          onPressed: onMinhaHistoria,
+                          onPressed: widget.onMinhaHistoria,
                           icon: const Text('Ver todas as memórias',
                               style: TextStyle(
                                   color: AppColors.roxo,

@@ -175,6 +175,17 @@ class PessoaRepository {
     if (!isConfigured) return;
 
     print('[PessoaRepo] salvar() isUpdate=$isUpdate nome=${pessoa.nome} id=${pessoa.id}');
+    
+    String? fotoUrl = pessoa.fotoUrl;
+    
+    // Se houver bytes locais de foto nova, faz o upload para o Storage primeiro
+    if (pessoa.fotoBytes != null) {
+      final url = await uploadFotoPerfil(pessoa.fotoBytes!, 'contato_${pessoa.id}.jpg');
+      if (url != null) {
+        fotoUrl = url;
+      }
+    }
+
     final data = <String, dynamic>{
       'usuario_id': usuarioId,
       'nome': pessoa.nome,
@@ -187,8 +198,8 @@ class PessoaRepository {
       data['data_nascimento'] =
           '${pessoa.dataNascimento!.year}-${pessoa.dataNascimento!.month.toString().padLeft(2, '0')}-${pessoa.dataNascimento!.day.toString().padLeft(2, '0')}';
     }
-    if (pessoa.fotoBase64 != null) {
-      data['foto_perfil'] = pessoa.fotoBase64;
+    if (fotoUrl != null) {
+      data['foto_perfil'] = fotoUrl;
     }
     if (pessoa.email != null) {
       data['email'] = pessoa.email;

@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../curador/perguntas.dart';
@@ -17,6 +18,9 @@ class CuradorScreen extends StatefulWidget {
     this.pessoas,
     this.dataMemoria,
     this.categoria,
+    this.isProativo = false,
+    this.proativoMediaBytes,
+    this.proativoMediaIsVideo = false,
     super.key,
   });
 
@@ -25,6 +29,9 @@ class CuradorScreen extends StatefulWidget {
   final List<Map<String, String>>? pessoas;
   final DateTime? dataMemoria;
   final String? categoria;
+  final bool isProativo;
+  final Uint8List? proativoMediaBytes;
+  final bool proativoMediaIsVideo;
 
   @override
   State<CuradorScreen> createState() => _CuradorScreenState();
@@ -53,6 +60,21 @@ class _CuradorScreenState extends State<CuradorScreen> {
   }
 
   Future<void> _carregarPerguntas() async {
+    if (widget.isProativo) {
+      if (mounted) {
+        setState(() {
+          _perguntas = [
+            const PerguntaCurador(texto: 'O que estava acontecendo?', categoria: CategoriaPergunta.factual),
+            const PerguntaCurador(texto: 'O que tornou esse momento especial?', categoria: CategoriaPergunta.emocional),
+            const PerguntaCurador(texto: 'Existe algum detalhe que uma foto não mostraria?', categoria: CategoriaPergunta.emocional),
+            const PerguntaCurador(texto: 'Qual lembrança ou valor você gostaria de preservar?', categoria: CategoriaPergunta.legado),
+          ];
+          _carregandoPerguntas = false;
+        });
+      }
+      return;
+    }
+
     if (LegacyCuratorService.instance.isConfigured) {
       final perguntasIA =
           await LegacyCuratorService.instance.gerarPerguntas(
@@ -271,7 +293,31 @@ class _CuradorScreenState extends State<CuradorScreen> {
             fontSize: 15,
           ),
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 20),
+
+        if (widget.isProativo && widget.proativoMediaBytes != null) ...[
+          Container(
+            height: 160,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.borda),
+              image: !widget.proativoMediaIsVideo
+                  ? DecorationImage(
+                      image: MemoryImage(widget.proativoMediaBytes!),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+            ),
+            child: widget.proativoMediaIsVideo
+                ? const Center(
+                    child: Icon(Icons.play_circle_fill, size: 48, color: AppColors.roxo),
+                  )
+                : null,
+          ),
+          const SizedBox(height: 20),
+        ],
+
+        const SizedBox(height: 8),
 
         // ── PROGRESSO E BARRA ──
         Row(

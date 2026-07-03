@@ -9,17 +9,23 @@ import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
 import 'curador_screen.dart';
 
+import '../models/media_group.dart';
+import '../services/media_suggestion_service.dart';
+import 'package:photo_manager/photo_manager.dart';
+
 class NovaMemoriaScreen extends StatefulWidget {
   const NovaMemoriaScreen({
     required this.onSalvar,
     this.memoria,
     this.onEditar,
+    this.sugestaoGrupo,
     super.key,
   });
 
   final Future<Memoria> Function(MemoriaRascunho rascunho) onSalvar;
   final Memoria? memoria;
   final Future<Memoria?> Function(MemoriaRascunho rascunho)? onEditar;
+  final MediaGroup? sugestaoGrupo;
 
   bool get _editando => memoria != null;
 
@@ -77,6 +83,32 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       _foto = m.foto;
       _fotoUrlExistente = m.fotoUrl;
       _carregarVideoExistente(m.id!);
+    } else {
+      final grupo = widget.sugestaoGrupo;
+      if (grupo != null) {
+        _dataMemoria = grupo.data;
+        _dataMemoriaFoiAlterada = true;
+        _carregarMidiasDoGrupo(grupo);
+      }
+    }
+  }
+
+  Future<void> _carregarMidiasDoGrupo(MediaGroup grupo) async {
+    for (final midia in grupo.midias) {
+      final file = await midia.asset.file;
+      if (file != null) {
+        final bytes = await file.readAsBytes();
+        if (!mounted) return;
+        setState(() {
+          if (midia.tipo == AssetType.image) {
+            _foto = bytes;
+            _nomeArquivo = file.path.split('/').last;
+          } else if (midia.tipo == AssetType.video) {
+            _videoBytes = bytes;
+            _nomeVideo = file.path.split('/').last;
+          }
+        });
+      }
     }
   }
 
@@ -264,7 +296,9 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
 
   Future<void> _abrirCurador() async {
     final contexto = _contextoController.text.trim();
-    if (contexto.length < 5) {
+    final isProativo = widget.sugestaoGrupo != null;
+    
+    if (!isProativo && contexto.length < 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content:
@@ -281,6 +315,9 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           contextoOriginal: contexto,
           dataMemoria: _dataMemoria,
           categoria: _categoria,
+          isProativo: isProativo,
+          proativoMediaBytes: _foto ?? _videoBytes,
+          proativoMediaIsVideo: _videoBytes != null,
           pessoas: _pessoasSelecionadas
               .map((id) {
                 final p = _todasPessoas.firstWhere(
@@ -445,6 +482,12 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           bytes: _videoBytes!,
           nomeArquivo: _nomeVideo ?? 'video.mp4',
         );
+      }
+
+      if (widget.sugestaoGrupo != null) {
+        for (final m in widget.sugestaoGrupo!.midias) {
+          await MediaSuggestionService.instance.registrarAssetComoUtilizado(m.id);
+        }
       }
 
       if (mounted) {
