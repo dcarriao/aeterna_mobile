@@ -408,7 +408,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           titulo: rascunho.titulo,
           contexto: rascunho.contexto,
           categoria: rascunho.categoria,
-          dataEvento: _dataMemoriaFoiAlterada ? _dataMemoria : null,
+          dataEvento: _dataMemoria,
           isCompartilhada: _isCompartilhada,
         );
 
@@ -447,7 +447,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           );
         }
 
-        if (_dataMemoriaFoiAlterada && _dataMemoria != null) {
+        if (_dataMemoria != null) {
           await PessoaRepository.salvarDataMemoria(m.id!, _dataMemoria!);
         }
 
