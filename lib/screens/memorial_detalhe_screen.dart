@@ -8,6 +8,7 @@ import '../models/pessoa.dart';
 import '../services/supabase_service.dart';
 import '../services/legacy_curator_service.dart';
 import '../theme/app_theme.dart';
+import 'nova_memoria_screen.dart';
 
 class MemorialDetalheScreen extends StatefulWidget {
   const MemorialDetalheScreen({required this.memorial, super.key});
@@ -151,6 +152,50 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     }
   }
 
+  Future<void> _abrirCompartilharMemorial() async {
+    final contatosVinculados = await PessoaRepository.obterContatosDoMemorial(widget.memorial.id!);
+    
+    if (!mounted) return;
+
+    final resultado = await showModalBottomSheet<List<int>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return PessoaPickerSheet(
+          selecionadas: contatosVinculados.toSet(),
+          titulo: 'Convidar Familiares',
+        );
+      },
+    );
+
+    if (resultado != null && mounted) {
+      setState(() {
+        _carregandoLembrancas = true;
+      });
+      try {
+        await PessoaRepository.atualizarContatosDoMemorial(widget.memorial.id!, resultado);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Compartilhamento do memorial atualizado com sucesso! Seus convidados agora podem ver e enviar lembranças.')),
+          );
+        }
+        _carregarDados();
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _carregandoLembrancas = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erro ao atualizar compartilhamento: $e')),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _abrirNovaContribuicao() async {
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -244,6 +289,11 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         elevation: 0,
         iconTheme: const IconThemeData(color: AppColors.roxo),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.group_add_outlined, color: AppColors.roxo),
+            onPressed: _abrirCompartilharMemorial,
+            tooltip: 'Compartilhar / Convidar',
+          ),
           IconButton(
             icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
             onPressed: _excluirMemorial,

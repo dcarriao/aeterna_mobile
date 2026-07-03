@@ -224,7 +224,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
-        return _PessoaPickerSheet(
+        return PessoaPickerSheet(
           selecionadas: selecionadas,
           titulo: 'Quem participou?',
         );
@@ -249,7 +249,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
-        return _PessoaPickerSheet(
+        return PessoaPickerSheet(
           selecionadas: selecionados,
           titulo: 'Selecionar contatos',
         );
@@ -1005,8 +1005,8 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
   }
 }
 
-class _PessoaPickerSheet extends StatefulWidget {
-  const _PessoaPickerSheet({
+class PessoaPickerSheet extends StatefulWidget {
+  const PessoaPickerSheet({
     required this.selecionadas,
     required this.titulo,
   });
@@ -1015,10 +1015,10 @@ class _PessoaPickerSheet extends StatefulWidget {
   final String titulo;
 
   @override
-  State<_PessoaPickerSheet> createState() => _PessoaPickerSheetState();
+  State<PessoaPickerSheet> createState() => _PessoaPickerSheetState();
 }
 
-class _PessoaPickerSheetState extends State<_PessoaPickerSheet> {
+class _PessoaPickerSheetState extends State<PessoaPickerSheet> {
   late final Set<int> _sel = Set<int>.from(widget.selecionadas);
   List<Pessoa> _pessoas = [];
   bool _carregando = true;
@@ -1078,12 +1078,43 @@ class _PessoaPickerSheetState extends State<_PessoaPickerSheet> {
                 ),
               ),
               const SizedBox(height: 4),
-              Text(
-                '${_sel.length} ${_sel.length == 1 ? 'selecionada' : 'selecionadas'}',
-                style: const TextStyle(
-                  color: Color(0xFF7A7280),
-                  fontSize: 14,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '${_sel.length} ${_sel.length == 1 ? 'selecionada' : 'selecionadas'}',
+                    style: const TextStyle(
+                      color: Color(0xFF7A7280),
+                      fontSize: 14,
+                    ),
+                  ),
+                  if (_pessoas.isNotEmpty)
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          if (_sel.length == _pessoas.length) {
+                            _sel.clear();
+                          } else {
+                            _sel.clear();
+                            _sel.addAll(_pessoas.map((p) => p.id));
+                          }
+                        });
+                      },
+                      child: Text(
+                        _sel.length == _pessoas.length ? 'Limpar Seleção' : 'Selecionar Todos',
+                        style: const TextStyle(
+                          color: AppColors.roxo,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 12),
               Expanded(

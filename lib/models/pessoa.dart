@@ -11,6 +11,8 @@ class Pessoa {
     this.apelido,
     this.dataNascimento,
     this.fotoBase64,
+    this.email,
+    this.telefone,
     DateTime? createdAt,
     int? id,
   })  : id = id ?? DateTime.now().millisecondsSinceEpoch,
@@ -22,6 +24,8 @@ class Pessoa {
   final String parentesco;
   final DateTime? dataNascimento;
   final String? fotoBase64;
+  final String? email;
+  final String? telefone;
   final DateTime createdAt;
 
   Uint8List? get fotoBytes {
@@ -47,6 +51,8 @@ class Pessoa {
       'parentesco': parentesco,
       'dataNascimento': dataNascimento?.toIso8601String(),
       'fotoBase64': fotoBase64,
+      'email': email,
+      'telefone': telefone,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -55,12 +61,14 @@ class Pessoa {
     return Pessoa(
       id: map['id'] is int ? map['id'] as int : int.tryParse('${map['id']}'),
       nome: (map['nome'] as String?) ?? '',
-      apelido: map['apelido'] as String?,
+      apelido: (map['sobrenome'] as String?) ?? (map['apelido'] as String?),
       parentesco: (map['parentesco'] as String?) ?? 'Outro',
       dataNascimento: map['data_nascimento'] != null
           ? DateTime.tryParse('${map['data_nascimento']}')
           : null,
       fotoBase64: (map['foto_perfil'] as String?) ?? (map['fotoBase64'] as String?),
+      email: map['email'] as String?,
+      telefone: map['telefone'] as String?,
       createdAt: map['data_criacao'] != null
           ? DateTime.tryParse('${map['data_criacao']}') ?? DateTime.now()
           : DateTime.now(),
@@ -149,7 +157,7 @@ class PessoaRepository {
     try {
       final rows = await _supabase
           .from('contatos')
-          .select('id, nome, sobrenome, parentesco, data_nascimento, foto_perfil, data_criacao')
+          .select('id, nome, sobrenome, email, telefone, parentesco, data_nascimento, foto_perfil, data_criacao')
           .eq('usuario_id', usuarioId)
           .order('nome');
       print('[PessoaRepo] listar() -> ${rows.length} contatos recebidos');
@@ -178,6 +186,15 @@ class PessoaRepository {
     if (pessoa.dataNascimento != null) {
       data['data_nascimento'] =
           '${pessoa.dataNascimento!.year}-${pessoa.dataNascimento!.month.toString().padLeft(2, '0')}-${pessoa.dataNascimento!.day.toString().padLeft(2, '0')}';
+    }
+    if (pessoa.fotoBase64 != null) {
+      data['foto_perfil'] = pessoa.fotoBase64;
+    }
+    if (pessoa.email != null) {
+      data['email'] = pessoa.email;
+    }
+    if (pessoa.telefone != null) {
+      data['telefone'] = pessoa.telefone;
     }
 
     try {
@@ -543,6 +560,43 @@ class PessoaRepository {
       return result;
     } catch (_) {
       return {};
+    }
+  }
+
+  static Future<List<int>> obterContatosDoMemorial(int memorialId) async {
+    if (!isConfigured) return [];
+    try {
+      final rows = await _supabase
+          .from('contatos')
+          .select('id')
+          .eq('memorial_id', memorialId)
+          .eq('usuario_id', usuarioId);
+      return rows.map<int>((r) => (r['id'] as num).toInt()).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<void> atualizarContatosDoMemorial(int memorialId, List<int> contatosIds) async {
+    if (!isConfigured) return;
+    try {
+      // 1. Limpar contatos antigos vinculados a este memorial
+      await _supabase
+          .from('contatos')
+          .update({'memorial_id': null})
+          .eq('memorial_id', memorialId)
+          .eq('usuario_id', usuarioId);
+          
+      // 2. Vincular novos contatos selecionados
+      if (contatosIds.isNotEmpty) {
+        await _supabase
+            .from('contatos')
+            .update({'memorial_id': memorialId})
+            .inFilter('id', contatosIds)
+            .eq('usuario_id', usuarioId);
+      }
+    } catch (e) {
+      print('Erro ao atualizar contatos do memorial: $e');
     }
   }
 }

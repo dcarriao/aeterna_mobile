@@ -20,12 +20,15 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nomeController = TextEditingController();
   final _apelidoController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _telefoneController = TextEditingController();
   final _picker = ImagePicker();
 
   String _parentesco = 'Outro';
   DateTime? _dataNascimento;
   String? _fotoBase64;
   Uint8List? _fotoBytes;
+  String? _fotoUrl;
   bool _salvando = false;
 
   bool get _editando => widget.pessoa != null;
@@ -37,10 +40,13 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
       final p = widget.pessoa!;
       _nomeController.text = p.nome;
       _apelidoController.text = p.apelido ?? '';
+      _emailController.text = p.email ?? '';
+      _telefoneController.text = p.telefone ?? '';
       _parentesco = p.parentesco;
       _dataNascimento = p.dataNascimento;
       _fotoBase64 = p.fotoBase64;
       _fotoBytes = p.fotoBytes;
+      _fotoUrl = p.fotoUrl;
     }
   }
 
@@ -48,6 +54,8 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
   void dispose() {
     _nomeController.dispose();
     _apelidoController.dispose();
+    _emailController.dispose();
+    _telefoneController.dispose();
     super.dispose();
   }
 
@@ -65,6 +73,7 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
       setState(() {
         _fotoBytes = bytes;
         _fotoBase64 = base64Encode(bytes);
+        _fotoUrl = null;
       });
     } catch (_) {
       if (!mounted) return;
@@ -97,6 +106,12 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         apelido: _apelidoController.text.trim().isEmpty
             ? null
             : _apelidoController.text.trim(),
+        email: _emailController.text.trim().isEmpty
+            ? null
+            : _emailController.text.trim().toLowerCase(),
+        telefone: _telefoneController.text.trim().isEmpty
+            ? null
+            : _telefoneController.text.trim(),
         parentesco: _parentesco,
         dataNascimento: _dataNascimento,
         fotoBase64: _fotoBase64,
@@ -154,9 +169,11 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
                   ],
                   _FotoPessoa(
                     fotoBytes: _fotoBytes,
+                    fotoUrl: _fotoUrl,
                     onRemover: () => setState(() {
                       _fotoBytes = null;
                       _fotoBase64 = null;
+                      _fotoUrl = null;
                     }),
                   ),
                   const SizedBox(height: 12),
@@ -215,6 +232,26 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
                       labelText: 'Apelido',
                       hintText: 'Como você chama essa pessoa?',
                       prefixIcon: Icon(Icons.favorite_outline),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'E-mail',
+                      hintText: 'exemplo@email.com',
+                      prefixIcon: Icon(Icons.email_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _telefoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Telefone / WhatsApp',
+                      hintText: '(00) 90000-0000',
+                      prefixIcon: Icon(Icons.phone_outlined),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -288,14 +325,16 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
 }
 
 class _FotoPessoa extends StatelessWidget {
-  const _FotoPessoa({required this.fotoBytes, required this.onRemover});
+  const _FotoPessoa({required this.fotoBytes, this.fotoUrl, required this.onRemover});
 
   final Uint8List? fotoBytes;
+  final String? fotoUrl;
   final VoidCallback onRemover;
 
   @override
   Widget build(BuildContext context) {
-    if (fotoBytes != null) {
+    final hasImage = fotoBytes != null || (fotoUrl != null && fotoUrl!.isNotEmpty);
+    if (hasImage) {
       return Stack(
         children: [
           Center(
@@ -303,7 +342,9 @@ class _FotoPessoa extends StatelessWidget {
               child: SizedBox(
                 width: 140,
                 height: 140,
-                child: Image.memory(fotoBytes!, fit: BoxFit.cover),
+                child: fotoBytes != null
+                    ? Image.memory(fotoBytes!, fit: BoxFit.cover)
+                    : Image.network(fotoUrl!, fit: BoxFit.cover),
               ),
             ),
           ),
