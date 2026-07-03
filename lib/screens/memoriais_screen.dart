@@ -99,7 +99,6 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 20),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     const Text(
                                       'Homenagens',
@@ -108,6 +107,7 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
                                           fontSize: 24,
                                           fontWeight: FontWeight.w800),
                                     ),
+                                    const Spacer(),
                                     FilledButton.icon(
                                       onPressed: _abrirNovoMemorial,
                                       style: FilledButton.styleFrom(

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/media_group.dart';
@@ -23,6 +24,10 @@ class MediaSuggestionService {
   }
 
   Future<List<MediaGroup>> obterSugestoes() async {
+    if (kIsWeb) {
+      print('[MediaSuggestionService] Rodando no navegador (Web). Ignorando sugestões de galeria nativa.');
+      return [];
+    }
     try {
       final permission = await PhotoManager.requestPermissionExtend();
       if (!permission.isAuth) {
