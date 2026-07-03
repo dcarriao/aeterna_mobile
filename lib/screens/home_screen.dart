@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../models/memoria.dart';
-import '../models/pending_memory.dart';
-import '../services/pending_memory_service.dart';
+import '../models/detected_moment.dart';
+import '../services/moment_detection_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/memory_card.dart';
-import '../widgets/home/pending_memory_card.dart';
+import '../widgets/home/detected_moment_card.dart';
 import 'nova_memoria_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -40,7 +40,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<PendingMemory> _sugestoes = [];
+  List<DetectedMoment> _sugestoes = [];
   bool _carregandoSugestoes = false;
   bool _esconderBanner = false;
 
@@ -52,7 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _carregarSugestoes() async {
     if (mounted) setState(() => _carregandoSugestoes = true);
-    final lista = await PendingMemoryService.instance.obterMemoriasPendentes();
+    final lista = await MomentDetectionService.instance.obterMomentosDetectados();
     if (mounted) {
       setState(() {
         _sugestoes = lista;
@@ -61,12 +61,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _iniciarCriacaoMemoriaComGrupo(PendingMemory pending) {
+  void _iniciarCriacaoMemoriaComGrupo(DetectedMoment momento) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => NovaMemoriaScreen(
           onSalvar: SupabaseService.instance.salvarMemoriaComFoto,
-          sugestaoPending: pending,
+          sugestaoMomento: momento,
         ),
       ),
     ).then((_) {
@@ -158,7 +158,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Card de Sugestões de Mídia Proativas
                 if (!_carregandoSugestoes && _sugestoes.isNotEmpty) ...[
                   const SizedBox(height: 16),
-                  PendingMemoryCard(
+                  DetectedMomentCard(
                     sugestoes: _sugestoes,
                     onCriarHistoria: _iniciarCriacaoMemoriaComGrupo,
                   ),
@@ -247,20 +247,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildBannerConvite(PendingMemory pending) {
+  Widget _buildBannerConvite(DetectedMoment pending) {
     final hasVideos = pending.quantidadeVideos > 0;
     
     final hoje = DateTime.now();
     final ontem = hoje.subtract(const Duration(days: 1));
     String diaStr;
-    if (pending.data.year == hoje.year && pending.data.month == hoje.month && pending.data.day == hoje.day) {
+    if (pending.inicio.year == hoje.year && pending.inicio.month == hoje.month && pending.inicio.day == hoje.day) {
       diaStr = 'hoje';
-    } else if (pending.data.year == ontem.year && pending.data.month == ontem.month && pending.data.day == ontem.day) {
+    } else if (pending.inicio.year == ontem.year && pending.inicio.month == ontem.month && pending.inicio.day == ontem.day) {
       diaStr = 'ontem';
     } else {
-      diaStr = '${pending.data.day.toString().padLeft(2, '0')}/${pending.data.month.toString().padLeft(2, '0')}';
+      diaStr = '${pending.inicio.day.toString().padLeft(2, '0')}/${pending.inicio.month.toString().padLeft(2, '0')}';
     }
-    final horaStr = '${pending.data.hour.toString().padLeft(2, '0')}:${pending.data.minute.toString().padLeft(2, '0')}';
+    final horaStr = '${pending.inicio.hour.toString().padLeft(2, '0')}:${pending.inicio.minute.toString().padLeft(2, '0')}';
 
     return Container(
       padding: const EdgeInsets.all(16),

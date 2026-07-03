@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../models/pending_memory.dart';
+import '../models/detected_moment.dart';
 import '../curador/perguntas.dart';
 import '../services/legacy_curator_service.dart';
 import '../theme/app_theme.dart';
@@ -25,6 +26,7 @@ class CuradorScreen extends StatefulWidget {
     this.proativoFotosCount = 0,
     this.proativoVideosCount = 0,
     this.pendingMemory,
+    this.detectedMoment,
     super.key,
   });
 
@@ -39,6 +41,7 @@ class CuradorScreen extends StatefulWidget {
   final int proativoFotosCount;
   final int proativoVideosCount;
   final PendingMemory? pendingMemory;
+  final DetectedMoment? detectedMoment;
 
   @override
   State<CuradorScreen> createState() => _CuradorScreenState();
@@ -58,7 +61,7 @@ class _CuradorScreenState extends State<CuradorScreen> {
   @override
   void initState() {
     super.initState();
-    _iniciouConversa = widget.pendingMemory == null;
+    _iniciouConversa = widget.pendingMemory == null && widget.detectedMoment == null;
     _carregarPerguntas();
   }
 
@@ -309,20 +312,27 @@ class _CuradorScreenState extends State<CuradorScreen> {
   }
 
   Widget _buildTelaProposta() {
-    final pending = widget.pendingMemory!;
-    final desc = '${pending.quantidadeVideos > 0 ? '📹 Vídeo' : '📷 Foto'} registrado em ${_formatarDataHora(pending.data)}';
+    final pending = widget.pendingMemory;
+    final momento = widget.detectedMoment;
+    
+    final capaBytes = pending?.capa ?? momento?.capa;
+    final qntFotos = pending?.quantidadeFotos ?? momento?.quantidadeFotos ?? 0;
+    final qntVideos = pending?.quantidadeVideos ?? momento?.quantidadeVideos ?? 0;
+    final dataRef = pending?.data ?? momento?.inicio;
+    
+    final desc = '${qntVideos > 0 ? '📹 Vídeo' : '📷 Foto'} registrado em ${_formatarDataHora(dataRef)}';
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
       children: [
-        if (pending.capa != null) ...[
+        if (capaBytes != null) ...[
           Container(
             height: 240,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: AppColors.borda, width: 2),
               image: DecorationImage(
-                image: MemoryImage(pending.capa!),
+                image: MemoryImage(capaBytes),
                 fit: BoxFit.cover,
               ),
             ),
@@ -342,7 +352,7 @@ class _CuradorScreenState extends State<CuradorScreen> {
         const SizedBox(height: 8),
         Center(
           child: Text(
-            '${pending.quantidadeFotos} ${pending.quantidadeFotos == 1 ? 'foto' : 'fotos'} • ${pending.quantidadeVideos} ${pending.quantidadeVideos == 1 ? 'vídeo' : 'vídeos'}',
+            '$qntFotos ${qntFotos == 1 ? 'foto' : 'fotos'} • $qntVideos ${qntVideos == 1 ? 'vídeo' : 'vídeos'}',
             style: const TextStyle(
               color: Color(0xFF9B949D),
               fontSize: 13,
