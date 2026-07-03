@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:app_links/app_links.dart';
 
@@ -36,7 +37,7 @@ class AeternaApp extends StatefulWidget {
   State<AeternaApp> createState() => _AeternaAppState();
 }
 
-class _AeternaAppState extends State<AeternaApp> {
+class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
   final _service = SupabaseService.instance;
   final List<Memoria> _memorias = [];
   final _navigatorKey = GlobalKey<NavigatorState>();
@@ -45,13 +46,61 @@ class _AeternaAppState extends State<AeternaApp> {
   bool _carregandoMemorias = false;
   String? _usuarioFotoUrl;
   late final AppLinks _appLinks;
+  static const _androidShareChannel = MethodChannel('com.aeterna.app/share');
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _verificarOnboarding();
     _carregarSessao();
     _configurarDeepLinks();
+    _verificarCompartilhamentoAndroid();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _verificarCompartilhamentoAndroid();
+    }
+  }
+
+  Future<void> _verificarCompartilhamentoAndroid() async {
+    try {
+      final String? path = await _androidShareChannel.invokeMethod('getSharedImage');
+      if (path != null && path.isNotEmpty) {
+        _processarImagemAndroid(path);
+      }
+    } catch (e) {
+      print('[AndroidShare] Erro ao verificar compartilhamento: $e');
+    }
+  }
+
+  Future<void> _processarImagemAndroid(String path) async {
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        final bytes = await file.readAsBytes();
+        final filename = path.split('/').last;
+        _navigatorKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (_) => NovaMemoriaScreen(
+              onSalvar: _service.salvarMemoriaComFoto,
+              fotoBytes: bytes,
+              fotoNome: filename,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      print('[AndroidShare] Erro ao carregar imagem compartilhada: $e');
+    }
   }
 
   void _configurarDeepLinks() {
