@@ -9,6 +9,7 @@ import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
 import 'curador_screen.dart';
 
+import '../models/pending_memory.dart';
 import '../models/media_group.dart';
 import '../services/media_suggestion_service.dart';
 import 'package:photo_manager/photo_manager.dart';
@@ -19,6 +20,7 @@ class NovaMemoriaScreen extends StatefulWidget {
     this.memoria,
     this.onEditar,
     this.sugestaoGrupo,
+    this.sugestaoPending,
     super.key,
   });
 
@@ -26,6 +28,7 @@ class NovaMemoriaScreen extends StatefulWidget {
   final Memoria? memoria;
   final Future<Memoria?> Function(MemoriaRascunho rascunho)? onEditar;
   final MediaGroup? sugestaoGrupo;
+  final PendingMemory? sugestaoPending;
 
   bool get _editando => memoria != null;
 
@@ -85,10 +88,42 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       _carregarVideoExistente(m.id!);
     } else {
       final grupo = widget.sugestaoGrupo;
+      final pending = widget.sugestaoPending;
       if (grupo != null) {
         _dataMemoria = grupo.data;
         _dataMemoriaFoiAlterada = true;
         _carregarMidiasDoGrupo(grupo);
+      } else if (pending != null) {
+        _dataMemoria = pending.data;
+        _dataMemoriaFoiAlterada = true;
+        _carregarMidiasDoPendente(pending);
+      }
+    }
+  }
+
+  Future<void> _carregarMidiasDoPendente(PendingMemory pending) async {
+    if (pending.fotos.isNotEmpty) {
+      final file = await pending.fotos.first.file;
+      if (file != null) {
+        final bytes = await file.readAsBytes();
+        if (mounted) {
+          setState(() {
+            _foto = bytes;
+            _nomeArquivo = file.path.split('/').last;
+          });
+        }
+      }
+    }
+    if (pending.videos.isNotEmpty) {
+      final file = await pending.videos.first.file;
+      if (file != null) {
+        final bytes = await file.readAsBytes();
+        if (mounted) {
+          setState(() {
+            _videoBytes = bytes;
+            _nomeVideo = file.path.split('/').last;
+          });
+        }
       }
     }
   }
@@ -296,7 +331,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
 
   Future<void> _abrirCurador() async {
     final contexto = _contextoController.text.trim();
-    final isProativo = widget.sugestaoGrupo != null;
+    final isProativo = widget.sugestaoGrupo != null || widget.sugestaoPending != null;
     
     if (!isProativo && contexto.length < 5) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -318,8 +353,9 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           isProativo: isProativo,
           proativoMediaBytes: _foto ?? _videoBytes,
           proativoMediaIsVideo: _videoBytes != null,
-          proativoFotosCount: widget.sugestaoGrupo?.totalFotos ?? 0,
-          proativoVideosCount: widget.sugestaoGrupo?.totalVideos ?? 0,
+          proativoFotosCount: widget.sugestaoGrupo?.totalFotos ?? widget.sugestaoPending?.quantidadeFotos ?? 0,
+          proativoVideosCount: widget.sugestaoGrupo?.totalVideos ?? widget.sugestaoPending?.quantidadeVideos ?? 0,
+          pendingMemory: widget.sugestaoPending,
           pessoas: _pessoasSelecionadas
               .map((id) {
                 final p = _todasPessoas.firstWhere(
@@ -489,6 +525,13 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       if (widget.sugestaoGrupo != null) {
         for (final m in widget.sugestaoGrupo!.midias) {
           await MediaSuggestionService.instance.registrarAssetComoUtilizado(m.id);
+        }
+      } else if (widget.sugestaoPending != null) {
+        for (final f in widget.sugestaoPending!.fotos) {
+          await MediaSuggestionService.instance.registrarAssetComoUtilizado(f.id);
+        }
+        for (final v in widget.sugestaoPending!.videos) {
+          await MediaSuggestionService.instance.registrarAssetComoUtilizado(v.id);
         }
       }
 

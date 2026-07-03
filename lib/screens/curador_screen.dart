@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
+import '../models/pending_memory.dart';
 import '../curador/perguntas.dart';
 import '../services/legacy_curator_service.dart';
 import '../theme/app_theme.dart';
@@ -23,6 +24,7 @@ class CuradorScreen extends StatefulWidget {
     this.proativoMediaIsVideo = false,
     this.proativoFotosCount = 0,
     this.proativoVideosCount = 0,
+    this.pendingMemory,
     super.key,
   });
 
@@ -36,6 +38,7 @@ class CuradorScreen extends StatefulWidget {
   final bool proativoMediaIsVideo;
   final int proativoFotosCount;
   final int proativoVideosCount;
+  final PendingMemory? pendingMemory;
 
   @override
   State<CuradorScreen> createState() => _CuradorScreenState();
@@ -48,12 +51,14 @@ class _CuradorScreenState extends State<CuradorScreen> {
   int _indice = 0;
   bool _mostrandoPreview = false;
   bool _carregandoPerguntas = true;
+  bool _iniciouConversa = true;
   AnaliseLegado? _analiseLegado;
   String? _narrativa;
 
   @override
   void initState() {
     super.initState();
+    _iniciouConversa = widget.pendingMemory == null;
     _carregarPerguntas();
   }
 
@@ -290,14 +295,111 @@ class _CuradorScreenState extends State<CuradorScreen> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
-            child: _carregandoPerguntas
-                ? const _CarregandoCurador()
-                : _mostrandoPreview
-                    ? _buildPreview()
-                    : _buildPergunta(),
+            child: !_iniciouConversa
+                ? _buildTelaProposta()
+                : _carregandoPerguntas
+                    ? const _CarregandoCurador()
+                    : _mostrandoPreview
+                        ? _buildPreview()
+                        : _buildPergunta(),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTelaProposta() {
+    final pending = widget.pendingMemory!;
+    final desc = '${pending.quantidadeVideos > 0 ? '📹 Vídeo' : '📷 Foto'} registrado em ${_formatarDataHora(pending.data)}';
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
+      children: [
+        if (pending.capa != null) ...[
+          Container(
+            height: 240,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.borda, width: 2),
+              image: DecorationImage(
+                image: MemoryImage(pending.capa!),
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        Center(
+          child: Text(
+            desc,
+            style: const TextStyle(
+              color: Color(0xFF7A7280),
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: Text(
+            '${pending.quantidadeFotos} ${pending.quantidadeFotos == 1 ? 'foto' : 'fotos'} • ${pending.quantidadeVideos} ${pending.quantidadeVideos == 1 ? 'vídeo' : 'vídeos'}',
+            style: const TextStyle(
+              color: Color(0xFF9B949D),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(height: 32),
+        const Text(
+          'Gostaria de preservar a história por trás deste momento?',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: AppColors.roxo,
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            height: 1.3,
+          ),
+        ),
+        const SizedBox(height: 48),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.roxo,
+                  side: const BorderSide(color: AppColors.borda),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('Agora não', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: FilledButton(
+                onPressed: () {
+                  setState(() {
+                    _iniciouConversa = true;
+                  });
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.roxo,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('Começar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 

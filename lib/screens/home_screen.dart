@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../models/memoria.dart';
-import '../models/media_group.dart';
-import '../services/media_suggestion_service.dart';
+import '../models/pending_memory.dart';
+import '../services/pending_memory_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/memory_card.dart';
-import '../widgets/home/media_suggestions_card.dart';
+import '../widgets/home/pending_memory_card.dart';
 import 'nova_memoria_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -40,7 +40,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<MediaGroup> _sugestoes = [];
+  List<PendingMemory> _sugestoes = [];
   bool _carregandoSugestoes = false;
 
   @override
@@ -51,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _carregarSugestoes() async {
     if (mounted) setState(() => _carregandoSugestoes = true);
-    final lista = await MediaSuggestionService.instance.obterSugestoes();
+    final lista = await PendingMemoryService.instance.obterMemoriasPendentes();
     if (mounted) {
       setState(() {
         _sugestoes = lista;
@@ -60,12 +60,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _iniciarCriacaoMemoriaComGrupo(MediaGroup grupo) {
+  void _iniciarCriacaoMemoriaComGrupo(PendingMemory pending) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => NovaMemoriaScreen(
           onSalvar: SupabaseService.instance.salvarMemoriaComFoto,
-          sugestaoGrupo: grupo,
+          sugestaoPending: pending,
         ),
       ),
     ).then((_) {
@@ -148,12 +148,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
                 
-                // Card de Sugestões de Mídia Proativas
+                 // Card de Sugestões de Mídia Proativas
                 if (!_carregandoSugestoes && _sugestoes.isNotEmpty) ...[
                   const SizedBox(height: 16),
-                  MediaSuggestionsCard(
+                  PendingMemoryCard(
                     sugestoes: _sugestoes,
-                    onCriarMemoria: _iniciarCriacaoMemoriaComGrupo,
+                    onCriarHistoria: _iniciarCriacaoMemoriaComGrupo,
                   ),
                 ],
 
