@@ -244,7 +244,7 @@ class SupabaseService {
     try {
       final rows = await _client
           .from('memoriais')
-          .select('id, nome, parentesco, data_nascimento, data_falecimento, biografia, foto_perfil, contato_id, usuario_id, criado_em')
+          .select('id, nome, parentesco, data_nascimento, data_falecimento, biografia, foto_perfil, usuario_id, criado_em')
           .eq('usuario_id', usuarioId)
           .order('criado_em', ascending: false);
       return rows.map<Memorial>((row) => Memorial.fromMap(row)).toList();
@@ -282,7 +282,7 @@ class SupabaseService {
     final row = await _client
         .from('memoriais')
         .insert(data)
-        .select('id, nome, parentesco, data_nascimento, data_falecimento, biografia, foto_perfil, contato_id, usuario_id, criado_em')
+        .select('id, nome, parentesco, data_nascimento, data_falecimento, biografia, foto_perfil, usuario_id, criado_em')
         .single();
 
     return Memorial.fromMap(row);
