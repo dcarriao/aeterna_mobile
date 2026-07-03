@@ -21,6 +21,8 @@ class NovaMemoriaScreen extends StatefulWidget {
     this.onEditar,
     this.sugestaoGrupo,
     this.sugestaoPending,
+    this.fotoBytes,
+    this.fotoNome,
     super.key,
   });
 
@@ -29,6 +31,8 @@ class NovaMemoriaScreen extends StatefulWidget {
   final Future<Memoria?> Function(MemoriaRascunho rascunho)? onEditar;
   final MediaGroup? sugestaoGrupo;
   final PendingMemory? sugestaoPending;
+  final Uint8List? fotoBytes;
+  final String? fotoNome;
 
   bool get _editando => memoria != null;
 
@@ -89,7 +93,10 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     } else {
       final grupo = widget.sugestaoGrupo;
       final pending = widget.sugestaoPending;
-      if (grupo != null) {
+      if (widget.fotoBytes != null) {
+        _foto = widget.fotoBytes;
+        _nomeArquivo = widget.fotoNome ?? 'foto.jpg';
+      } else if (grupo != null) {
         _dataMemoria = grupo.data;
         _dataMemoriaFoiAlterada = true;
         _carregarMidiasDoGrupo(grupo);

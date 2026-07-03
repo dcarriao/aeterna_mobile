@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:app_links/app_links.dart';
 
 import 'models/memoria.dart';
 import 'models/pessoa.dart';
@@ -41,12 +43,55 @@ class _AeternaAppState extends State<AeternaApp> {
   bool _entrou = false;
   bool _carregandoMemorias = false;
   String? _usuarioFotoUrl;
+  late final AppLinks _appLinks;
 
   @override
   void initState() {
     super.initState();
     _verificarOnboarding();
     _carregarSessao();
+    _configurarDeepLinks();
+  }
+
+  void _configurarDeepLinks() {
+    _appLinks = AppLinks();
+    _appLinks.uriLinkStream.listen((uri) {
+      _processarLinkCompartilhamento(uri);
+    });
+    _appLinks.getInitialAppLink().then((uri) {
+      if (uri != null) {
+        _processarLinkCompartilhamento(uri);
+      }
+    });
+  }
+
+  Future<void> _processarLinkCompartilhamento(Uri uri) async {
+    print('[DeepLink] Recebido deep link: $uri');
+    if (uri.scheme == 'aeterna' && uri.host == 'share') {
+      final imagePath = uri.queryParameters['image'];
+      if (imagePath != null && imagePath.isNotEmpty) {
+        try {
+          final file = File(imagePath);
+          if (await file.exists()) {
+            final bytes = await file.readAsBytes();
+            final filename = imagePath.split('/').last;
+            if (mounted) {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => NovaMemoriaScreen(
+                    onSalvar: _service.salvarMemoriaComFoto,
+                    fotoBytes: bytes,
+                    fotoNome: filename,
+                  ),
+                ),
+              );
+            }
+          }
+        } catch (e) {
+          print('[DeepLink] Erro ao processar imagem: $e');
+        }
+      }
+    }
   }
 
   Future<void> _carregarSessao() async {

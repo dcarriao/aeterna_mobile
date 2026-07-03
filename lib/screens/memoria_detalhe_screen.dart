@@ -59,6 +59,21 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
 
       if (mounted) {
         setState(() {
+          _memoria = Memoria(
+            id: _memoria.id,
+            titulo: _memoria.titulo,
+            contexto: _memoria.contexto,
+            categoria: _memoria.categoria,
+            criadaEm: _memoria.criadaEm,
+            foto: _memoria.foto,
+            fotoUrl: _memoria.fotoUrl,
+            video: _memoria.video,
+            videoUrl: videoUrl,
+            pessoasIds: partIds,
+            isCompartilhada: famIds.isNotEmpty,
+            familiaresIds: famIds,
+            dataMemoria: _memoria.dataMemoria,
+          );
           _familiares = todasAsPessoas.where((p) => famIds.contains(p.id)).toList();
           _participantes = todasAsPessoas.where((p) => partIds.contains(p.id)).toList();
           _videoUrl = videoUrl;
