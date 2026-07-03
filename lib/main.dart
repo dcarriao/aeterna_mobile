@@ -39,6 +39,7 @@ class AeternaApp extends StatefulWidget {
 class _AeternaAppState extends State<AeternaApp> {
   final _service = SupabaseService.instance;
   final List<Memoria> _memorias = [];
+  final _navigatorKey = GlobalKey<NavigatorState>();
   bool _mostrarOnboarding = true;
   bool _entrou = false;
   bool _carregandoMemorias = false;
@@ -75,17 +76,15 @@ class _AeternaAppState extends State<AeternaApp> {
           if (await file.exists()) {
             final bytes = await file.readAsBytes();
             final filename = imagePath.split('/').last;
-            if (mounted) {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => NovaMemoriaScreen(
-                    onSalvar: _service.salvarMemoriaComFoto,
-                    fotoBytes: bytes,
-                    fotoNome: filename,
-                  ),
+            _navigatorKey.currentState?.push(
+              MaterialPageRoute(
+                builder: (_) => NovaMemoriaScreen(
+                  onSalvar: _service.salvarMemoriaComFoto,
+                  fotoBytes: bytes,
+                  fotoNome: filename,
                 ),
-              );
-            }
+              ),
+            );
           }
         } catch (e) {
           print('[DeepLink] Erro ao processar imagem: $e');
@@ -351,6 +350,7 @@ class _AeternaAppState extends State<AeternaApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'aEterna',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,

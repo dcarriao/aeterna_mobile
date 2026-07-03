@@ -51,15 +51,17 @@ class ShareViewController: SLComposeServiceViewController {
     }
     
     private func launchMainApp(with imageURL: URL) {
-        let urlScheme = "aeterna://share?image=\(imageURL.path)"
-        if let appURL = URL(string: urlScheme) {
-            var responder: UIResponder? = self
-            while responder != nil {
-                if let application = responder as? UIApplication {
-                    application.open(appURL, options: [:], completionHandler: nil)
-                    break
+        if let encodedPath = imageURL.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            let urlScheme = "aeterna://share?image=\(encodedPath)"
+            if let appURL = URL(string: urlScheme) {
+                var responder: UIResponder? = self
+                while responder != nil {
+                    if let application = responder as? UIApplication {
+                        application.open(appURL, options: [:], completionHandler: nil)
+                        break
+                    }
+                    responder = responder?.next
                 }
-                responder = responder?.next
             }
         }
     }
