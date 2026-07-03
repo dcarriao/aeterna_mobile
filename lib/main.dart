@@ -16,12 +16,14 @@ import 'screens/pessoas_screen.dart';
 import 'screens/timeline_screen.dart';
 import 'screens/memoriais_screen.dart';
 import 'services/supabase_service.dart';
+import 'services/curator_invitation_service.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SupabaseService.initialize();
   await LegacyCuratorService.initialize();
+  await CuratorInvitationService.instance.inicializar();
   runApp(const AeternaApp());
 }
 

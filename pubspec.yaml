@@ -43,6 +43,8 @@ dependencies:
   local_auth: ^2.2.0
   crypto: ^3.0.3
   photo_manager: ^3.0.0
+  workmanager: ^0.5.0
+  flutter_local_notifications: ^16.0.0
 
 dev_dependencies:
   flutter_test:

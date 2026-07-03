@@ -42,6 +42,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   List<PendingMemory> _sugestoes = [];
   bool _carregandoSugestoes = false;
+  bool _esconderBanner = false;
 
   @override
   void initState() {
@@ -147,8 +148,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
+
+                // Banner de Convite do Curador (Sprint D)
+                if (!_carregandoSugestoes && !_esconderBanner && _sugestoes.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  _buildBannerConvite(_sugestoes.first),
+                ],
                 
-                 // Card de Sugestões de Mídia Proativas
+                // Card de Sugestões de Mídia Proativas
                 if (!_carregandoSugestoes && _sugestoes.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   PendingMemoryCard(
@@ -229,13 +236,107 @@ class _HomeScreenState extends State<HomeScreen> {
                           label: const Icon(Icons.arrow_forward,
                               size: 18, color: AppColors.roxo),
                         ),
-                      ),
                     ),
+                  ),
                 ],
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBannerConvite(PendingMemory pending) {
+    final hasVideos = pending.quantidadeVideos > 0;
+    
+    final hoje = DateTime.now();
+    final ontem = hoje.subtract(const Duration(days: 1));
+    String diaStr;
+    if (pending.data.year == hoje.year && pending.data.month == hoje.month && pending.data.day == hoje.day) {
+      diaStr = 'hoje';
+    } else if (pending.data.year == ontem.year && pending.data.month == ontem.month && pending.data.day == ontem.day) {
+      diaStr = 'ontem';
+    } else {
+      diaStr = '${pending.data.day.toString().padLeft(2, '0')}/${pending.data.month.toString().padLeft(2, '0')}';
+    }
+    final horaStr = '${pending.data.hour.toString().padLeft(2, '0')}:${pending.data.minute.toString().padLeft(2, '0')}';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F6F0),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.dourado.withOpacity(0.3), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.auto_awesome, color: AppColors.dourado, size: 20),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'O Curador encontrou um momento que merece ser preservado.',
+                  style: TextStyle(
+                    color: AppColors.roxo,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(
+                hasVideos ? Icons.videocam_outlined : Icons.photo_library_outlined,
+                size: 16,
+                color: AppColors.roxo,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${hasVideos ? 'Vídeo' : 'Foto'} registrado $diaStr às $horaStr',
+                style: const TextStyle(
+                  color: AppColors.roxo,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _esconderBanner = true;
+                  });
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF7A7280),
+                ),
+                child: const Text('Agora não', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 12),
+              FilledButton(
+                onPressed: () => _iniciarCriacaoMemoriaComGrupo(pending),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.roxo,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const Text('Criar memória', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
