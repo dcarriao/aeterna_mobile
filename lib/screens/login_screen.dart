@@ -97,6 +97,8 @@ class _LoginScreenState extends State<LoginScreen> {
       SupabaseService.usuarioId = uid;
 
       final preferencias = await SharedPreferences.getInstance();
+      await preferencias.setBool('is_logged_in', true);
+      await preferencias.setString('session_user_email', email);
       await preferencias.setBool(_lembrarKey, _lembrarDados);
 
       if (_lembrarDados) {
@@ -133,6 +135,9 @@ class _LoginScreenState extends State<LoginScreen> {
         if (uid != null) {
           PessoaRepository.usuarioId = uid;
           SupabaseService.usuarioId = uid;
+          final preferencias = await SharedPreferences.getInstance();
+          await preferencias.setBool('is_logged_in', true);
+          await preferencias.setString('session_user_email', email);
         }
         widget.onEntrar();
       }

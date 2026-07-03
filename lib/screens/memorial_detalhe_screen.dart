@@ -25,6 +25,8 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
 
   List<Memoria> _memoriasOficiais = [];
   List<Contribuicao> _contribuicoes = [];
+  List<Pessoa> _todasPessoas = [];
+  List<int> _contatosVinculados = [];
   bool _carregandoLembrancas = false;
 
   // IA Chat
@@ -74,6 +76,8 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
           .map((c) => c.id)
           .toSet();
 
+      final vinculados = await PessoaRepository.obterContatosDoMemorial(widget.memorial.id!);
+
       final oficiais = todasMemorias.where((m) {
         if (m.id == null) return false;
         final contatosIds = vinculos[m.id];
@@ -89,6 +93,8 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         setState(() {
           _contribuicoes = contribs;
           _memoriasOficiais = oficiais;
+          _todasPessoas = contatos;
+          _contatosVinculados = vinculados;
           _carregandoLembrancas = false;
         });
       }
@@ -153,8 +159,6 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
   }
 
   Future<void> _abrirCompartilharMemorial() async {
-    final contatosVinculados = await PessoaRepository.obterContatosDoMemorial(widget.memorial.id!);
-    
     if (!mounted) return;
 
     final resultado = await showModalBottomSheet<List<int>>(
@@ -165,7 +169,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
       ),
       builder: (ctx) {
         return PessoaPickerSheet(
-          selecionadas: contatosVinculados.toSet(),
+          selecionadas: _contatosVinculados.toSet(),
           titulo: 'Convidar Familiares',
         );
       },
@@ -433,6 +437,8 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
 
   // ── ABA 1: BIOGRAFIA ──
   Widget _buildAbaBiografia() {
+    final sharedPessoas = _todasPessoas.where((p) => _contatosVinculados.contains(p.id)).toList();
+
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -471,6 +477,59 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
             ],
           ),
         ),
+        if (sharedPessoas.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.borda),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.people_outline, color: AppColors.dourado, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'Compartilhado com',
+                      style: TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+                const Divider(height: 24, color: AppColors.borda),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: sharedPessoas.map((p) {
+                    return Chip(
+                      avatar: CircleAvatar(
+                        backgroundColor: const Color(0xFFF0EAF5),
+                        backgroundImage: p.fotoBytes != null
+                            ? MemoryImage(p.fotoBytes!)
+                            : null,
+                        child: p.fotoBytes == null
+                            ? const Icon(Icons.person, size: 12, color: AppColors.roxo)
+                            : null,
+                      ),
+                      label: Text(
+                        '${p.nome} (${p.parentesco})',
+                        style: const TextStyle(fontSize: 12, color: AppColors.roxo, fontWeight: FontWeight.bold),
+                      ),
+                      backgroundColor: Colors.white,
+                      side: const BorderSide(color: AppColors.borda),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }

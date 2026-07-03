@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/memoria.dart';
 import 'models/pessoa.dart';
@@ -43,8 +44,33 @@ class _AeternaAppState extends State<AeternaApp> {
   void initState() {
     super.initState();
     _verificarOnboarding();
-    _carregarMemorias();
+    _carregarSessao();
+  }
+
+  Future<void> _carregarSessao() async {
+    final prefs = await SharedPreferences.getInstance();
+    final logado = prefs.getBool('is_logged_in') ?? false;
+    if (logado) {
+      final email = prefs.getString('session_user_email');
+      if (email != null && email.isNotEmpty) {
+        final uid = await PessoaRepository.obterUsuarioIdPorEmail(email);
+        if (uid != null) {
+          PessoaRepository.usuarioId = uid;
+          SupabaseService.usuarioId = uid;
+          if (mounted) {
+            setState(() {
+              _entrou = true;
+            });
+            _carregarUsuario();
+            _carregarMemorias();
+          }
+          return;
+        }
+      }
+    }
+    
     _carregarUsuario();
+    _carregarMemorias();
   }
 
   Future<void> _carregarUsuario() async {
@@ -230,13 +256,18 @@ class _AeternaAppState extends State<AeternaApp> {
           builder: (_) => PerfilScreen(
             totalMemorias: _memorias.length,
             totalPessoas: totalPessoas,
-            onLogout: () {
-              setState(() {
-                _entrou = false;
-                _memorias.clear(); // Limpa cache local de memórias
-                _usuarioFotoUrl = null; // Limpa cache local da foto
-              });
-              Navigator.of(context).popUntil((route) => route.isFirst);
+            onLogout: () async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('is_logged_in', false);
+              await prefs.remove('session_user_email');
+              if (mounted) {
+                setState(() {
+                  _entrou = false;
+                  _memorias.clear(); // Limpa cache local de memórias
+                  _usuarioFotoUrl = null; // Limpa cache local da foto
+                });
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              }
             },
           ),
         ),

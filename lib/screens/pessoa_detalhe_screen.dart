@@ -209,6 +209,42 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                           ],
                         ),
                       ],
+                      if (pessoa.email != null && pessoa.email!.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.email_outlined,
+                                size: 16, color: AppColors.dourado),
+                            const SizedBox(width: 6),
+                            Text(
+                              pessoa.email!,
+                              style: const TextStyle(
+                                color: Color(0xFF817987),
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (pessoa.telefone != null && pessoa.telefone!.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.phone_outlined,
+                                size: 16, color: AppColors.dourado),
+                            const SizedBox(width: 6),
+                            Text(
+                              pessoa.telefone!,
+                              style: const TextStyle(
+                                color: Color(0xFF817987),
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 32),
                       Row(
                         children: [
