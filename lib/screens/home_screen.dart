@@ -133,7 +133,25 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       setState(() => _pessoasVivas = pessoas);
     }
+    // Sprint L — heurística temporal: para cada pessoa viva, calcula
+    // se HOJE é aniversário de uma memória (tempo juntos).
+    final resultado = <int, int>{};
+    for (final p in pessoas) {
+      if (p.id == null) continue;
+      final r = await PessoaTimelineService.instance
+          .calcularAniversario(p.id!);
+      if (r.anos != null) {
+        resultado[p.id!] = r.anos!;
+      }
+    }
+    if (mounted) {
+      setState(() => _aniversarioHoje = resultado);
+    }
   }
+
+  // Sprint L — Mapa da pessoaId -> quantos anos fazendo parte
+  // da história (calculado a partir da 1ª memória).
+  Map<int, int> _aniversarioHoje = {};
 
   Future<void> _carregarMemoriasQuePodemCrescer() async {
     setState(() => _carregandoCrescer = true);
@@ -337,7 +355,37 @@ class _HomeScreenState extends State<HomeScreen> {
                   ..._pessoasVivas.take(4).map((p) => _buildCardPessoaViva(p)),
                 ],
 
-                // SPRINT I â€” MemÃ³rias que podem crescer
+                // SPRINT L — Aniversário de memórias
+                if (_aniversarioHoje.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 8),
+                    child: Text(
+                      'Hoje faz aniversário',
+                      style: TextStyle(
+                        color: AppColors.roxo,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 12),
+                    child: Text(
+                      'Marcos do tempo que você compartilha com quem está perto.',
+                      style: TextStyle(
+                        color: Color(0xFF7A7280),
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  ..._pessoasVivas
+                      .where((p) => p.id != null && _aniversarioHoje.containsKey(p.id))
+                      .map((p) => _buildCardAniversario(p)),
+                ],
+
+                // SPRINT I â€" MemÃ³rias que podem crescer
                 if (_memoriasQuePodemCrescer.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   const Padding(
@@ -776,7 +824,53 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Sprint J â€” Continuar / descartar sessÃ£o ativa do Curador
+  // Sprint L — Card de aniversário de memórias
+  Widget _buildCardAniversario(PessoaVivaResumo p) {
+    final anos = _aniversarioHoje[p.id] ?? 0;
+    final plural = anos == 1 ? 'ano' : 'anos';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F6F0),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: AppColors.dourado.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.celebration, color: AppColors.dourado, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Hoje faz $anos $plural que você compartilha memórias com ${p.nome.split(' ').first}.',
+                  style: const TextStyle(
+                    color: AppColors.roxo,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${p.totalEventos} memórias e contribuições juntos · ${p.parentesco}',
+                  style: const TextStyle(
+                    color: Color(0xFF7A7280),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Sprint J — Continuar / descartar sessão ativa do Curador
   Future<void> _retomarSessaoCurador() async {
     final s = _sessaoCuradorAtiva;
     if (s == null) return;

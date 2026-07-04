@@ -22,6 +22,17 @@ class PessoaTimelineService {
       {int limite = 200}) async {
     if (!PessoaRepository.isConfigured) return const [];
     try {
+      return _obterLinhaDoTempoImpl(pessoaId, limite);
+    } catch (e) {
+      print('[PessoaTimeline] obterLinhaDoTempo ERRO: $e');
+      return const [];
+    }
+  }
+
+  Future<List<PessoaTimelineEvento>> _obterLinhaDoTempoImpl(
+    int pessoaId, int limite,
+  ) async {
+    try {
       final rows = await PessoaRepository.supabaseClient
           .rpc('pessoa_linha_tempo', params: {})
           .select('*')
@@ -134,6 +145,35 @@ class PessoaTimelineService {
       print('[PessoaTimelineService] obterMemorialDaPessoa ERRO: $e');
       return null;
     }
+  }
+
+  /// Sprint L — calcula há quantos anos a pessoa `pessoaReferenciaId`
+  /// aparece em memórias, e se HOJE é o aniversário de uma dessas
+  /// memórias. Retorna `null` se não houver registro hoje.
+  ///
+  /// Heurística: o evento mais antigo da `pessoa_linha_tempo` cuja data
+  /// coincide com o dia de hoje. Limitado a memórias e contribuições
+  /// (não conta fotos/vídeos puros).
+  Future<({int? anos, DateTime? dataMaisAntiga})> calcularAniversario(
+    int pessoaReferenciaId,
+  ) async {
+    if (!PessoaRepository.isConfigured) return (anos: null, dataMaisAntiga: null);
+    final eventos = await _obterLinhaDoTempoImpl(pessoaReferenciaId, 200);
+    if (eventos.isEmpty) return (anos: null, dataMaisAntiga: null);
+    // Filtra só memórias e contribuições.
+    final relevantes = eventos
+        .where((e) => e.tipo == PessoaTimelineTipo.memoria)
+        .toList();
+    if (relevantes.isEmpty) return (anos: null, dataMaisAntiga: null);
+    // O RPC ordena por data_ordem DESC. Pegamos a ÚLTIMA (mais antiga).
+    final maisAntiga = relevantes.last.data;
+    final hoje = DateTime.now();
+    final mesmoDia = maisAntiga.year == hoje.year &&
+        maisAntiga.month == hoje.month &&
+        maisAntiga.day == hoje.day;
+    if (!mesmoDia) return (anos: null, dataMaisAntiga: maisAntiga);
+    final anos = hoje.year - maisAntiga.year;
+    return (anos: anos, dataMaisAntiga: maisAntiga);
   }
 }
 

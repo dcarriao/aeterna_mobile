@@ -5,6 +5,7 @@ import '../models/pessoa_linha_tempo.dart';
 import '../services/pessoa_timeline_service.dart';
 import '../theme/app_theme.dart';
 import 'convites_screen.dart';
+import 'grafo_familia_screen.dart';
 import 'nova_pessoa_screen.dart';
 import 'pessoa_detalhe_screen.dart';
 
@@ -117,6 +118,12 @@ class _PessoasScreenState extends State<PessoasScreen> {
   }
 
   @override
+  void _abrirGrafoFamilia() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const GrafoFamiliaScreen()),
+    );
+  }
+
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.fundo,
@@ -126,6 +133,20 @@ class _PessoasScreenState extends State<PessoasScreen> {
         backgroundColor: AppColors.fundo,
         elevation: 0,
         actions: [
+          IconButton(
+            tooltip: 'Mapa da Família',
+            onPressed: _abrirGrafoFamilia,
+            icon: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0EAF5),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(Icons.diversity_3,
+                  color: AppColors.dourado, size: 20),
+            ),
+          ),
           IconButton(
             tooltip: 'Convites Familiares',
             onPressed: _abrirConvites,

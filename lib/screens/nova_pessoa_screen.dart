@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/pessoa.dart';
+import '../models/tipo_relacionamento.dart';
+import '../services/pessoa_relacionamento_service.dart';
 import '../theme/app_theme.dart';
 
 class NovaPessoaScreen extends StatefulWidget {
@@ -25,7 +27,12 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
   final _telefoneController = TextEditingController();
   final _picker = ImagePicker();
 
-  String _parentesco = 'Outro';
+  // Sprint L — campo simétrico (Sprint J) com tipo estável + gênero.
+  // Mantém `parentesco` herdado para compatibilidade do legado
+  // (preenchido a partir do tipo + gênero na hora do submit).
+  List<TipoRelacionamento> _tipos = TIPOS_RELACIONAMENTO_INICIAIS;
+  String? _tipoId; // ex: 'PAI', 'IRMAO', 'COMPANHEIRO'
+  String _parentesco = 'Outro'; // mantido para compat legado
   DateTime? _dataNascimento;
   String? _fotoBase64;
   Uint8List? _fotoBytes;
@@ -34,6 +41,7 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
 
   bool get _editando => widget.pessoa != null;
 
+  @override
   @override
   void initState() {
     super.initState();
@@ -49,6 +57,17 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
       _fotoBytes = p.fotoBytes;
       _fotoUrl = p.fotoUrl;
     }
+    // Carrega o catálogo do servidor (com fallback client-side já em
+    // TIPOS_RELACIONAMENTO_INICIAIS).
+    PessoaRelacionamentoService.instance
+        .listarTipos()
+        .then((tipos) {
+      if (mounted) {
+        setState(() {
+          _tipos = tipos.isNotEmpty ? tipos : TIPOS_RELACIONAMENTO_INICIAIS;
+        });
+      }
+    });
   }
 
   @override
@@ -378,21 +397,39 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  // Sprint L — seleção de relação com tipo estável.
+                  // A UI mostra o rótulo humano (`rotuloA`), o app grava
+                  // o id (`'PAI'`, `'IRMAO'`, `'CONJUGE'`, etc.) e mantém
+                  // o `parentesco` legado para compatibilidade.
                   DropdownButtonFormField<String>(
-                    initialValue: _parentesco,
+                    initialValue: _tipoId,
                     decoration: const InputDecoration(
-                      labelText: 'Parentesco',
+                      labelText: 'Relação com você',
                       prefixIcon: Icon(Icons.family_restroom_outlined),
                     ),
-                    items: parentescos
-                        .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                    items: _tipos
+                        .map((t) => DropdownMenuItem(
+                              value: t.id,
+                              child: Text(t.rotuloA),
+                            ))
                         .toList(),
                     onChanged: (valor) {
-                      if (valor != null) setState(() => _parentesco = valor);
+                      if (valor != null) {
+                        setState(() {
+                          _tipoId = valor;
+                          // Atualiza o `parentesco` legado para o rótulo
+                          // humano do tipo (compatibilidade).
+                          final t = _tipos.firstWhere(
+                            (x) => x.id == valor,
+                            orElse: () => _tipos.last,
+                          );
+                          _parentesco = t.rotuloA;
+                        });
+                      }
                     },
                     validator: (valor) {
                       if (valor == null || valor.isEmpty) {
-                        return 'Selecione o parentesco.';
+                        return 'Selecione a relação.';
                       }
                       return null;
                     },

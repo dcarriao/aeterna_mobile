@@ -5,9 +5,12 @@ import '../models/memoria.dart';
 import '../models/memorial.dart';
 import '../models/pessoa.dart';
 import '../models/pessoa_linha_tempo.dart';
+import '../models/pessoa_relacionamento.dart';
+import '../services/pessoa_relacionamento_service.dart';
 import '../services/pessoa_timeline_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
+import 'adicionar_relacionamento_screen.dart';
 import 'memorial_detalhe_screen.dart';
 import 'nova_memoria_screen.dart';
 import 'nova_pessoa_screen.dart';
@@ -45,6 +48,10 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     totalMemorias: 0, totalFotos: 0, totalVideos: 0, totalContribuicoes: 0);
   List<PessoaTimelineEvento> _eventos = const [];
   MemorialResumo? _memorialVinculado;
+
+  // Sprint L — Família (grafo pessoa-pessoa)
+  List<OutraPessoaNaFamilia> _familia = const [];
+  bool _carregandoFamilia = true;
   bool _carregandoEventos = true;
 
   @override
@@ -89,12 +96,16 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     final eventos = await PessoaTimelineService.instance.obterLinhaDoTempo(widget.pessoa.id);
     final memorial =
         await PessoaTimelineService.instance.obterMemorialDaPessoa(widget.pessoa.id);
+    final familia =
+        await PessoaRelacionamentoService.instance.listarRelacionamentos(widget.pessoa.id);
     if (mounted) {
       setState(() {
         _stats = stats;
         _eventos = eventos;
         _memorialVinculado = memorial;
+        _familia = familia;
         _carregandoEventos = false;
+        _carregandoFamilia = false;
       });
     }
   }
@@ -326,6 +337,10 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                         const SizedBox(height: 20),
                         _buildSecaoMemorial(),
 
+                        // ── SPRINT L — FAMÍLIA (grafo pessoa-pessoa) ──
+                        const SizedBox(height: 28),
+                        _buildSecaoFamilia(),
+
                         // ── LINHA DO TEMPO DA PESSOA ──
                         const SizedBox(height: 28),
                         _buildSecaoLinhaDoTempo(),
@@ -495,6 +510,268 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
         style: TextStyle(fontWeight: FontWeight.w700),
       ),
     );
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SPRINT L — FAMÍLIA (grafo pessoa-pessoa)
+  // ════════════════════════════════════════════════════════════════════════
+  Widget _buildSecaoFamilia() {
+    if (_carregandoFamilia) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.roxo),
+          ),
+        ),
+      );
+    }
+    if (_familia.isEmpty) {
+      return _vazioFamilia();
+    }
+    // Agrupa por tipo (família / afinidade / conjugue / amizade / outro).
+    final grupos = <String, List<OutraPessoaNaFamilia>>{};
+    for (final f in _familia) {
+      final cat = _categoriaParaTipo(f.tipo);
+      grupos.putIfAbsent(cat, () => []).add(f);
+    }
+    const ordem = ['Família', 'Cônjuges', 'Afinidade', 'Amizades', 'Outros'];
+    final categorias = ordem
+        .where(grupos.containsKey)
+        .toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: const [
+            Icon(Icons.diversity_3, color: AppColors.dourado, size: 20),
+            SizedBox(width: 8),
+            Text(
+              'Família',
+              style: TextStyle(
+                color: AppColors.roxo,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'O lugar desta pessoa na sua história.',
+          style: TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
+        ),
+        const SizedBox(height: 16),
+        ...categorias.expand((cat) {
+          return [
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 8),
+              child: Text(
+                cat,
+                style: const TextStyle(
+                  color: AppColors.dourado,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ),
+            ...grupos[cat]!.map((f) => _buildCardRelacionamento(f)),
+            const SizedBox(height: 8),
+          ];
+        }),
+        const SizedBox(height: 4),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: _abrirAdicionarRelacionamento,
+            icon: const Icon(Icons.add, size: 16),
+            label: const Text(
+              'Adicionar relação',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _vazioFamilia() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.borda),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.diversity_3, color: AppColors.dourado, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Família',
+                style: TextStyle(
+                  color: AppColors.roxo,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Esta pessoa ainda não tem relações na sua família. '
+            'Conecte-a a quem vive junto com ela para começar a construir o grafo familiar.',
+            style: TextStyle(
+              color: Color(0xFF7A7280),
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: _abrirAdicionarRelacionamento,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.roxo,
+                foregroundColor: Colors.white,
+                visualDensity: VisualDensity.compact,
+              ),
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text(
+                'Adicionar primeira relação',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardRelacionamento(OutraPessoaNaFamilia f) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.borda),
+      ),
+      child: Row(
+        children: [
+          const CircleAvatar(
+            radius: 16,
+            backgroundColor: Color(0xFFF0EAF5),
+            child: Icon(Icons.person, size: 16, color: AppColors.roxo),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  f.outraPessoaNome.isEmpty
+                      ? 'Outra pessoa'
+                      : f.outraPessoaNome,
+                  style: const TextStyle(
+                    color: AppColors.roxo,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${f.rotuloDaOutraParaMim} de você · você é ${f.rotuloDeMimParaAOutra} desta pessoa',
+                  style: const TextStyle(
+                    color: Color(0xFF7A7280),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Color(0xFF9B949D), size: 18),
+            onSelected: (acao) async {
+              if (acao == 'remover') {
+                await PessoaRelacionamentoService.instance.deletar(f.relacionamentoId);
+                if (mounted) {
+                  setState(() {
+                    _familia = _familia.where((x) => x.relacionamentoId != f.relacionamentoId).toList();
+                  });
+                }
+              } else if (acao == 'inativar') {
+                await PessoaRelacionamentoService.instance.inativar(f.relacionamentoId);
+                if (mounted) {
+                  setState(() {
+                    _familia = _familia.where((x) => x.relacionamentoId != f.relacionamentoId).toList();
+                  });
+                }
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'inativar',
+                child: Text('Marcar como inativo'),
+              ),
+              PopupMenuItem(
+                value: 'remover',
+                child: Text('Remover', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _categoriaParaTipo(String tipo) {
+    switch (tipo) {
+      case 'CONJUGE':
+      case 'COMPANHEIRO':
+        return 'Cônjuges';
+      case 'PADRINHO':
+      case 'MADRINHA':
+      case 'AFILHADO':
+        return 'Afinidade';
+      case 'AMIGO':
+        return 'Amizades';
+      case 'OUTRO':
+        return 'Outros';
+      default:
+        return 'Família';
+    }
+  }
+
+  Future<void> _abrirAdicionarRelacionamento() async {
+    final pessoa = _pessoa ?? widget.pessoa;
+    if (pessoa.id == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AdicionarRelacionamentoScreen(
+          pessoaOrigemId: pessoa.id!,
+          pessoaOrigemNome: pessoa.nome,
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() => _carregandoFamilia = true);
+      final f = await PessoaRelacionamentoService.instance
+          .listarRelacionamentos(pessoa.id!);
+      if (mounted) {
+        setState(() {
+          _familia = f;
+          _carregandoFamilia = false;
+        });
+      }
+    }
   }
 
   Widget _buildSecaoLinhaDoTempo() {
