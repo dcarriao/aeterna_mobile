@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../curador/perguntas.dart';
+import '../models/curador_resposta_ia.dart';
+import '../models/curador_sessao.dart' show CuradorMensagemTipo;
 
 class LegacyCuratorService {
   LegacyCuratorService._();
@@ -412,6 +414,172 @@ class LegacyCuratorService {
         'descricao': (json['descricao'] as String?) ?? '',
         'categoria': (json['categoria'] as String?) ?? 'momentos',
       };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SPRINT J — CURADOR CONTEXTUAL: próxima pergunta adaptativa
+  // ════════════════════════════════════════════════════════════════════════
+  //
+  // Diferente dos métodos anteriores (`gerarPerguntas`/`gerarPerguntas
+  // Contextuais`) que geram um LOTE de perguntas fixas de uma só vez,
+  // este método recebe o HISTÓRICO COMPLETO da conversa e devolve
+  // APENAS a PRÓXIMA pergunta, totalmente contextualizada.
+  //
+  // Características:
+  //   - Lê todas as mensagens anteriores e lembra do que o usuário já
+  //     disse (pessoas, lugares, datas, sentimentos).
+  //   - Adapta a próxima pergunta em função da última resposta.
+  //   - Pode sinalizar finalização quando entender que já tem material
+  //     suficiente.
+  //   - 1 chamada da OpenAI por turno (decidido com o usuário).
+  //   - Modelo: gpt-4o-mini (default `_model`).
+  //
+  // Retorna um `CuradorRespostaIA` com a pergunta sugerida + flag
+  // `deveEncerrar` (caso a IA sinalize "já temos material suficiente").
+  Future<CuradorRespostaIA?> proximaPerguntaAdaptativa({
+    required String contextoInicial,
+    String? titulo,
+    DateTime? dataMemoria,
+    String? categoria,
+    List<Map<String, String>> pessoas = const [],
+    required List<CuradorMensagemDTO> historico,
+  }) async {
+    if (!isConfigured) return null;
+
+    // Monta o prompt de sistema REESCRITO para o modo contextual.
+    // Diferente do `_systemPrompt` original, este é explícito sobre:
+    //   - não repetir perguntas
+    //   - usar histórico
+    //   - quando encerrar
+    const sysPrompt =
+        'Você é a Curadora de Memórias da aEterna. '
+        'Seu papel é conduzir uma conversa gentil e calorosa para preservar '
+        'uma história de família. '
+        'Você NÃO é psicóloga, terapeuta, coach ou chatbot corporativo. '
+        'Você é como uma pessoa da família que genuinamente se importa em '
+        'preservar o que o usuário viveu. '
+        '\n\n'
+        'REGRAS OBRIGATÓRIAS (quebre qualquer outra para obedecê-las): '
+        '1. NUNCA repita uma pergunta já feita — leia todo o histórico antes '
+        'de perguntar. '
+        '2. NUNCA pergunte algo que o usuário já disse explicitamente '
+        '(pessoas presentes, local, data, etc.). '
+        '3. Use o histórico para aprofundar a conversa de forma natural — '
+        'pergunte sobre o que ele disse, não sobre o que você acha '
+        'relevante. '
+        '4. Mantenha a conversa curta (3-8 minutos no total) — após '
+        'aproximadamente 4-6 perguntas substanciais, considere encerrar. '
+        '5. Quando achar que tem material suficiente, pergunte '
+        'explicitamente: "Acho que já conseguimos preservar muito bem essa '
+        'lembrança. Gostaria de acrescentar mais algum detalhe?" '
+        '6. Suas perguntas devem ser curtas (uma linha), acolhedoras e '
+        'nunca prolixas. '
+        '7. Respeite o limite: objetivo 3-8 minutos total, então NUNCA '
+        'gere mais do que 8 perguntas. '
+        '8. Quando o usuário disser "não" à pergunta de encerramento, '
+        'finalize com uma despedida gentil (1 linha) e devolva o '
+        'sinal de finalização. '
+        '\n\n'
+        'FORMATO DE RESPOSTA (responda EXATAMENTE assim, nada mais): '
+        'PERGUNTA: <sua próxima pergunta aqui> '
+        'ENCERRAR: <sim/não> '
+        '\n\n'
+        'Exemplo: '
+        'PERGUNTA: Esse lugar tinha algum cheiro ou som que ficou na sua memória? '
+        'ENCERRAR: não ';
+
+    final messages = <Map<String, String>>[
+      {'role': 'system', 'content': sysPrompt},
+    ];
+
+    // Mensagem de sistema adicional com metadados estruturados.
+    final meta = StringBuffer();
+    if (titulo != null && titulo.isNotEmpty) {
+      meta.writeln('Título: "$titulo"');
+    }
+    meta.writeln('Memória inicial:');
+    meta.writeln(contextoInicial);
+    meta.writeln();
+    if (categoria != null) {
+      meta.writeln('Categoria: $categoria');
+    }
+    if (dataMemoria != null) {
+      final dataStr = '${dataMemoria.day.toString().padLeft(2, '0')}/${dataMemoria.month.toString().padLeft(2, '0')}/${dataMemoria.year}';
+      meta.writeln('Data já cadastrada: $dataStr');
+      meta.writeln('RECO: NUNCA pergunte a data do evento.');
+    }
+    if (pessoas.isNotEmpty) {
+      meta.writeln('Pessoas já cadastradas:');
+      for (final p in pessoas) {
+        meta.writeln('- ${p["nome"]} (${p["parentesco"]})');
+      }
+      meta.writeln('RECO: NUNCA pergunte quem participou ou os nomes dessas pessoas.');
+    }
+    if (meta.isNotEmpty) {
+      messages.add({
+        'role': 'system',
+        'content': meta.toString(),
+      });
+    }
+
+    // Adiciona todo o histórico (filtrando mensagens do tipo
+    // `finalizacao`/`fechamento` que são meta-instruções, não fala real).
+    for (final m in historico) {
+      // Mensagens de finalizacao/fechamento são UI-only, não devem
+      // ser enviadas ao LLM.
+      if (m.tipo == CuradorMensagemTipo.finalizacao.name ||
+          m.tipo == CuradorMensagemTipo.fechamento.name) {
+        continue;
+      }
+      messages.add({'role': m.role, 'content': m.conteudo});
+    }
+
+    try {
+      final response = await http
+          .post(
+            Uri.parse(_baseUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $_apiKey',
+            },
+            body: jsonEncode({
+              'model': _model,
+              'messages': messages,
+              'temperature': 0.7,
+              'max_tokens': 200,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode != 200) return null;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final choices = data['choices'] as List<dynamic>;
+      if (choices.isEmpty) return null;
+      final texto = choices[0]['message']['content'] as String;
+
+      // Parse do formato "PERGUNTA: ... \n ENCERRAR: sim/não"
+      String pergunta = texto.trim();
+      bool deveEncerrar = false;
+      final encerrarMatch = RegExp(r'ENCERRAR:\s*(sim|não|nao)', caseSensitive: false).firstMatch(texto);
+      if (encerrarMatch != null) {
+        deveEncerrar = encerrarMatch.group(1)!.toLowerCase().startsWith('sim');
+        // Remove o "ENCERRAR: ..." da pergunta
+        pergunta = texto
+            .replaceAll(RegExp(r'ENCERRAR:.*', caseSensitive: false), '')
+            .replaceAll(RegExp(r'PERGUNTA:', caseSensitive: false), '')
+            .trim();
+      }
+      // Limpa prefixos comuns
+      pergunta = pergunta
+          .replaceAll(RegExp(r'^\d+[\.\)]\s*'), '')
+          .replaceAll(RegExp(r'^(PERGUNTA:|ENCERRAR:)\s*', caseSensitive: false), '')
+          .trim();
+
+      if (pergunta.isEmpty) return null;
+      return CuradorRespostaIA(pergunta: pergunta, deveEncerrar: deveEncerrar);
     } catch (_) {
       return null;
     }

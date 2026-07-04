@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../models/contribuicao.dart';
+import '../models/curador_sessao.dart';
 import '../models/memoria.dart';
 import '../models/detected_moment.dart';
 import '../models/pessoa.dart';
 import '../models/pessoa_linha_tempo.dart';
-import '../services/curator_decision_log_service.dart';
-import '../services/curator_invitation_scoring_service.dart';
+import '../services/curador_decision_log_service.dart';
+import '../services/curador_invitation_scoring_service.dart';
+import '../services/curador_sessao_service.dart';
 import '../services/memory_growth_invitation_service.dart';
 import '../services/memory_growth_scoring_service.dart';
 import '../services/moment_detection_service.dart';
@@ -14,6 +16,7 @@ import '../services/pessoa_timeline_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/memory_card.dart';
+import '../widgets/home/curador_continuar_card.dart';
 import '../widgets/home/detected_moment_card.dart';
 import '../widgets/home/memoria_pode_crescer_card.dart';
 import 'curador_screen.dart';
@@ -55,12 +58,16 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _carregandoSugestoes = false;
   bool _esconderBanner = false;
 
-  // Sprint H — Pessoas Vivas Recentemente
+  // Sprint H â€” Pessoas Vivas Recentemente
   List<PessoaVivaResumo> _pessoasVivas = const [];
 
-  // Sprint I — Memórias que podem crescer
+  // Sprint I â€” MemÃ³rias que podem crescer
   List<MemoriaComScore> _memoriasQuePodemCrescer = const [];
   bool _carregandoCrescer = true;
+
+  // Sprint J â€” SessÃ£o ativa do Curador Contextual
+  CuradorSessao? _sessaoCuradorAtiva;
+  bool _carregandoSessaoCurador = true;
 
   @override
   void initState() {
@@ -68,6 +75,17 @@ class _HomeScreenState extends State<HomeScreen> {
     _carregarSugestoes();
     _carregarPessoasVivas();
     _carregarMemoriasQuePodemCrescer();
+    _carregarSessaoCurador();
+  }
+
+  Future<void> _carregarSessaoCurador() async {
+    final s = await CuradorSessaoService.instance.obterSessaoAtiva();
+    if (mounted) {
+      setState(() {
+        _sessaoCuradorAtiva = s;
+        _carregandoSessaoCurador = false;
+      });
+    }
   }
 
   Future<void> _carregarPessoasVivas() async {
@@ -94,10 +112,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) _carregarMemoriasQuePodemCrescer();
   }
 
-  // SPRINT F — Sensibilidade dos Convites do Curador: só momentos com score
+  // SPRINT F â€” Sensibilidade dos Convites do Curador: sÃ³ momentos com score
   // >= CuratorScoringWeights.minimumInvitationScore aparecem como convite
-  // principal (banner/card). Momentos com score baixo são descartados nesta
-  // sprint (não há área secundária ainda).
+  // principal (banner/card). Momentos com score baixo sÃ£o descartados nesta
+  // sprint (nÃ£o hÃ¡ Ã¡rea secundÃ¡ria ainda).
   Future<void> _carregarSugestoes() async {
     if (mounted) setState(() => _carregandoSugestoes = true);
     final todos = await MomentDetectionService.instance.obterMomentosDetectados();
@@ -215,13 +233,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
 
+                // Sprint J â€” SessÃ£o ativa do Curador Contextual
+                if (_sessaoCuradorAtiva != null) ...[
+                  const SizedBox(height: 16),
+                  CuradorContinuarCard(
+                    sessao: _sessaoCuradorAtiva!,
+                    onContinuar: () => _retomarSessaoCurador(),
+                    onDescartar: () => _descartarSessaoCurador(),
+                  ),
+                ],
+
                 // Banner de Convite do Curador (Sprint D)
                 if (!_carregandoSugestoes && !_esconderBanner && _sugestoes.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   _buildBannerConvite(_sugestoes.first),
                 ],
                 
-                // Card de Sugestões de Mídia Proativas
+                // Card de SugestÃµes de MÃ­dia Proativas
                 if (!_carregandoSugestoes && _sugestoes.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   DetectedMomentCard(
@@ -230,7 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
 
-                // SPRINT H — Pessoas Vivas Recentemente
+                // SPRINT H â€” Pessoas Vivas Recentemente
                 if (_pessoasVivas.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   const Padding(
@@ -247,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Padding(
                     padding: EdgeInsets.only(left: 4, bottom: 12),
                     child: Text(
-                      'As pessoas da sua família que apareceram em memórias ou ganharam novas lembranças recentemente.',
+                      'As pessoas da sua famÃ­lia que apareceram em memÃ³rias ou ganharam novas lembranÃ§as recentemente.',
                       style: TextStyle(
                         color: Color(0xFF7A7280),
                         fontSize: 13,
@@ -258,13 +286,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   ..._pessoasVivas.take(4).map((p) => _buildCardPessoaViva(p)),
                 ],
 
-                // SPRINT I — Memórias que podem crescer
+                // SPRINT I â€” MemÃ³rias que podem crescer
                 if (_memoriasQuePodemCrescer.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   const Padding(
                     padding: EdgeInsets.only(left: 4, bottom: 8),
                     child: Text(
-                      'Memórias que podem crescer',
+                      'MemÃ³rias que podem crescer',
                       style: TextStyle(
                         color: AppColors.roxo,
                         fontSize: 18,
@@ -275,7 +303,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Padding(
                     padding: EdgeInsets.only(left: 4, bottom: 12),
                     child: Text(
-                      'O Curador percebeu que estas histórias podem ficar ainda mais ricas com novas contribuições.',
+                      'O Curador percebeu que estas histÃ³rias podem ficar ainda mais ricas com novas contribuiÃ§Ãµes.',
                       style: TextStyle(
                         color: Color(0xFF7A7280),
                         fontSize: 13,
@@ -305,7 +333,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Suas memórias',
+                          const Text('Suas memÃ³rias',
                               style: TextStyle(
                                   color: AppColors.roxo,
                                   fontSize: 26,
@@ -337,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             fontSize: 14, fontWeight: FontWeight.w700),
                       ),
                       icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Nova memória'),
+                      label: const Text('Nova memÃ³ria'),
                     ),
                   ],
                 ),
@@ -361,7 +389,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         alignment: Alignment.centerRight,
                         child: TextButton.icon(
                           onPressed: widget.onMinhaHistoria,
-                          icon: const Text('Ver todas as memórias',
+                          icon: const Text('Ver todas as memÃ³rias',
                               style: TextStyle(
                                   color: AppColors.roxo,
                                   fontWeight: FontWeight.w600)),
@@ -430,7 +458,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(width: 8),
               Text(
-                '${hasVideos ? 'Vídeo' : 'Foto'} registrado $diaStr às $horaStr',
+                '${hasVideos ? 'VÃ­deo' : 'Foto'} registrado $diaStr Ã s $horaStr',
                 style: const TextStyle(
                   color: AppColors.roxo,
                   fontSize: 13,
@@ -454,7 +482,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: TextButton.styleFrom(
                   foregroundColor: const Color(0xFF7A7280),
                 ),
-                child: const Text('Agora não', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: const Text('Agora nÃ£o', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
               const SizedBox(width: 12),
               FilledButton(
@@ -466,7 +494,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                child: const Text('Criar memória', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: const Text('Criar memÃ³ria', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ],
           ),
@@ -475,7 +503,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Sprint H — Card de "Pessoa Viva" na Home
+  // Sprint H â€” Card de "Pessoa Viva" na Home
   Widget _buildCardPessoaViva(PessoaVivaResumo p) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -527,8 +555,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Última memória ${p.ultimaInteracaoHumana}'
-                        '${p.totalEventos > 0 ? ' · ${p.totalEventos} ${p.totalEventos == 1 ? "registro" : "registros"}' : ''}',
+                        'Ãšltima memÃ³ria ${p.ultimaInteracaoHumana}'
+                        '${p.totalEventos > 0 ? ' Â· ${p.totalEventos} ${p.totalEventos == 1 ? "registro" : "registros"}' : ''}',
                         style: const TextStyle(
                           color: Color(0xFF7A7280),
                           fontSize: 12,
@@ -547,7 +575,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _abrirPessoa(PessoaVivaResumo resumo) async {
-    // Carrega o Pessoa completo do banco (precisa do `p.id` real, não
+    // Carrega o Pessoa completo do banco (precisa do `p.id` real, nÃ£o
     // do `id` local do construtor).
     final todas = await PessoaRepository.listar();
     if (!mounted) return;
@@ -563,10 +591,10 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => PessoaDetalheScreen(
           pessoa: pessoa,
           onAbrirMemoria: (id) {
-            // A Home não tem callback direto para abrir uma memória;
-            // apenas volta para que a navegação existente (main.dart)
-            // seja usada. Solução prática: usar widget.onAbrirMemoria.
-            // Como esse callback não está no HomeScreen, delegamos
+            // A Home nÃ£o tem callback direto para abrir uma memÃ³ria;
+            // apenas volta para que a navegaÃ§Ã£o existente (main.dart)
+            // seja usada. SoluÃ§Ã£o prÃ¡tica: usar widget.onAbrirMemoria.
+            // Como esse callback nÃ£o estÃ¡ no HomeScreen, delegamos
             // para a main via Navigator.
             Navigator.of(context).pop();
           },
@@ -576,11 +604,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) _carregarPessoasVivas();
   }
 
-  // Sprint I — Abre a CuradorScreen em modo "complemento" para a
-  // memória selecionada. Ao voltar com um `CuradorResultado`, o texto
-  // enriquecido vira uma contribuição (NÃO sobrescreve a memória).
+  // Sprint I â€” Abre a CuradorScreen em modo "complemento" para a
+  // memÃ³ria selecionada. Ao voltar com um `CuradorResultado`, o texto
+  // enriquecido vira uma contribuiÃ§Ã£o (NÃƒO sobrescreve a memÃ³ria).
   Future<void> _abrirCuradorComplemento(MemoriaComScore item) async {
-    // Carrega a memória completa (precisa do `id` real + contexto)
+    // Carrega a memÃ³ria completa (precisa do `id` real + contexto)
     // a partir de widget.memorias (passado pela main.dart).
     final m = widget.memorias.firstWhere(
       (mm) => mm.id == item.memoria.memoriaId,
@@ -593,11 +621,11 @@ class _HomeScreenState extends State<HomeScreen> {
           titulo: m.titulo,
           contextoOriginal: m.contexto,
           isProativo: false,
-          // Sprint I: modo "complemento" — a CuradorScreen sabe que deve
-          // carregar a memória do banco (contribuições, pessoas) e
-          // oferecer a primeira pergunta "você gostaria de complementar
-          // esta história ou registrar um novo capítulo?". O retorno
-          // é tratado como CONTRIBUIÇÃO, não como reescrita.
+          // Sprint I: modo "complemento" â€” a CuradorScreen sabe que deve
+          // carregar a memÃ³ria do banco (contribuiÃ§Ãµes, pessoas) e
+          // oferecer a primeira pergunta "vocÃª gostaria de complementar
+          // esta histÃ³ria ou registrar um novo capÃ­tulo?". O retorno
+          // Ã© tratado como CONTRIBUIÃ‡ÃƒO, nÃ£o como reescrita.
           complementoMemoriaId: m.id,
         ),
       ),
@@ -614,14 +642,14 @@ class _HomeScreenState extends State<HomeScreen> {
         usuarioContribuidorNome: _meuNomeCurador,
         tipoContribuicao: 'texto',
         texto: texto,
-        status: 'aprovado', // dono é quem está criando
+        status: 'aprovado', // dono Ã© quem estÃ¡ criando
         createdAt: DateTime.now(),
       );
       await SupabaseService.instance.salvarContribuicao(contrib);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Complemento adicionado à história.'),
+            content: Text('Complemento adicionado Ã  histÃ³ria.'),
           ),
         );
         _carregarMemoriasQuePodemCrescer();
@@ -637,12 +665,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String get _meuNomeCurador {
     final user = SupabaseService.instance;
-    // O nome é resolvido na contribuição via PessoaRepository.obterUsuario();
-    // aqui devolvemos um placeholder caso ainda não tenha sido carregado.
+    // O nome Ã© resolvido na contribuiÃ§Ã£o via PessoaRepository.obterUsuario();
+    // aqui devolvemos um placeholder caso ainda nÃ£o tenha sido carregado.
     return 'Eu';
   }
 
-  /// Helper para o callback de abrir memória a partir de cards da
+  /// Helper para o callback de abrir memÃ³ria a partir de cards da
   /// Home (que recebem apenas o id).
   Memoria _resolveMemoria(int id) {
     return widget.memorias.firstWhere(
@@ -656,6 +684,57 @@ class _HomeScreenState extends State<HomeScreen> {
               criadaEm: DateTime.now(),
             ),
     );
+  }
+
+  // Sprint J â€” Continuar / descartar sessÃ£o ativa do Curador
+  Future<void> _retomarSessaoCurador() async {
+    final s = _sessaoCuradorAtiva;
+    if (s == null) return;
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => CuradorScreen(
+          titulo: s.titulo ?? '',
+          contextoOriginal: s.contextoInicial,
+          isProativo: false,
+          complementoMemoriaId: s.memoriaId,
+          sessaoParaRetomar: s,
+        ),
+      ),
+    );
+    _carregarSessaoCurador();
+  }
+
+  Future<void> _descartarSessaoCurador() async {
+    final s = _sessaoCuradorAtiva;
+    if (s == null) return;
+    final confirmou = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text('Descartar conversa?',
+            style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.bold)),
+        content: const Text(
+          'A conversa atual do Curador serÃ¡ apagada. VocÃª pode comeÃ§ar uma nova quando quiser.',
+          style: TextStyle(color: Color(0xFF625B67), fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar',
+                style: TextStyle(color: Color(0xFF7A7280))),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Descartar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmou == true) {
+      await CuradorSessaoService.instance.cancelarSessao(s.id!);
+      _carregarSessaoCurador();
+    }
   }
 }
 
@@ -720,7 +799,7 @@ class _EstadoVazio extends StatelessWidget {
                 size: 32, color: AppColors.dourado),
           ),
           const SizedBox(height: 20),
-          const Text('Sua história começa aqui',
+          const Text('Sua histÃ³ria comeÃ§a aqui',
               textAlign: TextAlign.center,
               style: TextStyle(
                   color: AppColors.roxo,
@@ -728,7 +807,7 @@ class _EstadoVazio extends StatelessWidget {
                   fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           const Text(
-            'Registre sua primeira memória e comece a preservar\nmomentos importantes para sua família.',
+            'Registre sua primeira memÃ³ria e comece a preservar\nmomentos importantes para sua famÃ­lia.',
             textAlign: TextAlign.center,
             style:
                 TextStyle(color: Color(0xFF7A7280), fontSize: 14, height: 1.5),
@@ -747,7 +826,7 @@ class _EstadoVazio extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14)),
             ),
             icon: const Icon(Icons.add_a_photo_outlined, size: 18),
-            label: const Text('Criar primeira memória'),
+            label: const Text('Criar primeira memÃ³ria'),
           ),
         ],
       ),

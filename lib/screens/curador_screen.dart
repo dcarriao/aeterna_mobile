@@ -2,20 +2,35 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../models/contribuicao.dart';
+import '../models/curador_resposta_ia.dart';
+import '../models/curador_sessao.dart';
 import '../models/detected_moment.dart';
 import '../models/pending_memory.dart';
 import '../models/pessoa.dart';
 import '../curador/perguntas.dart';
+import '../services/curador_sessao_service.dart';
 import '../services/legacy_curator_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 
+/// Sprint J — Resultado do Curador devolvido à `NovaMemoriaScreen`.
+/// Inclui o contexto consolidado e a sessão persistida (para que
+/// a Home possa oferecer "continuar conversa" se o usuário
+/// descartar sem salvar).
 class CuradorResultado {
-  const CuradorResultado({required this.contextoEnriquecido});
+  const CuradorResultado({
+    required this.contextoEnriquecido,
+    this.sessaoId,
+  });
 
   final String contextoEnriquecido;
+  final int? sessaoId;
 }
 
+/// Curador Contextual — Sprint J. Conversa com memória de contexto
+/// (histórico completo enviado à OpenAI), persistida entre
+/// fechamentos de app, e que termina naturalmente quando a IA sinaliza
+/// "já temos material suficiente".
 class CuradorScreen extends StatefulWidget {
   const CuradorScreen({
     required this.titulo,
@@ -31,6 +46,7 @@ class CuradorScreen extends StatefulWidget {
     this.pendingMemory,
     this.detectedMoment,
     this.complementoMemoriaId,
+    this.sessaoParaRetomar, // Sprint J: se já existe sessão, retoma
     super.key,
   });
 
@@ -49,32 +65,37 @@ class CuradorScreen extends StatefulWidget {
 
   /// Sprint I — Modo Complemento. Quando fornecido, a CuradorScreen
   /// entra em um modo especial: carrega a memória existente
-  /// (contribuições, pessoas vinculadas) e oferece a primeira
-  /// pergunta "você gostaria de complementar esta história ou
-  /// registrar um novo capítulo?". O resultado devolvido
-  /// ([CuradorResultado.contextoEnriquecido]) é o COMPLEMENTO
-  /// a ser enviado como contribuição (não sobrescreve a memória
-  /// original).
+  /// (contribuições, pessoas vinculadas).
   final int? complementoMemoriaId;
+
+  /// Sprint J — Se fornecido, a CuradorScreen retoma a conversa
+  /// exatamente de onde parou (carrega todas as mensagens do
+  /// histórico e continua a partir da próxima pergunta da IA).
+  final CuradorSessao? sessaoParaRetomar;
 
   @override
   State<CuradorScreen> createState() => _CuradorScreenState();
 }
 
 class _CuradorScreenState extends State<CuradorScreen> {
-  late final List<PerguntaCurador> _perguntas;
-  final _respostas = <String, String>{};
+  final _sessaoService = CuradorSessaoService.instance;
+  final _legacyService = LegacyCuratorService.instance;
+  final _supabaseService = SupabaseService.instance;
   final _controller = TextEditingController();
-  int _indice = 0;
-  bool _mostrandoPreview = false;
-  bool _carregandoPerguntas = true;
-  bool _iniciouConversa = true;
-  AnaliseLegado? _analiseLegado;
-  String? _narrativa;
 
-  // Sprint I — Modo Complemento: contexto carregado da memória existente.
-  String _contextoOriginalMemoria = '';
-  List<Contribuicao> _contribuicoesExistentes = const [];
+  // Estado da conversa (Sprint J)
+  int? _sessaoId;
+  final List<CuradorMensagem> _historico = []; // mensagens já trocadas
+  String _perguntaAtual = '';
+  bool _carregandoPergunta = false;
+  bool _iniciouConversa = true;
+  bool _deveEncerrar = false; // sinalizado pela IA
+  bool _solicitandoFinalizacao = false; // aguardando user aceitar
+  bool _concluiu = false; // user disse "não, pode encerrar"
+  String? _narrativa;
+  AnaliseLegado? _analiseLegado;
+
+  // Pessoas carregadas no modo complemento (Sprint I)
   int _contribuicoesAprovadasCount = 0;
   List<Map<String, String>>? _pessoasCarregadas;
   DateTime? _dataMemoriaCarregada;
@@ -84,53 +105,14 @@ class _CuradorScreenState extends State<CuradorScreen> {
   void initState() {
     super.initState();
     _iniciouConversa = widget.pendingMemory == null && widget.detectedMoment == null;
-    if (widget.complementoMemoriaId != null) {
+
+    if (widget.sessaoParaRetomar != null) {
+      _retomarSessao();
+    } else if (widget.complementoMemoriaId != null) {
       _carregarContextoComplemento();
     } else {
-      _carregarPerguntas();
+      _iniciarNovaSessao();
     }
-  }
-
-  // Sprint I — Carrega a memória existente + suas contribuições
-  // aprovadas para oferecer a primeira pergunta apropriada.
-  Future<void> _carregarContextoComplemento() async {
-    final id = widget.complementoMemoriaId!;
-    try {
-      final todasMemorias = await SupabaseService.instance.listarMemorias();
-      final m = todasMemorias.firstWhere(
-        (mm) => mm.id == id,
-        orElse: () => todasMemorias.first,
-      );
-      _contextoOriginalMemoria = m.contexto;
-
-      // Carrega contribuições aprovadas (Sprint G)
-      final contribs = await SupabaseService.instance
-          .listarContribuicoesDaMemoria(id, apenasAprovadas: true);
-      _contribuicoesExistentes = contribs;
-      _contribuicoesAprovadasCount = contribs.length;
-
-      // Carrega pessoas vinculadas (apenas para popular o prompt — não
-      // sobrescreve o que o caller já tenha passado)
-      final ids = await PessoaRepository.obterPessoasDaMemoria(id);
-      final todasPessoas = await PessoaRepository.listar();
-      final pessoas = todasPessoas
-          .where((p) => ids.contains(p.id))
-          .map((p) => {'nome': p.nome, 'parentesco': p.parentesco})
-          .toList();
-      if (!mounted) return;
-      setState(() {
-        // Como widget.* são `final`, só setamos se ainda não tiverem
-        // valor (o caller pode já ter passado explicitamente).
-        if (widget.pessoas == null) {
-          _pessoasCarregadas = pessoas;
-        }
-        if (widget.dataMemoria == null) _dataMemoriaCarregada = m.dataMemoria;
-        if (widget.categoria == null) _categoriaCarregada = m.categoria;
-      });
-    } catch (e) {
-      print('[CuradorScreen] carregarContextoComplemento ERRO: $e');
-    }
-    _carregarPerguntas();
   }
 
   @override
@@ -139,259 +121,320 @@ class _CuradorScreenState extends State<CuradorScreen> {
     super.dispose();
   }
 
-  Future<void> _carregarPerguntas() async {
+  // ════════════════════════════════════════════════════════════════════════
+  // Sprint J — Iniciar / retomar sessão
+  // ════════════════════════════════════════════════════════════════════════
+
+  Future<void> _retomarSessao() async {
+    final sessao = widget.sessaoParaRetomar!;
+    if (sessao.id == null) {
+      _iniciarNovaSessao();
+      return;
+    }
+    setState(() {
+      _sessaoId = sessao.id;
+      _carregandoPergunta = true;
+    });
+    final mensagens = await _sessaoService.listarMensagens(sessao.id!);
+
+    // Pega a última pergunta do assistente (a próxima a exibir).
+    String? ultimaPergunta;
+    for (var i = mensagens.length - 1; i >= 0; i--) {
+      if (mensagens[i].role == CuradorMensagemRole.assistant) {
+        ultimaPergunta = mensagens[i].conteudo;
+        break;
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _historico.addAll(mensagens);
+      _perguntaAtual = ultimaPergunta ?? '';
+      _carregandoPergunta = false;
+    });
+  }
+
+  Future<void> _iniciarNovaSessao() async {
+    setState(() {
+      _carregandoPergunta = true;
+      _iniciouConversa = false; // mostra tela de proposta primeiro
+    });
+  }
+
+  Future<void> _comecarConversa() async {
+    setState(() {
+      _iniciouConversa = true;
+      _carregandoPergunta = true;
+    });
+    await _criarSessaoEGerarPrimeiraPergunta();
+  }
+
+  Future<void> _criarSessaoEGerarPrimeiraPergunta() async {
+    // Modo Complemento (Sprint I): contexto carregado primeiro
     if (widget.complementoMemoriaId != null) {
-      // Sprint I — Modo Complemento: pergunta inicial + perguntas
-      // adaptadas ao estado da memória.
-      setState(() {
-        _perguntas = [
-          const PerguntaCurador(
-            texto: 'Você gostaria de complementar esta história ou '
-                'registrar um novo capítulo?',
-            categoria: CategoriaPergunta.legado,
-          ),
-          PerguntaCurador(
-            texto: _contribuicoesAprovadasCount == 0
-                ? 'O que aconteceu desde a última vez que essa memória foi atualizada?'
-                : 'O que aconteceu desde a última contribuição registrada?',
-            categoria: CategoriaPergunta.factual,
-          ),
-          const PerguntaCurador(
-            texto: 'Existe algum detalhe novo que merece ser guardado '
-                '— uma foto, um lugar, uma conversa?',
-            categoria: CategoriaPergunta.emocional,
-          ),
-          const PerguntaCurador(
-            texto: 'O que você gostaria que as próximas gerações '
-                'lembrassem dessa história?',
-            categoria: CategoriaPergunta.legado,
-          ),
-        ];
-        _carregandoPerguntas = false;
-      });
-      return;
+      await _carregarContextoComplemento();
     }
-    if (widget.isProativo) {
-      if (LegacyCuratorService.instance.isConfigured) {
-        final dataStr = widget.dataMemoria != null
-            ? '${widget.dataMemoria!.year}-${widget.dataMemoria!.month.toString().padLeft(2, '0')}-${widget.dataMemoria!.day.toString().padLeft(2, '0')}'
-            : 'hoje';
-        final horaStr = widget.dataMemoria != null
-            ? '${widget.dataMemoria!.hour.toString().padLeft(2, '0')}:${widget.dataMemoria!.minute.toString().padLeft(2, '0')}'
-            : 'agora';
-            
-        final perguntasIA = await LegacyCuratorService.instance.gerarPerguntasContextuais(
-          tipo: widget.proativoMediaIsVideo ? 'video' : 'foto',
-          data: dataStr,
-          hora: horaStr,
-          quantidadeFotos: widget.proativoFotosCount,
-          quantidadeVideos: widget.proativoVideosCount,
-        );
-        
-        if (perguntasIA != null && perguntasIA.isNotEmpty && mounted) {
-          setState(() {
-            _perguntas = perguntasIA
-                .map((p) => PerguntaCurador(
-                      texto: p,
-                      categoria: CategoriaPergunta.legado,
-                    ))
-                .toList();
-            _carregandoPerguntas = false;
-          });
-          return;
-        }
-      }
 
+    final sessaoId = await _sessaoService.criarSessao(
+      titulo: widget.titulo,
+      contextoInicial: widget.contextoOriginal,
+      dataEvento: widget.dataMemoria ?? _dataMemoriaCarregada,
+      pessoas: widget.pessoas ?? _pessoasCarregadas ?? const [],
+      memoriaId: widget.complementoMemoriaId,
+    );
+    if (sessaoId == null) {
       if (mounted) {
-        setState(() {
-          _perguntas = [
-            const PerguntaCurador(texto: 'O que estava acontecendo?', categoria: CategoriaPergunta.factual),
-            const PerguntaCurador(texto: 'O que tornou esse momento especial?', categoria: CategoriaPergunta.emocional),
-            const PerguntaCurador(texto: 'Existe algum detalhe que uma foto não mostraria?', categoria: CategoriaPergunta.emocional),
-            const PerguntaCurador(texto: 'Qual lembrança ou valor você gostaria de preservar?', categoria: CategoriaPergunta.legado),
-          ];
-          _carregandoPerguntas = false;
-        });
+        setState(() => _carregandoPergunta = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Não foi possível iniciar a sessão do Curador.')),
+        );
       }
       return;
     }
+    if (!mounted) return;
+    setState(() {
+      _sessaoId = sessaoId;
+      _carregandoPergunta = true;
+    });
 
-    if (LegacyCuratorService.instance.isConfigured) {
-      final perguntasIA =
-          await LegacyCuratorService.instance.gerarPerguntas(
-        widget.contextoOriginal,
-        widget.titulo,
-        widget.pessoas ?? _pessoasCarregadas ?? [],
-        dataMemoria: widget.dataMemoria ?? _dataMemoriaCarregada,
-        categoria: widget.categoria ?? _categoriaCarregada,
+    // Adiciona a primeira mensagem do usuário (a memória inicial).
+    if (widget.contextoOriginal.trim().isNotEmpty) {
+      await _sessaoService.adicionarMensagem(
+        sessaoId: sessaoId,
+        role: CuradorMensagemRole.user,
+        conteudo: widget.contextoOriginal,
+        tipo: CuradorMensagemTipo.inicial,
       );
-      if (perguntasIA != null && perguntasIA.isNotEmpty) {
-        if (mounted) {
-          setState(() {
-            _perguntas = perguntasIA
-                .map((p) => PerguntaCurador(
-                      texto: p,
-                      categoria: CategoriaPergunta.legado,
-                    ))
-                .toList();
-            _carregandoPerguntas = false;
-          });
-        }
+      _historico.add(CuradorMensagem(
+        sessaoId: sessaoId,
+        role: CuradorMensagemRole.user,
+        conteudo: widget.contextoOriginal,
+        ordem: 1,
+        tipo: CuradorMensagemTipo.inicial,
+      ));
+    }
+
+    await _gerarProximaPergunta();
+  }
+
+  Future<void> _carregarContextoComplemento() async {
+    if (widget.complementoMemoriaId == null) return;
+    try {
+      final id = widget.complementoMemoriaId!;
+      final todasMemorias = await _supabaseService.listarMemorias();
+      final m = todasMemorias.firstWhere(
+        (mm) => mm.id == id,
+        orElse: () => todasMemorias.first,
+      );
+
+      final contribs = await _supabaseService
+          .listarContribuicoesDaMemoria(id, apenasAprovadas: true);
+      _contribuicoesAprovadasCount = contribs.length;
+
+      final ids = await PessoaRepository.obterPessoasDaMemoria(id);
+      final todasPessoas = await PessoaRepository.listar();
+      _pessoasCarregadas = todasPessoas
+          .where((p) => ids.contains(p.id))
+          .map((p) => {'nome': p.nome, 'parentesco': p.parentesco})
+          .toList();
+      _dataMemoriaCarregada = m.dataMemoria;
+      _categoriaCarregada = m.categoria;
+    } catch (e) {
+      print('[CuradorScreen] _carregarContextoComplemento ERRO: $e');
+    }
+  }
+
+  Future<void> _gerarProximaPergunta() async {
+    if (_sessaoId == null) return;
+    setState(() => _carregandoPergunta = true);
+
+    final resposta = await _legacyService.proximaPerguntaAdaptativa(
+      contextoInicial: widget.contextoOriginal,
+      titulo: widget.complementoMemoriaId != null
+          ? 'Complemento de história'
+          : widget.titulo,
+      dataMemoria: widget.dataMemoria ?? _dataMemoriaCarregada,
+      categoria: widget.categoria ?? _categoriaCarregada,
+      pessoas: widget.pessoas ?? _pessoasCarregadas ?? const [],
+      historico: _historico
+          .map((m) => CuradorMensagemDTO(
+                role: m.role.valor,
+                conteudo: m.conteudo,
+                tipo: m.tipo?.name,
+              ))
+          .toList(),
+    );
+
+    if (resposta == null) {
+      // Fallback: usar o motor local. Mantém a conversa fluindo
+      // mesmo se a OpenAI falhar.
+      final perguntas = const MotorPerguntas().selecionar(
+        widget.contextoOriginal,
+        temPessoas: (widget.pessoas ?? _pessoasCarregadas ?? const [])
+            .isNotEmpty,
+        temData: widget.dataMemoria != null,
+      );
+      final fallback = widget.complementoMemoriaId != null
+          ? 'Como esse novo momento se conecta com o que você já guardou?'
+          : 'Conte um pouco mais sobre o que você viveu.';
+      final proxima = perguntas.isNotEmpty ? perguntas.first.texto : fallback;
+      _persistirPerguntaIA(proxima, false);
+      return;
+    }
+
+    _persistirPerguntaIA(resposta.pergunta, resposta.deveEncerrar);
+  }
+
+  Future<void> _persistirPerguntaIA(String pergunta, bool deveEncerrar) async {
+    final sessaoId = _sessaoId!;
+    await _sessaoService.adicionarMensagem(
+      sessaoId: sessaoId,
+      role: CuradorMensagemRole.assistant,
+      conteudo: pergunta,
+      tipo: deveEncerrar
+          ? CuradorMensagemTipo.finalizacao
+          : CuradorMensagemTipo.pergunta,
+    );
+    if (!mounted) return;
+    final ordem = _historico.length + 1;
+    setState(() {
+      _historico.add(CuradorMensagem(
+        sessaoId: sessaoId,
+        role: CuradorMensagemRole.assistant,
+        conteudo: pergunta,
+        ordem: ordem,
+        tipo: deveEncerrar
+            ? CuradorMensagemTipo.finalizacao
+            : CuradorMensagemTipo.pergunta,
+      ));
+      _perguntaAtual = pergunta;
+      _deveEncerrar = deveEncerrar;
+      _carregandoPergunta = false;
+    });
+  }
+
+  Future<void> _responder(String texto) async {
+    final sessaoId = _sessaoId!;
+    final ordem = _historico.length + 1;
+    final msg = CuradorMensagem(
+      sessaoId: sessaoId,
+      role: CuradorMensagemRole.user,
+      conteudo: texto,
+      ordem: ordem,
+      tipo: CuradorMensagemTipo.resposta,
+    );
+    setState(() {
+      _historico.add(msg);
+      _controller.clear();
+      _solicitandoFinalizacao = false;
+    });
+    await _sessaoService.adicionarMensagem(
+      sessaoId: sessaoId,
+      role: CuradorMensagemRole.user,
+      conteudo: texto,
+      tipo: CuradorMensagemTipo.resposta,
+    );
+
+    // Se a IA sinalizou que a conversa tem material suficiente,
+    // mostramos a pergunta de confirmação ao usuário.
+    if (_deveEncerrar) {
+      setState(() => _solicitandoFinalizacao = true);
+    } else {
+      await _gerarProximaPergunta();
+    }
+  }
+
+  Future<void> _confirmarEncerramento() async {
+    setState(() => _concluiu = true);
+    await _carregarAnalise();
+    await _carregarNarrativa();
+  }
+
+  Future<void> _carregarAnalise() async {
+    final contextoCompleto = widget.contextoOriginal;
+    final respostas = <String, String>{};
+    for (final m in _historico.where((m) => m.role == CuradorMensagemRole.user)) {
+      respostas[m.ordem.toString()] = m.conteudo;
+    }
+    if (_legacyService.isConfigured) {
+      final resultado =
+          await _legacyService.analisarLegado(contextoCompleto, respostas);
+      if (resultado != null && mounted) {
+        setState(() => _analiseLegado = resultado);
         return;
       }
     }
-
     if (mounted) {
       setState(() {
-        _perguntas = const MotorPerguntas().selecionar(
-          widget.contextoOriginal,
-          temPessoas: widget.pessoas != null && widget.pessoas!.isNotEmpty,
-          temData: widget.dataMemoria != null,
-        );
-        _carregandoPerguntas = false;
+        _analiseLegado = const MotorPerguntas()
+            .analisarLegado(contextoCompleto, respostas);
       });
-    }
-  }
-
-  PerguntaCurador? get _perguntaAtual {
-    if (_indice >= _perguntas.length) return null;
-    return _perguntas[_indice];
-  }
-
-  void _responder() {
-    final pergunta = _perguntaAtual;
-    if (pergunta == null) return;
-
-    final resposta = _controller.text.trim();
-    if (resposta.isNotEmpty) {
-      _respostas[pergunta.texto] = resposta;
-    }
-  }
-
-  void _avancar() {
-    _responder();
-
-    if (_indice + 1 < _perguntas.length) {
-      _controller.clear();
-      setState(() => _indice++);
-    } else {
-      _controller.dispose();
-      setState(() => _mostrandoPreview = true);
-      _carregarAnalise();
-      _carregarNarrativa();
-    }
-  }
-
-  void _pular() {
-    if (_indice + 1 < _perguntas.length) {
-      _controller.clear();
-      setState(() => _indice++);
-    } else {
-      setState(() => _mostrandoPreview = true);
-      _carregarAnalise();
-      _carregarNarrativa();
     }
   }
 
   Future<void> _carregarNarrativa() async {
-    if (LegacyCuratorService.instance.isConfigured && _respostas.isNotEmpty) {
-      final resultado = await LegacyCuratorService.instance.gerarNarrativa(
+    final respostas = <String, String>{};
+    for (final m in _historico.where((m) => m.role == CuradorMensagemRole.user)) {
+      respostas[m.ordem.toString()] = m.conteudo;
+    }
+    if (_legacyService.isConfigured && respostas.isNotEmpty) {
+      final resultado = await _legacyService.gerarNarrativa(
         widget.contextoOriginal,
         widget.titulo,
-        _respostas,
+        respostas,
       );
       if (resultado != null && mounted) {
         setState(() => _narrativa = resultado);
         return;
       }
     }
-
     if (mounted) {
       setState(() {
-        _narrativa = const MotorPerguntas().montarNarrativa(
-          widget.contextoOriginal,
-          _respostas,
-        );
+        _narrativa = const MotorPerguntas()
+            .montarNarrativa(widget.contextoOriginal, respostas);
       });
     }
   }
-
-  Future<void> _carregarAnalise() async {
-    if (LegacyCuratorService.instance.isConfigured) {
-      final resultado = await LegacyCuratorService.instance.analisarLegado(
-        widget.contextoOriginal,
-        _respostas,
-      );
-      if (resultado != null && mounted) {
-        setState(() => _analiseLegado = resultado);
-        return;
-      }
-    }
-
-    if (mounted) {
-      setState(() {
-        _analiseLegado = const MotorPerguntas().analisarLegado(
-          widget.contextoOriginal,
-          _respostas,
-        );
-      });
-    }
-  }
-
-  AnaliseLegado get _analise => _analiseLegado ??
-      const MotorPerguntas().analisarLegado(
-        widget.contextoOriginal,
-        _respostas,
-      );
 
   String _montarContextoEnriquecido() {
-    // Sprint I — Modo Complemento: o resultado é um COMPLEMENTO (não
-    // uma reescrita). Devolvemos apenas o texto novo gerado a partir
-    // das respostas do Curador; a história original permanece intacta
-    // e esse complemento será enviado como contribuição.
-    if (widget.complementoMemoriaId != null) {
-      if (_narrativa != null && _narrativa!.isNotEmpty) return _narrativa!;
-      if (_respostas.isEmpty) return '';
-
-      final buffer = StringBuffer();
-      buffer.writeln('Complemento:');
-      buffer.writeln();
-      // Pula a primeira pergunta ("você gostaria de complementar…") — é
-      // apenas orientativa. Mantém as respostas a partir da segunda.
-      for (var i = 1; i < _perguntas.length; i++) {
-        final resposta = _respostas[_perguntas[i].texto];
-        if (resposta != null && resposta.isNotEmpty) {
-          buffer.writeln(resposta);
-          buffer.writeln();
-        }
-      }
-      return buffer.toString().trim();
-    }
-
     if (_narrativa != null && _narrativa!.isNotEmpty) return _narrativa!;
-    if (_respostas.isEmpty) return widget.contextoOriginal;
-
     final buffer = StringBuffer();
     buffer.writeln(widget.contextoOriginal);
     buffer.writeln();
-
-    for (final pergunta in _perguntas) {
-      final resposta = _respostas[pergunta.texto];
-      if (resposta != null) {
-        buffer.writeln(resposta);
-      }
+    for (final m in _historico.where((m) => m.role == CuradorMensagemRole.user)) {
+      buffer.writeln(m.conteudo);
+      buffer.writeln();
     }
-
     return buffer.toString().trim();
   }
 
-  void _salvar() {
+  Future<void> _salvar() async {
+    if (_sessaoId != null) {
+      await _sessaoService.finalizarSessao(
+        sessaoId: _sessaoId!,
+        contextoAtual: _montarContextoEnriquecido(),
+      );
+    }
+    if (!mounted) return;
     Navigator.of(context).pop(
       CuradorResultado(
         contextoEnriquecido: _montarContextoEnriquecido(),
+        sessaoId: _sessaoId,
       ),
     );
   }
+
+  Future<void> _cancelarESair() async {
+    if (_sessaoId != null) {
+      await _sessaoService.cancelarSessao(_sessaoId!);
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // UI
+  // ════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -403,16 +446,10 @@ class _CuradorScreenState extends State<CuradorScreen> {
         backgroundColor: AppColors.fundo,
         elevation: 0,
         actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 20),
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0EAF5),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Icon(Icons.auto_awesome_outlined,
-                color: AppColors.roxo, size: 20),
+          IconButton(
+            tooltip: 'Sair sem salvar',
+            onPressed: _cancelarESair,
+            icon: const Icon(Icons.close, color: AppColors.roxo),
           ),
         ],
       ),
@@ -422,11 +459,13 @@ class _CuradorScreenState extends State<CuradorScreen> {
             constraints: const BoxConstraints(maxWidth: 560),
             child: !_iniciouConversa
                 ? _buildTelaProposta()
-                : _carregandoPerguntas
+                : _carregandoPergunta && _perguntaAtual.isEmpty
                     ? const _CarregandoCurador()
-                    : _mostrandoPreview
+                    : _concluiu
                         ? _buildPreview()
-                        : _buildPergunta(),
+                        : _solicitandoFinalizacao
+                            ? _buildTelaFinalizacao()
+                            : _buildPergunta(),
           ),
         ),
       ),
@@ -436,13 +475,13 @@ class _CuradorScreenState extends State<CuradorScreen> {
   Widget _buildTelaProposta() {
     final pending = widget.pendingMemory;
     final momento = widget.detectedMoment;
-    
+
     final capaBytes = pending?.capa ?? momento?.capa;
     final qntFotos = pending?.quantidadeFotos ?? momento?.quantidadeFotos ?? 0;
     final qntVideos = pending?.quantidadeVideos ?? momento?.quantidadeVideos ?? 0;
     final dataRef = pending?.data ?? momento?.inicio;
-    
-    final desc = '${qntVideos > 0 ? '📹 Vídeo' : '📷 Foto'} registrado em ${_formatarDataHora(dataRef)}';
+
+    final desc = '${qntVideos > 0 ? 'Vídeo' : 'Foto'} registrado em ${_formatarDataHora(dataRef)}';
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
@@ -493,12 +532,22 @@ class _CuradorScreenState extends State<CuradorScreen> {
             height: 1.3,
           ),
         ),
+        const SizedBox(height: 12),
+        const Text(
+          'Vamos conversar sobre isso. Posso te fazer algumas perguntas?',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Color(0xFF7A7280),
+            fontSize: 14,
+            height: 1.4,
+          ),
+        ),
         const SizedBox(height: 48),
         Row(
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: _cancelarESair,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.roxo,
                   side: const BorderSide(color: AppColors.borda),
@@ -507,17 +556,14 @@ class _CuradorScreenState extends State<CuradorScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text('Agora não', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                child: const Text('Agora não',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               ),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: FilledButton(
-                onPressed: () {
-                  setState(() {
-                    _iniciouConversa = true;
-                  });
-                },
+                onPressed: _comecarConversa,
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.roxo,
                   foregroundColor: Colors.white,
@@ -526,7 +572,8 @@ class _CuradorScreenState extends State<CuradorScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: const Text('Começar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                child: const Text('Começar',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               ),
             ),
           ],
@@ -536,15 +583,13 @@ class _CuradorScreenState extends State<CuradorScreen> {
   }
 
   Widget _buildPergunta() {
-    final pergunta = _perguntaAtual;
-    if (pergunta == null) return const SizedBox.shrink();
-
-    final progresso = (_indice + 1) / _perguntas.length;
+    if (_carregandoPergunta) {
+      return const _CarregandoCurador();
+    }
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
       children: [
-        // ── TITULO DO CURADOR ──
         const Text(
           'Curador de Memórias',
           style: TextStyle(
@@ -555,84 +600,15 @@ class _CuradorScreenState extends State<CuradorScreen> {
         ),
         const SizedBox(height: 6),
         const Text(
-          'Vamos transformar lembranças em histórias que permanecerão vivas.',
+          'Vamos conversar sobre o que você viveu. Responda como preferir — eu me adapto ao que você disser.',
           style: TextStyle(
             color: AppColors.textoSuave,
             fontSize: 15,
           ),
         ),
         const SizedBox(height: 20),
-
-        if (widget.isProativo && widget.proativoMediaBytes != null) ...[
-          Container(
-            height: 160,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.borda),
-              image: !widget.proativoMediaIsVideo
-                  ? DecorationImage(
-                      image: MemoryImage(widget.proativoMediaBytes!),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
-            ),
-            child: widget.proativoMediaIsVideo
-                ? const Center(
-                    child: Icon(Icons.play_circle_fill, size: 48, color: AppColors.roxo),
-                  )
-                : null,
-          ),
-          const SizedBox(height: 8),
-          Center(
-            child: Text(
-              '${widget.proativoMediaIsVideo ? '📹 Vídeo' : '📷 Foto'} registrado em ${_formatarDataHora(widget.dataMemoria)}',
-              style: const TextStyle(
-                color: Color(0xFF7A7280),
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-        ],
-
-        const SizedBox(height: 8),
-
-        // ── PROGRESSO E BARRA ──
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Pergunta ${_indice + 1} de ${_perguntas.length}',
-              style: const TextStyle(
-                color: AppColors.roxo,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            Text(
-              '${(progresso * 100).toInt()}%',
-              style: const TextStyle(
-                color: AppColors.dourado,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: progresso,
-            backgroundColor: const Color(0xFFEDE8DC),
-            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.dourado),
-            minHeight: 6,
-          ),
-        ),
-        const SizedBox(height: 24),
-
-        // ── CARD DA PERGUNTA PRINCIPAL ──
+        _buildHistoricoResumido(),
+        const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
@@ -654,7 +630,7 @@ class _CuradorScreenState extends State<CuradorScreen> {
                   size: 24, color: AppColors.dourado),
               const SizedBox(height: 12),
               Text(
-                pergunta.texto,
+                _perguntaAtual,
                 style: const TextStyle(
                   color: AppColors.roxo,
                   fontSize: 20,
@@ -666,15 +642,13 @@ class _CuradorScreenState extends State<CuradorScreen> {
           ),
         ),
         const SizedBox(height: 20),
-
-        // ── CAMPO DE RESPOSTA ──
-        TextFormField(
+        TextField(
           controller: _controller,
           textCapitalization: TextCapitalization.sentences,
-          minLines: 4,
-          maxLines: 8,
+          minLines: 3,
+          maxLines: 6,
           decoration: InputDecoration(
-            hintText: 'Escreva sua resposta para preservar este detalhe...',
+            hintText: 'Sua resposta...',
             alignLabelWithHint: true,
             filled: true,
             fillColor: Colors.white,
@@ -693,14 +667,18 @@ class _CuradorScreenState extends State<CuradorScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 28),
-
-        // ── BOTÕES DE NAVEGAÇÃO ──
+        const SizedBox(height: 16),
         Row(
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: _pular,
+                onPressed: () {
+                  if (_controller.text.trim().isEmpty) {
+                    _responder('(sem resposta)');
+                  } else {
+                    _responder(_controller.text.trim());
+                  }
+                },
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.roxo,
                   side: const BorderSide(color: AppColors.borda),
@@ -715,7 +693,9 @@ class _CuradorScreenState extends State<CuradorScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: FilledButton(
-                onPressed: _avancar,
+                onPressed: _controller.text.trim().isEmpty
+                    ? null
+                    : () => _responder(_controller.text.trim()),
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.roxo,
                   foregroundColor: Colors.white,
@@ -724,9 +704,146 @@ class _CuradorScreenState extends State<CuradorScreen> {
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
-                child: Text(
-                  _indice + 1 < _perguntas.length ? 'Próxima pergunta' : 'Finalizar',
+                child: const Text('Responder'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHistoricoResumido() {
+    if (_historico.isEmpty) return const SizedBox.shrink();
+    final respostas = _historico
+        .where((m) => m.role == CuradorMensagemRole.user)
+        .toList();
+    if (respostas.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F6F0),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.dourado.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.history, size: 14, color: AppColors.dourado),
+              SizedBox(width: 6),
+              Text(
+                'O que você já me contou',
+                style: TextStyle(
+                  color: AppColors.roxo,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
                 ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...respostas.reversed.take(3).toList().reversed.map(
+                (m) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    '• ${m.conteudo}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF625B67),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTelaFinalizacao() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
+      children: [
+        const Icon(Icons.check_circle_outline, size: 56, color: AppColors.verdeApoio),
+        const SizedBox(height: 16),
+        const Text(
+          'Acho que já conseguimos preservar muito bem essa lembrança.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: AppColors.roxo,
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            height: 1.3,
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Gostaria de acrescentar mais algum detalhe?',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Color(0xFF7A7280),
+            fontSize: 15,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 32),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () async {
+                  if (_sessaoId != null) {
+                    await _sessaoService.adicionarMensagem(
+                      sessaoId: _sessaoId!,
+                      role: CuradorMensagemRole.user,
+                      conteudo: 'Sim, mais um detalhe.',
+                      tipo: CuradorMensagemTipo.resposta,
+                    );
+                  }
+                  setState(() {
+                    _solicitandoFinalizacao = false;
+                    _deveEncerrar = false;
+                  });
+                  await _gerarProximaPergunta();
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.roxo,
+                  side: const BorderSide(color: AppColors.borda),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('Sim, mais um detalhe'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton(
+                onPressed: () async {
+                  if (_sessaoId != null) {
+                    await _sessaoService.adicionarMensagem(
+                      sessaoId: _sessaoId!,
+                      role: CuradorMensagemRole.user,
+                      conteudo: 'Não, pode encerrar.',
+                      tipo: CuradorMensagemTipo.fechamento,
+                    );
+                  }
+                  await _confirmarEncerramento();
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.roxo,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('Não, pode encerrar'),
               ),
             ),
           ],
@@ -736,12 +853,13 @@ class _CuradorScreenState extends State<CuradorScreen> {
   }
 
   Widget _buildPreview() {
-    final respondeu = _respostas.isNotEmpty;
+    final respostas = _historico
+        .where((m) => m.role == CuradorMensagemRole.user)
+        .toList();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
       children: [
-        // ── CABEÇALHO FINALE ──
         const Text(
           'Antes de salvar',
           style: TextStyle(
@@ -756,8 +874,6 @@ class _CuradorScreenState extends State<CuradorScreen> {
           style: TextStyle(color: Color(0xFF7A7280), fontSize: 15),
         ),
         const SizedBox(height: 24),
-
-        // ── CARD PRINCIPAL: SUA HISTÓRIA (NARRATIVA) ──
         _PreviewCard(
           icon: Icons.menu_book_outlined,
           titulo: 'Sua história',
@@ -771,127 +887,16 @@ class _CuradorScreenState extends State<CuradorScreen> {
             ),
           ),
         ),
-
-        // ── CARD REVELADO (Valores / Características / Aprendizados) ──
-        if (_analise.temConteudo) ...[
+        if (_analiseLegado?.temConteudo ?? false) ...[
           const SizedBox(height: 16),
           _PreviewCard(
             icon: Icons.emoji_objects_outlined,
             titulo: 'O que esta história revela',
             color: AppColors.dourado,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_analise.valores.isNotEmpty) ...[
-                  const Text(
-                    'Valores',
-                    style: TextStyle(
-                      color: AppColors.roxo,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  ..._analise.valores.map(
-                    (v) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.check_circle_outline,
-                              size: 14, color: AppColors.verdeApoio),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              v,
-                              style: const TextStyle(
-                                color: Color(0xFF625B67),
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (_analise.caracteristicas.isNotEmpty) ...[
-                  const Text(
-                    'Características',
-                    style: TextStyle(
-                      color: AppColors.roxo,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  ..._analise.caracteristicas.map(
-                    (c) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.person_outline,
-                              size: 14, color: AppColors.dourado),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              c,
-                              style: const TextStyle(
-                                color: Color(0xFF625B67),
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (_analise.aprendizados.isNotEmpty) ...[
-                  const Text(
-                    'Aprendizados',
-                    style: TextStyle(
-                      color: AppColors.roxo,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  ..._analise.aprendizados.map(
-                    (a) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Padding(
-                            padding: EdgeInsets.only(top: 2),
-                            child: Icon(Icons.format_quote_outlined,
-                                size: 14, color: AppColors.verdeApoio),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              a,
-                              style: const TextStyle(
-                                color: Color(0xFF625B67),
-                                fontSize: 14,
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
+            child: _buildAnaliseLegado(_analiseLegado!),
           ),
         ],
-
-        // ── CARD AUXILIAR: ORIGINAL E RESPOSTAS ──
-        if (respondeu) ...[
+        if (respostas.isNotEmpty) ...[
           const SizedBox(height: 16),
           _PreviewCard(
             icon: Icons.forum_outlined,
@@ -899,26 +904,25 @@ class _CuradorScreenState extends State<CuradorScreen> {
             color: AppColors.verdeApoio,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ..._perguntas
-                    .where((p) => _respostas.containsKey(p.texto))
-                    .map(
-                      (p) => Padding(
+              children: respostas
+                  .asMap()
+                  .entries
+                  .map((entry) => Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              p.texto,
+                              'Resposta ${entry.key + 1}',
                               style: const TextStyle(
                                 color: AppColors.roxo,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              _respostas[p.texto]!,
+                              entry.value.conteudo,
                               style: const TextStyle(
                                 color: Color(0xFF625B67),
                                 fontSize: 14,
@@ -927,21 +931,17 @@ class _CuradorScreenState extends State<CuradorScreen> {
                             ),
                           ],
                         ),
-                      ),
-                    ),
-              ],
+                      ))
+                  .toList(),
             ),
           ),
         ],
-
         const SizedBox(height: 28),
-
-        // ── BOTÕES DE SALVAMENTO ──
         Row(
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(null),
+                onPressed: _cancelarESair,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.roxo,
                   side: const BorderSide(color: AppColors.borda),
@@ -975,21 +975,77 @@ class _CuradorScreenState extends State<CuradorScreen> {
     );
   }
 
+  Widget _buildAnaliseLegado(AnaliseLegado analise) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (analise.valores.isNotEmpty) ...[
+          const Text('Valores',
+              style: TextStyle(
+                  color: AppColors.roxo, fontSize: 13, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          ...analise.valores.map((v) => _buildLinhaAnalise(Icons.check_circle_outline, v, AppColors.verdeApoio)),
+          const SizedBox(height: 12),
+        ],
+        if (analise.caracteristicas.isNotEmpty) ...[
+          const Text('Características',
+              style: TextStyle(
+                  color: AppColors.roxo, fontSize: 13, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          ...analise.caracteristicas.map((c) => _buildLinhaAnalise(Icons.person_outline, c, AppColors.dourado)),
+          const SizedBox(height: 12),
+        ],
+        if (analise.aprendizados.isNotEmpty) ...[
+          const Text('Aprendizados',
+              style: TextStyle(
+                  color: AppColors.roxo, fontSize: 13, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          ...analise.aprendizados.map((a) => _buildLinhaAnalise(Icons.format_quote_outlined, a, AppColors.verdeApoio)),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildLinhaAnalise(IconData icon, String texto, Color cor) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(icon, size: 14, color: cor),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              texto,
+              style: const TextStyle(color: Color(0xFF625B67), fontSize: 14, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _formatarDataHora(DateTime? date) {
     if (date == null) return 'agora';
     final hoje = DateTime.now();
     final ontem = hoje.subtract(const Duration(days: 1));
-    
     String diaStr;
     if (date.year == hoje.year && date.month == hoje.month && date.day == hoje.day) {
       diaStr = 'hoje';
-    } else if (date.year == ontem.year && date.month == ontem.month && date.day == ontem.day) {
+    } else if (date.year == ontem.year &&
+        date.month == ontem.month &&
+        date.day == ontem.day) {
       diaStr = 'ontem';
     } else {
-      diaStr = '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+      diaStr = '${date.day.toString().padLeft(2, '0')}/'
+          '${date.month.toString().padLeft(2, '0')}/'
+          '${date.year}';
     }
-    
-    final horaStr = '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    final horaStr = '${date.hour.toString().padLeft(2, '0')}:'
+        '${date.minute.toString().padLeft(2, '0')}';
     return '$diaStr às $horaStr';
   }
 }
@@ -1063,7 +1119,7 @@ class _CarregandoCurador extends StatelessWidget {
           ),
           SizedBox(height: 16),
           Text(
-            'Organizando sua história...',
+            'Conversando com você...',
             style: TextStyle(color: Color(0xFF7A7280), fontSize: 15),
           ),
         ],

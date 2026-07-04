@@ -12,6 +12,7 @@ import 'curador_screen.dart';
 import '../models/detected_moment.dart';
 import '../models/media_group.dart';
 import '../models/pending_memory.dart';
+import '../services/curador_sessao_service.dart';
 import '../services/media_suggestion_service.dart';
 import 'package:photo_manager/photo_manager.dart';
 
@@ -374,7 +375,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
   Future<void> _abrirCurador() async {
     final contexto = _contextoController.text.trim();
     final isProativo = widget.sugestaoGrupo != null || widget.sugestaoPending != null || widget.sugestaoMomento != null;
-    
+
     if (!isProativo && contexto.length < 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -383,6 +384,46 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
         ),
       );
       return;
+    }
+
+    // Sprint J — Se já existe sessão ativa do Curador Contextual para
+    // o usuário, retoma automaticamente (a Home também oferece a opção
+    // de "continuar"). Isso garante que o Curador tenha memória de
+    // contexto da conversa anterior.
+    final sessaoAtiva =
+        await CuradorSessaoService.instance.obterSessaoAtiva();
+    if (sessaoAtiva != null && !isProativo) {
+      final retomar = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: Colors.white,
+          title: const Text('Você tem uma conversa em andamento',
+              style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.bold)),
+          content: const Text(
+            'Deseja continuar de onde parou? O Curador vai lembrar do que você já contou.',
+            style: TextStyle(color: Color(0xFF625B67), fontSize: 14),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Começar nova',
+                  style: TextStyle(color: Color(0xFF7A7280))),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.roxo),
+              child: const Text('Continuar conversa'),
+            ),
+          ],
+        ),
+      );
+      if (retomar == true) {
+        // Cancelar a sessão atual antes de criar uma nova (para não
+        // conflitar com a UNIQUE index de 1 sessão em_andamento).
+        await CuradorSessaoService.instance.cancelarSessao(sessaoAtiva.id!);
+      } else {
+        await CuradorSessaoService.instance.cancelarSessao(sessaoAtiva.id!);
+      }
     }
 
     final resultado = await Navigator.of(context).push<CuradorResultado>(
