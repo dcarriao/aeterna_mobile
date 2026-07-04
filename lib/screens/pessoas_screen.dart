@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
+import 'convites_screen.dart';
 import 'nova_pessoa_screen.dart';
 import 'pessoa_detalhe_screen.dart';
 
@@ -76,6 +77,12 @@ class _PessoasScreenState extends State<PessoasScreen> {
     return _vinculos.entries.where((e) => e.value.contains(id)).length;
   }
 
+  void _abrirConvites() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const ConvitesScreen()),
+    ).then((_) => _carregar());
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -86,17 +93,21 @@ class _PessoasScreenState extends State<PessoasScreen> {
         backgroundColor: AppColors.fundo,
         elevation: 0,
         actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 20),
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0EAF5),
-              borderRadius: BorderRadius.circular(20),
+          IconButton(
+            tooltip: 'Convites Familiares',
+            onPressed: _abrirConvites,
+            icon: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0EAF5),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(Icons.mail_outline,
+                  color: AppColors.roxo, size: 20),
             ),
-            child: const Icon(Icons.people_outline,
-                color: AppColors.roxo, size: 20),
           ),
+          const SizedBox(width: 8),
         ],
       ),
       bottomNavigationBar: _pessoas.isEmpty || _carregando

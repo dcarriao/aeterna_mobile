@@ -15,6 +15,7 @@ class MemoriaisScreen extends StatefulWidget {
 class _MemoriaisScreenState extends State<MemoriaisScreen> {
   final _service = SupabaseService.instance;
   List<Memorial> _memoriais = [];
+  List<Memorial> _memoriaisColaborativos = [];
   bool _carregando = false;
 
   @override
@@ -28,9 +29,11 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
     setState(() => _carregando = true);
     try {
       final lista = await _service.listarMemoriais();
+      final colaborativos = await _service.listarMemoriaisColaborativos();
       if (mounted) {
         setState(() {
           _memoriais = lista;
+          _memoriaisColaborativos = colaborativos;
         });
       }
     } catch (e) {
@@ -86,47 +89,56 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
                 ? const Center(
                     child: CircularProgressIndicator(color: AppColors.roxo),
                   )
-                : _memoriais.isEmpty
+                : (_memoriais.isEmpty && _memoriaisColaborativos.isEmpty)
                     ? _buildEstadoVazio()
                     : RefreshIndicator(
                         onRefresh: _carregarMemoriais,
                         color: AppColors.roxo,
-                        child: ListView.builder(
+                        child: ListView(
                           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                          itemCount: _memoriais.length + 1,
-                          itemBuilder: (context, index) {
-                            if (index == 0) {
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 20),
-                                child: Row(
-                                  children: [
-                                    const Text(
-                                      'Homenagens',
-                                      style: TextStyle(
-                                          color: AppColors.roxo,
-                                          fontSize: 24,
-                                          fontWeight: FontWeight.w800),
-                                    ),
-                                    const Spacer(),
-                                    FilledButton.icon(
-                                      onPressed: _abrirNovoMemorial,
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: AppColors.roxo,
-                                        foregroundColor: Colors.white,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 20),
+                              child: Row(
+                                children: [
+                                  const Text(
+                                    'Homenagens',
+                                    style: TextStyle(
+                                        color: AppColors.roxo,
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w800),
+                                  ),
+                                  const Spacer(),
+                                  FilledButton.icon(
+                                    onPressed: _abrirNovoMemorial,
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppColors.roxo,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
                                       ),
-                                      icon: const Icon(Icons.add, size: 18),
-                                      label: const Text('Criar'),
                                     ),
-                                  ],
+                                    icon: const Icon(Icons.add, size: 18),
+                                    label: const Text('Criar'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            ..._memoriais.map(_buildCardMemorial),
+                            if (_memoriaisColaborativos.isNotEmpty) ...[
+                              const Padding(
+                                padding: EdgeInsets.only(top: 8, bottom: 12),
+                                child: Text(
+                                  'Memoriais que você colabora',
+                                  style: TextStyle(
+                                      color: AppColors.roxo,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800),
                                 ),
-                              );
-                            }
-                            final memorial = _memoriais[index - 1];
-                            return _buildCardMemorial(memorial);
-                          },
+                              ),
+                              ..._memoriaisColaborativos.map(_buildCardMemorial),
+                            ],
+                          ],
                         ),
                       ),
           ),

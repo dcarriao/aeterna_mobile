@@ -358,31 +358,84 @@ class SupabaseService {
     return Memorial.fromMap(row);
   }
 
+  /// Permite que dono OU colaborador com papel `editor` altere a biografia
+  /// (requisito 8 da sprint de colaboração — memorial não pode ser só
+  /// leitura).
+  Future<void> atualizarBiografiaMemorial(int id, String biografia) async {
+    if (!isConfigured) return;
+    await _client.from('memoriais').update({'biografia': biografia}).eq('id', id);
+  }
+
   Future<void> excluirMemorial(int id) async {
     if (!isConfigured) return;
     try {
       await _client.from('contribuicoes').delete().eq('memorial_id', id);
     } catch (_) {}
     try {
+      await _client.from('conteudo_colaboradores')
+          .delete()
+          .eq('tipo_conteudo', 'memorial')
+          .eq('conteudo_id', id);
+    } catch (_) {}
+    try {
       await _client.from('memoriais').delete().eq('id', id);
     } catch (_) {}
   }
 
+  static const _colunasContribuicao =
+      'id, memorial_id, tipo_conteudo, conteudo_id, usuario_dono_id, '
+      'usuario_contribuidor_email, usuario_contribuidor_nome, '
+      'tipo_contribuicao, texto, arquivo_url, status, criado_em, '
+      'avaliado_em, avaliado_por';
+
+  /// Memoriais em que o usuário logado NÃO é dono, mas tem permissão de
+  /// colaboração concedida via `conteudo_colaboradores` (tipo_conteudo =
+  /// 'memorial'). Complementa `listarMemoriais()` (que só traz os próprios).
+  Future<List<Memorial>> listarMemoriaisColaborativos() async {
+    if (!isConfigured) return const [];
+    try {
+      final vinculos = await _client
+          .from('conteudo_colaboradores')
+          .select('conteudo_id')
+          .eq('tipo_conteudo', 'memorial')
+          .eq('usuario_id', usuarioId);
+      if (vinculos.isEmpty) return const [];
+
+      final ids = vinculos
+          .map<int>((r) => (r['conteudo_id'] as num).toInt())
+          .toSet()
+          .toList();
+
+      final rows = await _client
+          .from('memoriais')
+          .select('id, nome, parentesco, data_nascimento, data_falecimento, biografia, foto_perfil, usuario_id, criado_em')
+          .inFilter('id', ids)
+          .order('criado_em', ascending: false);
+      return rows.map<Memorial>((row) => Memorial.fromMap(row)).toList();
+    } catch (e) {
+      print('Erro ao listar memoriais colaborativos: $e');
+      return const [];
+    }
+  }
+
   // ── CONTRIBUIÇÕES (Supabase) ──
 
-  Future<List<Contribuicao>> listarContribuicoes(int memorialId, {bool apenasAprovadas = false}) async {
+  Future<List<Contribuicao>> listarContribuicoes(
+    int memorialId, {
+    bool apenasAprovadas = false,
+  }) async {
     if (!isConfigured) return const [];
     try {
       var query = _client
           .from('contribuicoes')
-          .select('id, memorial_id, autor, relacao, conteudo, foto_url, video_url, aprovado, created_at')
+          .select(_colunasContribuicao)
           .eq('memorial_id', memorialId);
-      
+
       if (apenasAprovadas) {
-        query = query.eq('aprovado', true);
+        query = query.eq('status', 'aprovado');
       }
-      
-      final rows = await query.order('created_at', ascending: false);
+
+      final rows = await query.order('criado_em', ascending: false);
       return rows.map<Contribuicao>((row) => Contribuicao.fromMap(row)).toList();
     } catch (e) {
       print('Erro ao listar contribuicoes: $e');
@@ -393,8 +446,7 @@ class SupabaseService {
   Future<Contribuicao> salvarContribuicao(Contribuicao contribuicao) async {
     if (!isConfigured) return contribuicao;
     final agora = DateTime.now();
-    String? fotoPublicUrl = contribuicao.fotoUrl;
-    String? videoPublicUrl = contribuicao.videoUrl;
+    String? arquivoPublicUrl = contribuicao.arquivoUrl;
 
     if (contribuicao.fotoBytes != null) {
       final caminhoStorage = _criarCaminhoArquivo(
@@ -406,12 +458,10 @@ class SupabaseService {
         bytes: contribuicao.fotoBytes!,
         nomeArquivo: 'foto.jpg',
       );
-      fotoPublicUrl = _client.storage
+      arquivoPublicUrl = _client.storage
           .from(_bucketFotos)
           .getPublicUrl(caminhoStorage);
-    }
-
-    if (contribuicao.videoBytes != null) {
+    } else if (contribuicao.videoBytes != null) {
       final caminhoStorage = _criarCaminhoArquivo(
         agora,
         'contrib_video_${agora.millisecondsSinceEpoch}.mp4',
@@ -421,32 +471,39 @@ class SupabaseService {
         contribuicao.videoBytes!,
         fileOptions: const FileOptions(contentType: 'video/mp4'),
       );
-      videoPublicUrl = _client.storage
+      arquivoPublicUrl = _client.storage
           .from(_bucketFotos)
           .getPublicUrl(caminhoStorage);
     }
 
     final data = contribuicao.toMap();
-    if (fotoPublicUrl != null) data['foto_url'] = fotoPublicUrl;
-    if (videoPublicUrl != null) data['video_url'] = videoPublicUrl;
+    if (arquivoPublicUrl != null) data['arquivo_url'] = arquivoPublicUrl;
 
     final row = await _client
         .from('contribuicoes')
         .insert(data)
-        .select('id, memorial_id, autor, relacao, conteudo, foto_url, video_url, aprovado, created_at')
+        .select(_colunasContribuicao)
         .single();
 
     return Contribuicao.fromMap(row);
   }
 
-  Future<void> moderarContribuicao(int id, bool aprovado) async {
+  /// Aprova ou rejeita uma contribuição. Diferente do comportamento antigo
+  /// (que APAGAVA a contribuição ao rejeitar), agora usamos `status` para
+  /// preservar o histórico (soft-reject), consistente com o schema real
+  /// (`status` in ('pendente','aprovado','rejeitado')).
+  Future<void> moderarContribuicao(
+    int id,
+    bool aprovado, {
+    int? avaliadoPor,
+  }) async {
     if (!isConfigured) return;
     try {
-      if (aprovado) {
-        await _client.from('contribuicoes').update({'aprovado': true}).eq('id', id);
-      } else {
-        await _client.from('contribuicoes').delete().eq('id', id);
-      }
+      await _client.from('contribuicoes').update({
+        'status': aprovado ? 'aprovado' : 'rejeitado',
+        'avaliado_em': DateTime.now().toIso8601String(),
+        if (avaliadoPor != null) 'avaliado_por': avaliadoPor,
+      }).eq('id', id);
     } catch (e) {
       print('Erro ao moderar contribuicao: $e');
     }

@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:supabase/supabase.dart';
 
+import 'convite_familiar.dart';
+
 class Pessoa {
   Pessoa({
     required this.nome,
@@ -569,85 +571,123 @@ class PessoaRepository {
 
   // ── MEMÓRIAS COMPARTILHADAS COM O USUÁRIO LOGADO (Bug 1) ──
   //
-  // `conteudo_permissoes.contato_id` aponta para um registro da tabela
-  // `contatos` (agenda pessoal de quem compartilhou), NÃO para a conta
-  // (`usuarios`) de quem recebeu. Para descobrir memórias que outra conta
-  // compartilhou com o usuário logado, cruzamos pelo e-mail: procuramos
-  // registros de `contatos` (de QUALQUER dono) cujo e-mail seja igual ao
-  // e-mail de login do usuário atual, e então buscamos os vínculos de
-  // `conteudo_permissoes` para esses contatos.
+  // Fonte PRIMÁRIA (Sprint de Vínculos Familiares): `conteudo_colaboradores`,
+  // que grava a permissão real diretamente contra a CONTA (`usuario_id`) de
+  // quem recebeu — sem depender de cruzamento por e-mail. É preenchida ao
+  // aceitar um convite (`aceitarConviteFamiliar`) ou pelo backfill SQL para
+  // compartilhamentos antigos.
+  //
+  // Fonte LEGADA (fallback, mantida por compatibilidade): cruza
+  // `contatos.email` (de QUALQUER dono) com o e-mail de login do usuário
+  // atual, e busca vínculos em `conteudo_permissoes`. Cobre o caso de um
+  // ambiente onde o backfill SQL ainda não foi rodado.
   static Future<Map<int, Map<String, dynamic>>>
       listarMemoriasCompartilhadasComigo() async {
-    if (!isConfigured ||
-        usuarioEmail == null ||
-        usuarioEmail!.trim().isEmpty) {
-      return {};
-    }
+    if (!isConfigured) return {};
 
+    final resultado = <int, Map<String, dynamic>>{};
+
+    // 1) Fonte primária: conteudo_colaboradores (conta real).
     try {
-      final email = usuarioEmail!.trim();
+      final colaboracoes = await _supabase
+          .from('conteudo_colaboradores')
+          .select('conteudo_id, papel, concedido_por')
+          .eq('tipo_conteudo', 'memoria')
+          .eq('usuario_id', usuarioId);
 
-      // 1. Contatos (em agendas de outras contas) que representam o usuário
-      //    logado (mesmo e-mail de login).
-      final contatosRows = await _supabase
-          .from('contatos')
-          .select('id, usuario_id')
-          .ilike('email', email);
+      if (colaboracoes.isNotEmpty) {
+        final donoIds = colaboracoes
+            .map<int>((r) => (r['concedido_por'] as num?)?.toInt() ?? 0)
+            .where((id) => id > 0)
+            .toSet()
+            .toList();
+        final nomesPorDono = await _mapaNomesPorId(donoIds);
 
-      if (contatosRows.isEmpty) return {};
-
-      final donoPorContato = <int, int>{};
-      for (final r in contatosRows) {
-        final donoId = (r['usuario_id'] as num?)?.toInt();
-        final contatoId = (r['id'] as num?)?.toInt();
-        if (donoId != null && contatoId != null && donoId != usuarioId) {
-          donoPorContato[contatoId] = donoId;
+        for (final r in colaboracoes) {
+          final memId = (r['conteudo_id'] as num).toInt();
+          final donoId = (r['concedido_por'] as num?)?.toInt();
+          resultado[memId] = {
+            'usuario_id': donoId,
+            'nome': (donoId != null && (nomesPorDono[donoId]?.isNotEmpty ?? false))
+                ? nomesPorDono[donoId]
+                : 'Familiar',
+          };
         }
       }
-      if (donoPorContato.isEmpty) return {};
+    } catch (e) {
+      print('[PessoaRepo] listarMemoriasCompartilhadasComigo() (real) ERRO: $e');
+    }
 
-      // 2. Vínculos de compartilhamento de memórias para esses contatos.
-      final permissoes = await _supabase
-          .from('conteudo_permissoes')
-          .select('conteudo_id, contato_id')
-          .eq('tipo_conteudo', 'memoria')
-          .inFilter('contato_id', donoPorContato.keys.toList());
+    // 2) Fonte legada: cruzamento por e-mail (contatos x conteudo_permissoes).
+    if (usuarioEmail != null && usuarioEmail!.trim().isNotEmpty) {
+      try {
+        final email = usuarioEmail!.trim();
 
-      if (permissoes.isEmpty) return {};
+        final contatosRows = await _supabase
+            .from('contatos')
+            .select('id, usuario_id')
+            .ilike('email', email);
 
-      final donoPorMemoria = <int, int>{};
-      for (final p in permissoes) {
-        final memId = (p['conteudo_id'] as num).toInt();
-        final contatoId = (p['contato_id'] as num).toInt();
-        final donoId = donoPorContato[contatoId];
-        if (donoId != null) donoPorMemoria[memId] = donoId;
+        final donoPorContato = <int, int>{};
+        for (final r in contatosRows) {
+          final donoId = (r['usuario_id'] as num?)?.toInt();
+          final contatoId = (r['id'] as num?)?.toInt();
+          if (donoId != null && contatoId != null && donoId != usuarioId) {
+            donoPorContato[contatoId] = donoId;
+          }
+        }
+
+        if (donoPorContato.isNotEmpty) {
+          final permissoes = await _supabase
+              .from('conteudo_permissoes')
+              .select('conteudo_id, contato_id')
+              .eq('tipo_conteudo', 'memoria')
+              .inFilter('contato_id', donoPorContato.keys.toList());
+
+          final donoPorMemoria = <int, int>{};
+          for (final p in permissoes) {
+            final memId = (p['conteudo_id'] as num).toInt();
+            final contatoId = (p['contato_id'] as num).toInt();
+            final donoId = donoPorContato[contatoId];
+            if (donoId != null) donoPorMemoria[memId] = donoId;
+          }
+
+          if (donoPorMemoria.isNotEmpty) {
+            final donoIds = donoPorMemoria.values.toSet().toList();
+            final nomesPorDono = await _mapaNomesPorId(donoIds);
+
+            for (final entry in donoPorMemoria.entries) {
+              // Não sobrescreve se já veio da fonte primária (real).
+              resultado.putIfAbsent(entry.key, () => {
+                    'usuario_id': entry.value,
+                    'nome': (nomesPorDono[entry.value]?.isNotEmpty ?? false)
+                        ? nomesPorDono[entry.value]
+                        : 'Familiar',
+                  });
+            }
+          }
+        }
+      } catch (e) {
+        print('[PessoaRepo] listarMemoriasCompartilhadasComigo() (legado) ERRO: $e');
       }
-      if (donoPorMemoria.isEmpty) return {};
+    }
 
-      // 3. Nome de quem compartilhou, para exibição na tela Compartilhadas.
-      final donoIds = donoPorMemoria.values.toSet().toList();
-      final usuariosRows = await _supabase
+    return resultado;
+  }
+
+  static Future<Map<int, String>> _mapaNomesPorId(List<int> ids) async {
+    if (ids.isEmpty) return {};
+    try {
+      final rows = await _supabase
           .from('usuarios')
           .select('id, nome, sobrenome')
-          .inFilter('id', donoIds);
-
-      final nomesPorDono = <int, String>{
-        for (final u in usuariosRows)
+          .inFilter('id', ids);
+      return {
+        for (final u in rows)
           (u['id'] as num).toInt():
               '${u['nome'] ?? ''} ${u['sobrenome'] ?? ''}'.trim(),
       };
-
-      return {
-        for (final entry in donoPorMemoria.entries)
-          entry.key: {
-            'usuario_id': entry.value,
-            'nome': (nomesPorDono[entry.value]?.isNotEmpty ?? false)
-                ? nomesPorDono[entry.value]
-                : 'Familiar',
-          },
-      };
-    } catch (e) {
-      print('[PessoaRepo] listarMemoriasCompartilhadasComigo() ERRO: $e');
+    } catch (_) {
       return {};
     }
   }
@@ -716,6 +756,298 @@ class PessoaRepository {
       }
     } catch (e) {
       print('Erro ao atualizar contatos do memorial: $e');
+    }
+  }
+
+  // ── CONVITES FAMILIARES (vínculo bilateral real entre contas) ──
+  //
+  // Substitui o modelo frágil "contato por e-mail" (Bug 1): agora existe um
+  // convite de verdade, com aceite explícito, que gera um vínculo bilateral
+  // (`vinculos_familiares`) e, opcionalmente, já concede permissão de
+  // colaboração num conteúdo específico (memória/memorial).
+
+  /// Envia um convite para o e-mail informado. Se [tipoConteudoAlvo] e
+  /// [conteudoIdAlvo] forem informados, ao aceitar o convite a pessoa já
+  /// recebe automaticamente o [papelSugerido] (editor/colaborador/leitor)
+  /// nesse conteúdo — ex.: convidar alguém direto para colaborar num
+  /// memorial.
+  static Future<void> enviarConviteFamiliar({
+    required String email,
+    int? contatoId,
+    String? tipoConteudoAlvo,
+    int? conteudoIdAlvo,
+    PapelColaborador? papelSugerido,
+  }) async {
+    if (!isConfigured) {
+      throw Exception('SUPABASE_ANON_KEY não configurada.');
+    }
+    final emailLimpo = email.trim().toLowerCase();
+    if (emailLimpo.isEmpty || !emailLimpo.contains('@')) {
+      throw Exception('Informe um e-mail válido para o convite.');
+    }
+    if (emailLimpo == usuarioEmail?.trim().toLowerCase()) {
+      throw Exception('Você não pode convidar a si mesmo.');
+    }
+
+    // Se a pessoa já tem conta, já resolvemos o usuario_destino_id na hora
+    // (não depende de aceite para sabermos quem é, só para conceder acesso).
+    final usuarioDestinoId = await obterUsuarioIdPorEmail(emailLimpo);
+
+    await _supabase.from('convites_familiares').insert({
+      'usuario_origem_id': usuarioId,
+      if (contatoId != null) 'contato_id': contatoId,
+      'email_destino': emailLimpo,
+      if (usuarioDestinoId != null) 'usuario_destino_id': usuarioDestinoId,
+      'status': 'pendente',
+      if (papelSugerido != null) 'papel_sugerido': papelSugerido.valor,
+      if (tipoConteudoAlvo != null) 'tipo_conteudo_alvo': tipoConteudoAlvo,
+      if (conteudoIdAlvo != null) 'conteudo_id_alvo': conteudoIdAlvo,
+    });
+  }
+
+  /// Convites PENDENTES endereçados ao e-mail do usuário logado.
+  static Future<List<ConviteFamiliar>> listarConvitesRecebidos() async {
+    if (!isConfigured || usuarioEmail == null || usuarioEmail!.isEmpty) {
+      return [];
+    }
+    try {
+      final rows = await _supabase
+          .from('convites_familiares')
+          .select('*')
+          .ilike('email_destino', usuarioEmail!.trim())
+          .eq('status', 'pendente')
+          .order('criado_em', ascending: false);
+
+      if (rows.isEmpty) return [];
+
+      final origemIds = rows
+          .map<int>((r) => (r['usuario_origem_id'] as num).toInt())
+          .toSet()
+          .toList();
+      final usuariosRows = await _supabase
+          .from('usuarios')
+          .select('id, nome, sobrenome')
+          .inFilter('id', origemIds);
+      final nomesPorId = <int, String>{
+        for (final u in usuariosRows)
+          (u['id'] as num).toInt():
+              '${u['nome'] ?? ''} ${u['sobrenome'] ?? ''}'.trim(),
+      };
+
+      return rows
+          .map<ConviteFamiliar>((r) => ConviteFamiliar.fromMap(
+                r,
+                nomeOrigem: nomesPorId[(r['usuario_origem_id'] as num).toInt()],
+              ))
+          .toList();
+    } catch (e) {
+      print('[PessoaRepo] listarConvitesRecebidos() ERRO: $e');
+      return [];
+    }
+  }
+
+  /// Convites que o usuário logado enviou (para exibir status na tela de
+  /// Pessoas: pendente/aceito/recusado).
+  static Future<List<ConviteFamiliar>> listarConvitesEnviados() async {
+    if (!isConfigured) return [];
+    try {
+      final rows = await _supabase
+          .from('convites_familiares')
+          .select('*')
+          .eq('usuario_origem_id', usuarioId)
+          .order('criado_em', ascending: false);
+      return rows.map<ConviteFamiliar>((r) => ConviteFamiliar.fromMap(r)).toList();
+    } catch (e) {
+      print('[PessoaRepo] listarConvitesEnviados() ERRO: $e');
+      return [];
+    }
+  }
+
+  /// Aceita um convite: marca status='aceito', cria o vínculo familiar
+  /// BILATERAL (duas linhas em `vinculos_familiares`) e, se o convite tinha
+  /// um conteúdo-alvo, já concede a permissão correspondente.
+  static Future<void> aceitarConviteFamiliar(ConviteFamiliar convite) async {
+    if (!isConfigured || convite.id == null) return;
+
+    await _supabase.from('convites_familiares').update({
+      'status': 'aceito',
+      'aceito_em': DateTime.now().toIso8601String(),
+      'usuario_destino_id': usuarioId,
+    }).eq('id', convite.id!);
+
+    // Vínculo bilateral (ON CONFLICT tratado via try/catch — a constraint
+    // UNIQUE de `vinculos_familiares` impede duplicidade).
+    try {
+      await _supabase.from('vinculos_familiares').insert({
+        'usuario_id': convite.usuarioOrigemId,
+        'vinculado_usuario_id': usuarioId,
+        'origem_convite_id': convite.id,
+      });
+    } catch (_) {}
+    try {
+      await _supabase.from('vinculos_familiares').insert({
+        'usuario_id': usuarioId,
+        'vinculado_usuario_id': convite.usuarioOrigemId,
+        'origem_convite_id': convite.id,
+      });
+    } catch (_) {}
+
+    // Se o convite já tinha um conteúdo-alvo (ex.: convite direto para
+    // colaborar num memorial), concede a permissão automaticamente.
+    if (convite.tipoConteudoAlvo != null && convite.conteudoIdAlvo != null) {
+      try {
+        await concederPermissaoConteudo(
+          tipoConteudo: convite.tipoConteudoAlvo!,
+          conteudoId: convite.conteudoIdAlvo!,
+          usuarioIdColaborador: usuarioId,
+          papel: PapelColaborador.fromValor(convite.papelSugerido) ??
+              PapelColaborador.colaborador,
+          conviteId: convite.id,
+          concedidoPor: convite.usuarioOrigemId,
+        );
+      } catch (_) {}
+    }
+  }
+
+  static Future<void> recusarConviteFamiliar(int conviteId) async {
+    if (!isConfigured) return;
+    await _supabase
+        .from('convites_familiares')
+        .update({'status': 'recusado'}).eq('id', conviteId);
+  }
+
+  /// Familiares (contas reais) vinculados bilateralmente ao usuário logado.
+  static Future<List<VinculoFamiliar>> listarVinculosFamiliares() async {
+    if (!isConfigured) return [];
+    try {
+      final rows = await _supabase
+          .from('vinculos_familiares')
+          .select('vinculado_usuario_id')
+          .eq('usuario_id', usuarioId);
+      if (rows.isEmpty) return [];
+
+      final ids = rows
+          .map<int>((r) => (r['vinculado_usuario_id'] as num).toInt())
+          .toList();
+      final usuariosRows = await _supabase
+          .from('usuarios')
+          .select('id, nome, sobrenome, email, foto_perfil')
+          .inFilter('id', ids);
+
+      return usuariosRows
+          .map<VinculoFamiliar>((u) => VinculoFamiliar(
+                usuarioId: (u['id'] as num).toInt(),
+                nome: '${u['nome'] ?? ''} ${u['sobrenome'] ?? ''}'.trim(),
+                fotoUrl: u['foto_perfil'] as String?,
+                email: u['email'] as String?,
+              ))
+          .toList();
+    } catch (e) {
+      print('[PessoaRepo] listarVinculosFamiliares() ERRO: $e');
+      return [];
+    }
+  }
+
+  // ── PERMISSÕES GRANULARES (conteudo_colaboradores) ──
+
+  /// Concede (ou atualiza) o papel de um colaborador real sobre um conteúdo.
+  static Future<void> concederPermissaoConteudo({
+    required String tipoConteudo,
+    required int conteudoId,
+    required int usuarioIdColaborador,
+    required PapelColaborador papel,
+    int? conviteId,
+    int? concedidoPor,
+  }) async {
+    if (!isConfigured) return;
+    await _supabase.from('conteudo_colaboradores').upsert(
+      {
+        'tipo_conteudo': tipoConteudo,
+        'conteudo_id': conteudoId,
+        'usuario_id': usuarioIdColaborador,
+        'papel': papel.valor,
+        if (conviteId != null) 'convite_id': conviteId,
+        'concedido_por': concedidoPor ?? usuarioId,
+      },
+      onConflict: 'tipo_conteudo,conteudo_id,usuario_id',
+    );
+  }
+
+  /// Remove o acesso de um colaborador a um conteúdo.
+  static Future<void> removerPermissaoConteudo({
+    required String tipoConteudo,
+    required int conteudoId,
+    required int usuarioIdColaborador,
+  }) async {
+    if (!isConfigured) return;
+    await _supabase
+        .from('conteudo_colaboradores')
+        .delete()
+        .eq('tipo_conteudo', tipoConteudo)
+        .eq('conteudo_id', conteudoId)
+        .eq('usuario_id', usuarioIdColaborador);
+  }
+
+  /// Lista os colaboradores reais (com papel) de um conteúdo específico —
+  /// usado pelo dono para gerenciar permissões.
+  static Future<List<Colaborador>> listarColaboradoresDoConteudo(
+    String tipoConteudo,
+    int conteudoId,
+  ) async {
+    if (!isConfigured) return [];
+    try {
+      final rows = await _supabase
+          .from('conteudo_colaboradores')
+          .select('usuario_id, papel')
+          .eq('tipo_conteudo', tipoConteudo)
+          .eq('conteudo_id', conteudoId);
+      if (rows.isEmpty) return [];
+
+      final ids = rows.map<int>((r) => (r['usuario_id'] as num).toInt()).toList();
+      final usuariosRows = await _supabase
+          .from('usuarios')
+          .select('id, nome, sobrenome')
+          .inFilter('id', ids);
+      final nomesPorId = <int, String>{
+        for (final u in usuariosRows)
+          (u['id'] as num).toInt():
+              '${u['nome'] ?? ''} ${u['sobrenome'] ?? ''}'.trim(),
+      };
+
+      return rows.map<Colaborador>((r) {
+        final uid = (r['usuario_id'] as num).toInt();
+        return Colaborador(
+          usuarioId: uid,
+          nome: nomesPorId[uid] ?? 'Familiar',
+          papel: PapelColaborador.fromValor(r['papel'] as String?) ??
+              PapelColaborador.leitor,
+        );
+      }).toList();
+    } catch (e) {
+      print('[PessoaRepo] listarColaboradoresDoConteudo() ERRO: $e');
+      return [];
+    }
+  }
+
+  /// Papel do usuário logado sobre um conteúdo que NÃO é dele (retorna null
+  /// se não houver permissão concedida — quem chama deve checar "dono"
+  /// separadamente comparando `usuario_id` do conteúdo).
+  static Future<PapelColaborador?> obterMeuPapelNoConteudo(
+    String tipoConteudo,
+    int conteudoId,
+  ) async {
+    if (!isConfigured) return null;
+    try {
+      final rows = await _supabase
+          .from('conteudo_colaboradores')
+          .select('papel')
+          .eq('tipo_conteudo', tipoConteudo)
+          .eq('conteudo_id', conteudoId)
+          .eq('usuario_id', usuarioId);
+      if (rows.isEmpty) return null;
+      return PapelColaborador.fromValor(rows.first['papel'] as String?);
+    } catch (_) {
+      return null;
     }
   }
 }

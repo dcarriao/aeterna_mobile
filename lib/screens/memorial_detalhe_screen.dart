@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/memorial.dart';
 import '../models/contribuicao.dart';
+import '../models/convite_familiar.dart';
 import '../models/memoria.dart';
 import '../models/pessoa.dart';
 import '../services/supabase_service.dart';
@@ -27,7 +28,20 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
   List<Contribuicao> _contribuicoes = [];
   List<Pessoa> _todasPessoas = [];
   List<int> _contatosVinculados = [];
+  List<Colaborador> _colaboradores = [];
   bool _carregandoLembrancas = false;
+  late String _biografiaAtual = widget.memorial.biografia;
+
+  // ── Papéis e permissões (Sprint Vínculos Familiares) ──
+  PapelColaborador? _meuPapel;
+
+  bool get _souDono => widget.memorial.usuarioId == SupabaseService.usuarioId;
+  bool get _possoEditar =>
+      _souDono || _meuPapel == PapelColaborador.editor;
+  bool get _possoContribuir =>
+      _souDono ||
+      _meuPapel == PapelColaborador.editor ||
+      _meuPapel == PapelColaborador.colaborador;
 
   // IA Chat
   final List<Map<String, String>> _conversa = [];
@@ -89,12 +103,28 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         return matchesContatoId || matchesName;
       }).toList();
 
+      // Papel do usuário logado neste memorial (dono é inferido separadamente
+      // via `_souDono`; aqui só resolvemos o papel de colaborador real).
+      PapelColaborador? papel;
+      if (!_souDono) {
+        papel = await PessoaRepository.obterMeuPapelNoConteudo(
+          'memorial',
+          widget.memorial.id!,
+        );
+      }
+      final colaboradores = _souDono
+          ? await PessoaRepository.listarColaboradoresDoConteudo(
+              'memorial', widget.memorial.id!)
+          : <Colaborador>[];
+
       if (mounted) {
         setState(() {
           _contribuicoes = contribs;
           _memoriasOficiais = oficiais;
           _todasPessoas = contatos;
           _contatosVinculados = vinculados;
+          _meuPapel = papel;
+          _colaboradores = colaboradores;
           _carregandoLembrancas = false;
         });
       }
@@ -108,11 +138,16 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     return '${data.day.toString().padLeft(2, '0')}/${data.month.toString().padLeft(2, '0')}/${data.year}';
   }
 
-  int get _countPendentes => _contribuicoes.where((c) => !c.aprovado).length;
+  int get _countPendentes => _contribuicoes.where((c) => c.pendente).length;
 
   Future<void> _moderar(Contribuicao c, bool aprovado) async {
+    if (!_souDono) return;
     try {
-      await _service.moderarContribuicao(c.id!, aprovado);
+      await _service.moderarContribuicao(
+        c.id!,
+        aprovado,
+        avaliadoPor: SupabaseService.usuarioId,
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(aprovado ? 'Contribuição aprovada com sucesso.' : 'Contribuição rejeitada.')),
       );
@@ -200,10 +235,84 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     }
   }
 
+  /// Abre o gerenciamento de permissões reais (colaboradores de conta) sobre
+  /// este memorial: dono escolhe familiares vinculados (contas reais) e
+  /// define o papel de cada um, ou convida por e-mail alguém novo já com um
+  /// papel sugerido.
+  Future<void> _gerenciarColaboradores() async {
+    if (!_souDono || widget.memorial.id == null) return;
+    final alterou = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _GerenciarColaboradoresSheet(
+        tipoConteudo: 'memorial',
+        conteudoId: widget.memorial.id!,
+        colaboradoresAtuais: _colaboradores,
+      ),
+    );
+    if (alterou == true) {
+      _carregarDados();
+    }
+  }
+
+  /// Edição de biografia — permitida para dono e para colaboradores com
+  /// papel `editor` (requisito 8 da sprint: memorial não pode ser só leitura).
+  Future<void> _editarBiografia() async {
+    if (!_possoEditar || widget.memorial.id == null) return;
+    final controller = TextEditingController(text: _biografiaAtual);
+    final novoTexto = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text('Editar biografia', style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: controller,
+          maxLines: 8,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancelar', style: TextStyle(color: Color(0xFF9B949D))),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.roxo),
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
+    );
+
+    if (novoTexto != null && novoTexto.isNotEmpty && mounted) {
+      try {
+        await _service.atualizarBiografiaMemorial(widget.memorial.id!, novoTexto);
+        if (mounted) {
+          setState(() => _biografiaAtual = novoTexto);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Biografia atualizada com sucesso.')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erro ao atualizar biografia: $e')),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _abrirNovaContribuicao() async {
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => _NovaContribuicaoScreen(memorialId: widget.memorial.id!),
+        builder: (_) => _NovaContribuicaoScreen(
+          memorialId: widget.memorial.id!,
+          usuarioDonoId: widget.memorial.usuarioId,
+        ),
       ),
     );
     if (result == true) {
@@ -230,13 +339,13 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         historias.add('Memória "${m.titulo}": ${m.contexto}');
       }
       for (final c in _contribuicoes.where((c) => c.aprovado)) {
-        historias.add('Lembrança de ${c.autor} (${c.relacao}): ${c.conteudo}');
+        historias.add('Lembrança de ${c.usuarioContribuidorNome}: ${c.texto ?? ''}');
       }
 
       final resposta = await LegacyCuratorService.instance.responderComoCurador(
         nome: widget.memorial.nome,
         parentesco: widget.memorial.parentesco,
-        biografia: widget.memorial.biografia,
+        biografia: _biografiaAtual,
         memoriasEContribuicoes: historias,
         historicoConversa: _conversa.sublist(1), // Exclui a mensagem de boas-vindas local
       );
@@ -293,16 +402,23 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         elevation: 0,
         iconTheme: const IconThemeData(color: AppColors.roxo),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.group_add_outlined, color: AppColors.roxo),
-            onPressed: _abrirCompartilharMemorial,
-            tooltip: 'Compartilhar / Convidar',
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-            onPressed: _excluirMemorial,
-            tooltip: 'Excluir Memorial',
-          ),
+          if (_souDono) ...[
+            IconButton(
+              icon: const Icon(Icons.admin_panel_settings_outlined, color: AppColors.roxo),
+              onPressed: _gerenciarColaboradores,
+              tooltip: 'Gerenciar Colaboradores',
+            ),
+            IconButton(
+              icon: const Icon(Icons.group_add_outlined, color: AppColors.roxo),
+              onPressed: _abrirCompartilharMemorial,
+              tooltip: 'Vincular contatos locais',
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              onPressed: _excluirMemorial,
+              tooltip: 'Excluir Memorial',
+            ),
+          ],
         ],
       ),
       body: SafeArea(
@@ -392,7 +508,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const Text('Moderar'),
-                          if (_countPendentes > 0) ...[
+                          if (_souDono && _countPendentes > 0) ...[
                             const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.all(4),
@@ -452,22 +568,30 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Row(
+              Row(
                 children: [
-                  Icon(Icons.auto_stories_outlined, color: AppColors.dourado, size: 20),
-                  SizedBox(width: 8),
-                  Text(
-                    'Sua História de Vida',
-                    style: TextStyle(
-                        color: AppColors.roxo,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800),
+                  const Icon(Icons.auto_stories_outlined, color: AppColors.dourado, size: 20),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Sua História de Vida',
+                      style: TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800),
+                    ),
                   ),
+                  if (_possoEditar)
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 18, color: AppColors.roxo),
+                      tooltip: 'Editar biografia',
+                      onPressed: _editarBiografia,
+                    ),
                 ],
               ),
               const Divider(height: 24, color: AppColors.borda),
               Text(
-                widget.memorial.biografia,
+                _biografiaAtual,
                 style: const TextStyle(
                     color: AppColors.roxo,
                     fontSize: 14,
@@ -477,6 +601,54 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
             ],
           ),
         ),
+        if (_colaboradores.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.borda),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.groups_outlined, color: AppColors.dourado, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'Colaboradores',
+                      style: TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+                const Divider(height: 24, color: AppColors.borda),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _colaboradores.map((col) {
+                    return Chip(
+                      avatar: const CircleAvatar(
+                        backgroundColor: Color(0xFFF0EAF5),
+                        child: Icon(Icons.person, size: 12, color: AppColors.roxo),
+                      ),
+                      label: Text(
+                        '${col.nome} · ${col.papel.rotulo}',
+                        style: const TextStyle(fontSize: 12, color: AppColors.roxo, fontWeight: FontWeight.bold),
+                      ),
+                      backgroundColor: Colors.white,
+                      side: const BorderSide(color: AppColors.borda),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+        ],
         if (sharedPessoas.isNotEmpty) ...[
           const SizedBox(height: 20),
           Container(
@@ -561,13 +733,15 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
               ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _abrirNovaContribuicao,
-                style: FilledButton.styleFrom(backgroundColor: AppColors.roxo),
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Enviar Contribuição'),
-              ),
+              if (_possoContribuir) ...[
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: _abrirNovaContribuicao,
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.roxo),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Enviar Contribuição'),
+                ),
+              ],
             ],
           ),
         ),
@@ -590,11 +764,11 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     for (final c in aprovadas) {
       listaUnificada.add(_ItemTimeline(
         titulo: 'Homenagem',
-        autor: c.autor,
-        relacao: c.relacao,
-        conteudo: c.conteudo,
-        fotoUrl: c.fotoUrl,
-        videoUrl: c.videoUrl,
+        autor: c.usuarioContribuidorNome,
+        relacao: '',
+        conteudo: c.texto ?? '',
+        fotoUrl: c.tipoContribuicao == 'foto' ? c.arquivoUrl : null,
+        videoUrl: c.tipoContribuicao == 'video' ? c.arquivoUrl : null,
         criadoEm: c.createdAt,
         isOficial: false,
       ));
@@ -604,13 +778,15 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _abrirNovaContribuicao,
-        backgroundColor: AppColors.roxo,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add_comment_outlined, size: 18),
-        label: const Text('Contribuir', style: TextStyle(fontWeight: FontWeight.bold)),
-      ),
+      floatingActionButton: _possoContribuir
+          ? FloatingActionButton.extended(
+              onPressed: _abrirNovaContribuicao,
+              backgroundColor: AppColors.roxo,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_comment_outlined, size: 18),
+              label: const Text('Contribuir', style: TextStyle(fontWeight: FontWeight.bold)),
+            )
+          : null,
       body: ListView.builder(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 80),
         itemCount: listaUnificada.length,
@@ -668,10 +844,11 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                           ],
                         ],
                       ),
-                      Text(
-                        item.relacao,
-                        style: const TextStyle(color: Color(0xFF9B949D), fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
+                      if (item.relacao.isNotEmpty)
+                        Text(
+                          item.relacao,
+                          style: const TextStyle(color: Color(0xFF9B949D), fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
                     ],
                   ),
                 ),
@@ -721,7 +898,27 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
 
   // ── ABA 3: MODERAÇÃO DE CONTRIBUIÇÕES ──
   Widget _buildAbaModeracao() {
-    final pendentes = _contribuicoes.where((c) => !c.aprovado).toList();
+    if (!_souDono) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.lock_outline, size: 48, color: AppColors.borda),
+              SizedBox(height: 16),
+              Text(
+                'Apenas o dono pode moderar contribuições.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.roxo, fontSize: 15, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final pendentes = _contribuicoes.where((c) => c.pendente).toList();
 
     if (pendentes.isEmpty) {
       return const Center(
@@ -772,11 +969,11 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          c.autor,
+                          c.usuarioContribuidorNome,
                           style: const TextStyle(color: AppColors.roxo, fontSize: 15, fontWeight: FontWeight.w800),
                         ),
                         Text(
-                          'Relação: ${c.relacao}',
+                          c.usuarioContribuidorEmail,
                           style: const TextStyle(color: AppColors.dourado, fontSize: 12, fontWeight: FontWeight.bold),
                         ),
                       ],
@@ -789,11 +986,11 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                 ],
               ),
               const Divider(height: 20),
-              if (c.fotoUrl != null && c.fotoUrl!.isNotEmpty) ...[
+              if (c.tipoContribuicao == 'foto' && c.arquivoUrl != null && c.arquivoUrl!.isNotEmpty) ...[
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(
-                    c.fotoUrl!,
+                    c.arquivoUrl!,
                     width: double.infinity,
                     height: 150,
                     fit: BoxFit.cover,
@@ -802,7 +999,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                 const SizedBox(height: 10),
               ],
               Text(
-                c.conteudo,
+                c.texto ?? '',
                 style: const TextStyle(color: AppColors.roxo, fontSize: 13, height: 1.5),
               ),
               const SizedBox(height: 16),
@@ -971,9 +1168,14 @@ class _ItemTimeline {
 
 // ── TELA PARA ENVIAR NOVA CONTRIBUIÇÃO ──
 class _NovaContribuicaoScreen extends StatefulWidget {
-  const _NovaContribuicaoScreen({required this.memorialId, super.key});
+  const _NovaContribuicaoScreen({
+    required this.memorialId,
+    required this.usuarioDonoId,
+    super.key,
+  });
 
   final int memorialId;
+  final int usuarioDonoId;
 
   @override
   State<_NovaContribuicaoScreen> createState() => _NovaContribuicaoScreenState();
@@ -981,18 +1183,33 @@ class _NovaContribuicaoScreen extends StatefulWidget {
 
 class _NovaContribuicaoScreenState extends State<_NovaContribuicaoScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _autorController = TextEditingController();
-  final _relacaoController = TextEditingController();
   final _conteudoController = TextEditingController();
   final _picker = ImagePicker();
 
   Uint8List? _fotoBytes;
   bool _enviando = false;
+  String _meuNome = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarIdentidade();
+  }
+
+  // A contribuição agora é sempre atribuída à conta real logada (não mais a
+  // um nome/relação digitados livremente) — corrige a falta de
+  // rastreabilidade do fluxo antigo e alinha com o schema real de produção.
+  Future<void> _carregarIdentidade() async {
+    final dados = await PessoaRepository.obterUsuario();
+    if (mounted && dados != null) {
+      setState(() {
+        _meuNome = '${dados['nome'] ?? ''} ${dados['sobrenome'] ?? ''}'.trim();
+      });
+    }
+  }
 
   @override
   void dispose() {
-    _autorController.dispose();
-    _relacaoController.dispose();
     _conteudoController.dispose();
     super.dispose();
   }
@@ -1019,11 +1236,15 @@ class _NovaContribuicaoScreenState extends State<_NovaContribuicaoScreen> {
     try {
       final contribuicao = Contribuicao(
         memorialId: widget.memorialId,
-        autor: _autorController.text.trim(),
-        relacao: _relacaoController.text.trim(),
-        conteudo: _conteudoController.text.trim(),
+        tipoConteudo: 'memorial',
+        conteudoId: widget.memorialId,
+        usuarioDonoId: widget.usuarioDonoId,
+        usuarioContribuidorEmail: PessoaRepository.usuarioEmail ?? '',
+        usuarioContribuidorNome: _meuNome.isNotEmpty ? _meuNome : 'Familiar',
+        tipoContribuicao: _fotoBytes != null ? 'foto' : 'texto',
+        texto: _conteudoController.text.trim(),
         fotoBytes: _fotoBytes,
-        aprovado: false, // Inicializa pendente
+        status: 'pendente',
         createdAt: DateTime.now(),
       );
 
@@ -1078,23 +1299,14 @@ class _NovaContribuicaoScreenState extends State<_NovaContribuicaoScreen> {
                           'Compartilhe uma história, foto ou mensagem de carinho para fazer parte deste espaço de homenagem.',
                           style: TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
                         ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _meuNome.isNotEmpty
+                              ? 'Enviando como $_meuNome (${PessoaRepository.usuarioEmail ?? ''})'
+                              : 'Carregando sua identidade...',
+                          style: const TextStyle(color: AppColors.dourado, fontSize: 12, fontWeight: FontWeight.w700),
+                        ),
                         const SizedBox(height: 24),
-
-                        TextFormField(
-                          controller: _autorController,
-                          textCapitalization: TextCapitalization.words,
-                          decoration: const InputDecoration(labelText: 'Seu Nome', hintText: 'Como deseja ser identificado'),
-                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Informe seu nome.' : null,
-                        ),
-                        const SizedBox(height: 16),
-
-                        TextFormField(
-                          controller: _relacaoController,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: const InputDecoration(labelText: 'Sua Relação', hintText: 'Ex: Amigo de infância, Primo'),
-                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Informe sua relação.' : null,
-                        ),
-                        const SizedBox(height: 16),
 
                         TextFormField(
                           controller: _conteudoController,
@@ -1154,6 +1366,275 @@ class _NovaContribuicaoScreenState extends State<_NovaContribuicaoScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── SHEET: GERENCIAR COLABORADORES REAIS (papel editor/colaborador/leitor) ──
+class _GerenciarColaboradoresSheet extends StatefulWidget {
+  const _GerenciarColaboradoresSheet({
+    required this.tipoConteudo,
+    required this.conteudoId,
+    required this.colaboradoresAtuais,
+  });
+
+  final String tipoConteudo;
+  final int conteudoId;
+  final List<Colaborador> colaboradoresAtuais;
+
+  @override
+  State<_GerenciarColaboradoresSheet> createState() =>
+      _GerenciarColaboradoresSheetState();
+}
+
+class _GerenciarColaboradoresSheetState
+    extends State<_GerenciarColaboradoresSheet> {
+  List<VinculoFamiliar> _familiares = [];
+  final Map<int, PapelColaborador?> _papeis = {};
+  final _emailConviteController = TextEditingController();
+  PapelColaborador _papelConvite = PapelColaborador.colaborador;
+  bool _carregando = true;
+  bool _salvando = false;
+  bool _enviandoConvite = false;
+  bool _alterou = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregar();
+  }
+
+  @override
+  void dispose() {
+    _emailConviteController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _carregar() async {
+    final familiares = await PessoaRepository.listarVinculosFamiliares();
+    if (mounted) {
+      setState(() {
+        _familiares = familiares;
+        for (final f in familiares) {
+          final atual = widget.colaboradoresAtuais.firstWhere(
+            (c) => c.usuarioId == f.usuarioId,
+            orElse: () => Colaborador(
+              usuarioId: f.usuarioId,
+              nome: f.nome,
+              papel: PapelColaborador.leitor,
+            ),
+          );
+          final jaTinhaPermissao =
+              widget.colaboradoresAtuais.any((c) => c.usuarioId == f.usuarioId);
+          _papeis[f.usuarioId] = jaTinhaPermissao ? atual.papel : null;
+        }
+        _carregando = false;
+      });
+    }
+  }
+
+  Future<void> _salvar() async {
+    setState(() => _salvando = true);
+    try {
+      for (final f in _familiares) {
+        final papel = _papeis[f.usuarioId];
+        final jaTinhaPermissao =
+            widget.colaboradoresAtuais.any((c) => c.usuarioId == f.usuarioId);
+
+        if (papel == null && jaTinhaPermissao) {
+          await PessoaRepository.removerPermissaoConteudo(
+            tipoConteudo: widget.tipoConteudo,
+            conteudoId: widget.conteudoId,
+            usuarioIdColaborador: f.usuarioId,
+          );
+          _alterou = true;
+        } else if (papel != null) {
+          await PessoaRepository.concederPermissaoConteudo(
+            tipoConteudo: widget.tipoConteudo,
+            conteudoId: widget.conteudoId,
+            usuarioIdColaborador: f.usuarioId,
+            papel: papel,
+          );
+          _alterou = true;
+        }
+      }
+      if (mounted) Navigator.of(context).pop(_alterou);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _salvando = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao salvar permissões: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _enviarConvite() async {
+    final email = _emailConviteController.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Informe um e-mail válido.')),
+      );
+      return;
+    }
+    setState(() => _enviandoConvite = true);
+    try {
+      await PessoaRepository.enviarConviteFamiliar(
+        email: email,
+        tipoConteudoAlvo: widget.tipoConteudo,
+        conteudoIdAlvo: widget.conteudoId,
+        papelSugerido: _papelConvite,
+      );
+      if (mounted) {
+        _emailConviteController.clear();
+        setState(() => _enviandoConvite = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Convite enviado! Quando aceito, o papel escolhido será concedido automaticamente.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _enviandoConvite = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao enviar convite: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.borda,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+                child: Text(
+                  'Gerenciar Colaboradores',
+                  style: TextStyle(color: AppColors.roxo, fontSize: 18, fontWeight: FontWeight.w800),
+                ),
+              ),
+              Expanded(
+                child: _carregando
+                    ? const Center(child: CircularProgressIndicator(color: AppColors.roxo))
+                    : ListView(
+                        controller: scrollController,
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                        children: [
+                          if (_familiares.isEmpty)
+                            const Text(
+                              'Você ainda não tem familiares vinculados. Convide alguém pelo e-mail abaixo.',
+                              style: TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
+                            )
+                          else
+                            ..._familiares.map((f) {
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        f.nome,
+                                        style: const TextStyle(color: AppColors.roxo, fontWeight: FontWeight.w700, fontSize: 14),
+                                      ),
+                                    ),
+                                    DropdownButton<PapelColaborador?>(
+                                      value: _papeis[f.usuarioId],
+                                      hint: const Text('Nenhum acesso', style: TextStyle(fontSize: 13)),
+                                      items: [
+                                        const DropdownMenuItem<PapelColaborador?>(
+                                          value: null,
+                                          child: Text('Nenhum acesso'),
+                                        ),
+                                        ...PapelColaborador.values.map(
+                                          (p) => DropdownMenuItem<PapelColaborador?>(
+                                            value: p,
+                                            child: Text(p.rotulo),
+                                          ),
+                                        ),
+                                      ],
+                                      onChanged: (valor) {
+                                        setState(() => _papeis[f.usuarioId] = valor);
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          const Divider(height: 32),
+                          const Text(
+                            'Convidar por e-mail',
+                            style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.w800, fontSize: 14),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _emailConviteController,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: const InputDecoration(
+                              hintText: 'email@exemplo.com',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          DropdownButton<PapelColaborador>(
+                            value: _papelConvite,
+                            isExpanded: true,
+                            items: PapelColaborador.values
+                                .map((p) => DropdownMenuItem(value: p, child: Text('${p.rotulo} — ${p.descricao}')))
+                                .toList(),
+                            onChanged: (valor) {
+                              if (valor != null) setState(() => _papelConvite = valor);
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: _enviandoConvite ? null : _enviarConvite,
+                            icon: _enviandoConvite
+                                ? const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.mail_outline, size: 16),
+                            label: const Text('Enviar convite'),
+                          ),
+                        ],
+                      ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: FilledButton(
+                  onPressed: _salvando ? null : _salvar,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.roxo,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(50),
+                  ),
+                  child: _salvando
+                      ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Salvar permissões'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
