@@ -11,7 +11,7 @@ end
 puts 'Adding ShareExtension target to Runner.xcodeproj...'
 
 # 1. Create target
-extension_target = project.new_target(:app_extension, 'ShareExtension', :ios, '13.0', nil, :swift)
+extension_target = project.new_target(:app_extension, 'ShareExtension', :ios, '14.0', nil, :swift)
 
 # 2. Add files group
 share_ext_group = project.main_group.find_subpath('ShareExtension', true)
@@ -29,7 +29,7 @@ extension_target.build_configurations.each do |config|
   config.build_settings['PRODUCT_NAME'] = 'ShareExtension'
   config.build_settings['INFOPLIST_FILE'] = 'ShareExtension/Info.plist'
   config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'br.com.aeternalegado.app.ShareExtension'
-  config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+  config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
   config.build_settings['TARGETED_DEVICE_FAMILY'] = '1,2'
   config.build_settings['SWIFT_VERSION'] = '5.0'
   config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = '$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks'
