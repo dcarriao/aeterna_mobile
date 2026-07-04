@@ -385,7 +385,7 @@ class SupabaseService {
   static const _colunasContribuicao =
       'id, memorial_id, tipo_conteudo, conteudo_id, usuario_dono_id, '
       'usuario_contribuidor_email, usuario_contribuidor_nome, '
-      'tipo_contribuicao, texto, arquivo_url, status, criado_em, '
+      'tipo_contribuicao, texto, arquivo_url, audio_url, status, criado_em, '
       'avaliado_em, avaliado_por';
 
   /// Memoriais em que o usuário logado NÃO é dono, mas tem permissão de
@@ -443,10 +443,60 @@ class SupabaseService {
     }
   }
 
+  /// Lista TODAS as contribuições de uma MEMÓRIA (Sprint G).
+  /// Diferente de [listarContribuicoes], que filtra por `memorial_id`,
+  /// esta consulta usa a FK polimórfica (`tipo_conteudo='memoria'` +
+  /// `conteudo_id=memoriaId`) — o schema real já permite isso desde a
+  /// sprint anterior; só não tinha UI que o usasse.
+  Future<List<Contribuicao>> listarContribuicoesDaMemoria(
+    int memoriaId, {
+    bool apenasAprovadas = false,
+  }) async {
+    if (!isConfigured) return const [];
+    try {
+      var query = _client
+          .from('contribuicoes')
+          .select(_colunasContribuicao)
+          .eq('tipo_conteudo', 'memoria')
+          .eq('conteudo_id', memoriaId);
+
+      if (apenasAprovadas) {
+        query = query.eq('status', 'aprovado');
+      }
+
+      final rows = await query.order('criado_em', ascending: true);
+      return rows.map<Contribuicao>((row) => Contribuicao.fromMap(row)).toList();
+    } catch (e) {
+      print('Erro ao listar contribuicoes da memoria: $e');
+      return const [];
+    }
+  }
+
+  /// Lê a flag `aprovacao_obrigatoria` de uma memória (Sprint G).
+  /// Default: TRUE (preserva o comportamento conservador — se a coluna
+  /// ainda não existe no banco, devolve true e o app mostra o caminho
+  /// de aprovação obrigatória).
+  Future<bool> memoriaExigeAprovacao(int memoriaId) async {
+    if (!isConfigured) return true;
+    try {
+      final rows = await _client
+          .from('memorias')
+          .select('aprovacao_obrigatoria')
+          .eq('id', memoriaId)
+          .limit(1);
+      if (rows.isEmpty) return true;
+      final v = rows.first['aprovacao_obrigatoria'];
+      return v is bool ? v : true;
+    } catch (_) {
+      return true;
+    }
+  }
+
   Future<Contribuicao> salvarContribuicao(Contribuicao contribuicao) async {
     if (!isConfigured) return contribuicao;
     final agora = DateTime.now();
     String? arquivoPublicUrl = contribuicao.arquivoUrl;
+    String? audioPublicUrl = contribuicao.audioUrl;
 
     if (contribuicao.fotoBytes != null) {
       final caminhoStorage = _criarCaminhoArquivo(
@@ -474,10 +524,24 @@ class SupabaseService {
       arquivoPublicUrl = _client.storage
           .from(_bucketFotos)
           .getPublicUrl(caminhoStorage);
+    } else if (contribuicao.audioBytes != null) {
+      final caminhoStorage = _criarCaminhoArquivo(
+        agora,
+        'contrib_audio_${agora.millisecondsSinceEpoch}.m4a',
+      );
+      await _client.storage.from(_bucketFotos).uploadBinary(
+        caminhoStorage,
+        contribuicao.audioBytes!,
+        fileOptions: const FileOptions(contentType: 'audio/m4a'),
+      );
+      audioPublicUrl = _client.storage
+          .from(_bucketFotos)
+          .getPublicUrl(caminhoStorage);
     }
 
     final data = contribuicao.toMap();
     if (arquivoPublicUrl != null) data['arquivo_url'] = arquivoPublicUrl;
+    if (audioPublicUrl != null) data['audio_url'] = audioPublicUrl;
 
     final row = await _client
         .from('contribuicoes')

@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../curador/perguntas.dart';
+import '../models/contribuicao.dart';
 import '../models/memoria.dart';
 import '../models/pessoa.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
+import 'memoria_contribuicao_screen.dart';
 import 'nova_memoria_screen.dart';
 
 class MemoriaDetalheScreen extends StatefulWidget {
@@ -26,6 +29,26 @@ class MemoriaDetalheScreen extends StatefulWidget {
   State<MemoriaDetalheScreen> createState() => _MemoriaDetalheScreenState();
 }
 
+class _EventoTimeline {
+  const _EventoTimeline({
+    required this.ano,
+    required this.titulo,
+    required this.descricao,
+    required this.autor,
+    this.arquivoUrl,
+    this.videoUrl,
+    this.isOriginal = false,
+  });
+
+  final DateTime ano;
+  final String titulo;
+  final String descricao;
+  final String autor;
+  final String? arquivoUrl;
+  final String? videoUrl;
+  final bool isOriginal;
+}
+
 class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
   late Memoria _memoria;
   List<Pessoa> _familiares = [];
@@ -33,6 +56,24 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
   String? _videoUrl;
   bool _carregandoDados = true;
   late AnaliseLegado _analise;
+
+  // Sprint G — Enriquecimento Colaborativo
+  final _supabase = SupabaseService.instance;
+  List<Contribuicao> _contribuicoesAprovadas = [];
+  List<Contribuicao> _contribuicoesPendentes = [];
+  bool _aprovacaoObrigatoria = true;
+  int _countPendentes = 0;
+
+  bool get _souDono =>
+      widget.memoria.donoUsuarioId != null &&
+      widget.memoria.donoUsuarioId == SupabaseService.usuarioId;
+
+  /// Quem pode ENRIQUECER (criar contribuições). Dono sempre pode.
+  /// Outros usuários só podem se forem colaboradores/editor (papel já
+  /// garantido via `conteudo_colaboradores`) OU se a memória estiver
+  /// compartilhada com eles (lista de 'memórias recebidas' da home).
+  bool get _possoContribuir =>
+      _souDono || !widget.somenteLeitura || _contribuicoesAprovadas.isNotEmpty;
 
   @override
   void initState() {
@@ -62,6 +103,20 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
       final videoUrl = _memoria.videoUrl ??
           await PessoaRepository.obterVideoDaMemoria(_memoria.id);
 
+      // Sprint G — Enriquecimento: carregar contribuições + flag de aprovação
+      // em paralelo com o restante.
+      final futuros = <Future<dynamic>>[
+        _supabase.listarContribuicoesDaMemoria(_memoria.id!),
+        _supabase.memoriaExigeAprovacao(_memoria.id!),
+      ];
+      final results = await Future.wait(futuros);
+      final todasContribuicoes = results[0] as List<Contribuicao>;
+      final exigeAprovacao = results[1] as bool;
+      final aprovadas =
+          todasContribuicoes.where((c) => c.aprovado).toList(growable: false);
+      final pendentes =
+          todasContribuicoes.where((c) => c.pendente).toList(growable: false);
+
       if (mounted) {
         setState(() {
           _memoria = Memoria(
@@ -84,6 +139,10 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
           _familiares = todasAsPessoas.where((p) => famIds.contains(p.id)).toList();
           _participantes = todasAsPessoas.where((p) => partIds.contains(p.id)).toList();
           _videoUrl = videoUrl;
+          _contribuicoesAprovadas = aprovadas;
+          _contribuicoesPendentes = pendentes;
+          _countPendentes = pendentes.length;
+          _aprovacaoObrigatoria = exigeAprovacao;
           _carregandoDados = false;
         });
       }
@@ -149,6 +208,410 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
         }
       }
     }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SPRINT G — Ações de enriquecimento colaborativo da memória
+  // ════════════════════════════════════════════════════════════════════════
+
+  Future<void> _abrirTelaContribuicao() async {
+    if (_memoria.id == null) return;
+    final enviou = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => MemoriaContribuicaoScreen(
+          memoriaId: _memoria.id!,
+          memoriaTitulo: _memoria.titulo,
+          usuarioDonoId: _souDono ? SupabaseService.usuarioId : (_memoria.donoUsuarioId ?? SupabaseService.usuarioId),
+          aprovacaoObrigatoria: _aprovacaoObrigatoria,
+        ),
+      ),
+    );
+    if (enviou == true) {
+      _carregarDados();
+    }
+  }
+
+  Future<void> _moderarContribuicaoMemoria(Contribuicao c, bool aprovado) async {
+    if (!_souDono) return;
+    try {
+      await _supabase.moderarContribuicao(
+        c.id!,
+        aprovado,
+        avaliadoPor: SupabaseService.usuarioId,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(aprovado
+              ? 'Contribuição aprovada — agora aparece na história.'
+              : 'Contribuição rejeitada.')),
+        );
+      }
+      _carregarDados();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao moderar: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _buildSecaoEvolucao() {
+    if (_carregandoDados) return const SizedBox.shrink();
+
+    // Cabeçalho sempre visível.
+    final children = <Widget>[
+      Row(
+        children: [
+          const Icon(Icons.history_edu_outlined, color: AppColors.dourado, size: 20),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Evolução da memória',
+              style: TextStyle(
+                color: AppColors.roxo,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          if (_souDono && _countPendentes > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.redAccent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '$_countPendentes pendente${_countPendentes == 1 ? '' : 's'}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 6),
+      const Text(
+        'Como a história foi crescendo ao longo do tempo com a contribuição de quem viveu esse momento.',
+        style: TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
+      ),
+      const SizedBox(height: 16),
+    ];
+
+    // Linha do tempo: criação original + contribuições aprovadas (ordem
+    // cronológica). Pendentes ficam em bloco separado abaixo, visível só
+    // para o dono.
+    final eventos = <_EventoTimeline>[
+      _EventoTimeline(
+        ano: _memoria.criadaEm,
+        titulo: 'Memória criada',
+        descricao: 'História original escrita.',
+        autor: _memoria.compartilhadaPorNome ?? 'Dono da história',
+        isOriginal: true,
+      ),
+      for (final c in _contribuicoesAprovadas)
+        _EventoTimeline(
+          ano: c.createdAt,
+          titulo: _tituloParaContribuicao(c),
+          descricao: c.texto ?? '',
+          autor: c.usuarioContribuidorNome,
+          arquivoUrl: c.tipoContribuicao == 'foto' ? c.arquivoUrl : null,
+          videoUrl: c.tipoContribuicao == 'video' ? c.arquivoUrl : null,
+        ),
+    ];
+
+    eventos.sort((a, b) => a.ano.compareTo(b.ano));
+
+    for (final e in eventos) {
+      children.add(_buildItemTimeline(e));
+    }
+
+    // Bloco de moderação para o dono: contribuições pendentes.
+    if (_souDono && _contribuicoesPendentes.isNotEmpty) {
+      children.add(const SizedBox(height: 24));
+      children.add(const Divider());
+      children.add(const SizedBox(height: 16));
+      children.add(
+        const Text(
+          'Contribuições aguardando aprovação',
+          style: TextStyle(
+            color: AppColors.roxo,
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      );
+      children.add(const SizedBox(height: 4));
+      children.add(
+        const Text(
+          'Aprove ou rejeite contribuições dos seus familiares para que passem a fazer parte da história.',
+          style: TextStyle(color: Color(0xFF7A7280), fontSize: 12, height: 1.4),
+        ),
+      );
+      children.add(const SizedBox(height: 12));
+      for (final c in _contribuicoesPendentes) {
+        children.add(_buildCardContribuicaoPendente(c));
+      }
+    }
+
+    if (_contribuicoesAprovadas.isEmpty &&
+        _contribuicoesPendentes.isEmpty &&
+        eventos.length <= 1) {
+      children.add(
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.borda),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.family_restroom_outlined, color: AppColors.dourado),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Esta história ainda não foi enriquecida por outras pessoas. Convide familiares para começar.',
+                  style: TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
+  }
+
+  String _tituloParaContribuicao(Contribuicao c) {
+    switch (c.tipoContribuicao) {
+      case 'foto':
+        return 'Foto adicionada';
+      case 'video':
+        return 'Vídeo adicionado';
+      case 'audio':
+        return 'Áudio adicionado';
+      default:
+        return 'Lembrança escrita';
+    }
+  }
+
+  String _formatarMes(DateTime data) {
+    const meses = [
+      'jan', 'fev', 'mar', 'abr', 'mai', 'jun',
+      'jul', 'ago', 'set', 'out', 'nov', 'dez',
+    ];
+    return '${meses[data.month - 1]} ${data.year}';
+  }
+
+  Widget _buildItemTimeline(_EventoTimeline e) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Column(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: e.isOriginal ? AppColors.roxo : AppColors.dourado,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              Container(
+                width: 2,
+                height: e.isOriginal && e.descricao.isEmpty ? 0 : 80,
+                color: AppColors.borda,
+                margin: const EdgeInsets.symmetric(vertical: 4),
+              ),
+            ],
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _formatarMes(e.ano),
+                  style: const TextStyle(
+                    color: AppColors.dourado,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  e.titulo,
+                  style: TextStyle(
+                    color: e.isOriginal ? AppColors.roxo : AppColors.roxo,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (e.descricao.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    e.descricao,
+                    style: const TextStyle(
+                      color: Color(0xFF625B67),
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+                if (e.arquivoUrl != null) ...[
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      e.arquivoUrl!,
+                      width: double.infinity,
+                      height: 160,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        height: 100,
+                        color: const Color(0xFFF0EAF5),
+                        child: const Center(
+                          child: Icon(Icons.image_not_supported_outlined,
+                              color: AppColors.roxo),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                if (e.videoUrl != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0EAF5),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.borda),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.movie_outlined, color: AppColors.roxo),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Vídeo da contribuição de ${e.autor}',
+                            style: const TextStyle(
+                              color: AppColors.roxo,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 2),
+                Text(
+                  'por ${e.autor}',
+                  style: const TextStyle(
+                    color: Color(0xFF9B949D),
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardContribuicaoPendente(Contribuicao c) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFD4A84F).withValues(alpha: 0.5), width: 1.4),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.hourglass_top_outlined, color: AppColors.dourado, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  c.usuarioContribuidorNome,
+                  style: const TextStyle(
+                    color: AppColors.roxo,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                _tituloParaContribuicao(c),
+                style: const TextStyle(
+                  color: AppColors.dourado,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          if (c.texto != null && c.texto!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              c.texto!,
+              style: const TextStyle(color: Color(0xFF625B67), fontSize: 13, height: 1.4),
+            ),
+          ],
+          if (c.tipoContribuicao == 'foto' && c.arquivoUrl != null) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                c.arquivoUrl!,
+                width: double.infinity,
+                height: 140,
+                fit: BoxFit.cover,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _moderarContribuicaoMemoria(c, false),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.redAccent,
+                  side: const BorderSide(color: Colors.redAccent),
+                ),
+                icon: const Icon(Icons.close, size: 16),
+                label: const Text('Rejeitar'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: () => _moderarContribuicaoMemoria(c, true),
+                style: FilledButton.styleFrom(backgroundColor: AppColors.verdeApoio),
+                icon: const Icon(Icons.check, size: 16),
+                label: const Text('Aprovar'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -533,7 +996,11 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
 
                       const SizedBox(height: 28),
 
-                      // ── BOTÃO EDITAR HISTÓRIA ──
+                      // ═════════════════════════════════════════════════════════
+                      // SPRINT G — ENRIQUECIMENTO COLABORATIVO DA MEMÓRIA
+                      // ═════════════════════════════════════════════════════════
+
+                      // ── 1. Botão principal do DONO: Editar história original ──
                       if (!widget.somenteLeitura)
                         FilledButton.icon(
                           onPressed: _editarHistoria,
@@ -548,6 +1015,32 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                           icon: const Icon(Icons.edit_outlined, size: 18),
                           label: const Text('Editar história'),
                         ),
+
+                      // ── 2. SEÇÃO EVOLUÇÃO DA MEMÓRIA ──
+                      const SizedBox(height: 32),
+                      _buildSecaoEvolucao(),
+
+                      // ── 3. Botão "Contribuir" (discreto, abaixo da evolução) ──
+                      if (!_carregandoDados && _memoria.id != null) ...[
+                        const SizedBox(height: 16),
+                        OutlinedButton.icon(
+                          onPressed: _abrirTelaContribuicao,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.roxo,
+                            side: const BorderSide(color: AppColors.roxo, width: 1.4),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            minimumSize: const Size.fromHeight(50),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          icon: const Icon(Icons.add_circle_outline, size: 18),
+                          label: const Text(
+                            'Contribuir com esta história',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
           ),

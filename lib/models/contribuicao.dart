@@ -23,8 +23,10 @@ class Contribuicao {
     required this.tipoContribuicao,
     this.texto,
     this.arquivoUrl,
+    this.audioUrl,
     this.fotoBytes,
     this.videoBytes,
+    this.audioBytes,
     this.status = 'pendente',
     required this.createdAt,
     this.avaliadoEm,
@@ -38,6 +40,7 @@ class Contribuicao {
 
   /// 'memoria' | 'foto' | 'video' | 'memorial' (FK polimórfica genérica,
   /// mesma convenção de `conteudo_permissoes`/`conteudo_colaboradores`).
+  /// Sprint G: passou a aceitar 'memoria' de fato, não só 'memorial'.
   final String tipoConteudo;
   final int conteudoId;
 
@@ -49,14 +52,16 @@ class Contribuicao {
   final String usuarioContribuidorEmail;
   final String usuarioContribuidorNome;
 
-  /// 'texto' | 'foto' | 'video'
+  /// 'texto' | 'foto' | 'video' | 'audio' (Sprint G: 'audio' já preparado)
   final String tipoContribuicao;
   final String? texto;
-  final String? arquivoUrl;
+  final String? arquivoUrl;   // foto ou vídeo
+  final String? audioUrl;     // Sprint G: preparado, sem UI de gravação ainda
 
-  // Apenas para upload local antes de virar `arquivoUrl`.
+  // Apenas para upload local antes de virar `arquivoUrl` / `audioUrl`.
   final Uint8List? fotoBytes;
   final Uint8List? videoBytes;
+  final Uint8List? audioBytes;
 
   /// 'pendente' | 'aprovado' | 'rejeitado'
   final String status;
@@ -67,6 +72,11 @@ class Contribuicao {
   bool get aprovado => status == 'aprovado';
   bool get pendente => status == 'pendente';
   bool get rejeitado => status == 'rejeitado';
+
+  /// Para contribuição de memória: o memorial NÃO é obrigatório (a FK
+  /// polimórfica `conteudo_id` é o que identifica o conteúdo).
+  bool get isContribuicaoDeMemoria => tipoConteudo == 'memoria';
+  bool get isContribuicaoDeMemorial => tipoConteudo == 'memorial';
 
   factory Contribuicao.fromMap(Map<String, dynamic> map) {
     return Contribuicao(
@@ -82,6 +92,7 @@ class Contribuicao {
       tipoContribuicao: map['tipo_contribuicao'] as String? ?? 'texto',
       texto: map['texto'] as String?,
       arquivoUrl: map['arquivo_url'] as String?,
+      audioUrl: map['audio_url'] as String?,
       status: map['status'] as String? ?? 'pendente',
       createdAt:
           DateTime.tryParse(map['criado_em'] as String? ?? '') ?? DateTime.now(),
@@ -103,6 +114,7 @@ class Contribuicao {
       'tipo_contribuicao': tipoContribuicao,
       if (texto != null) 'texto': texto,
       if (arquivoUrl != null) 'arquivo_url': arquivoUrl,
+      if (audioUrl != null) 'audio_url': audioUrl,
       'status': status,
       'criado_em': createdAt.toIso8601String(),
     };
