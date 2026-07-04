@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/memoria.dart';
 import '../models/detected_moment.dart';
+import '../services/curator_decision_log_service.dart';
+import '../services/curator_invitation_scoring_service.dart';
 import '../services/moment_detection_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
@@ -50,26 +52,48 @@ class _HomeScreenState extends State<HomeScreen> {
     _carregarSugestoes();
   }
 
+  // SPRINT F — Sensibilidade dos Convites do Curador: só momentos com score
+  // >= CuratorScoringWeights.minimumInvitationScore aparecem como convite
+  // principal (banner/card). Momentos com score baixo são descartados nesta
+  // sprint (não há área secundária ainda).
   Future<void> _carregarSugestoes() async {
     if (mounted) setState(() => _carregandoSugestoes = true);
-    final lista = await MomentDetectionService.instance.obterMomentosDetectados();
+    final todos = await MomentDetectionService.instance.obterMomentosDetectados();
+
+    final qualificados = <DetectedMoment>[];
+    for (final momento in todos) {
+      final score = await CuratorInvitationScoringService.instance.calcularScore(momento);
+      await CuratorDecisionLogService.instance.registrarDecisao(
+        momento: momento,
+        score: score,
+        conviteCriado: score.atingiuLimite,
+      );
+      if (score.atingiuLimite) {
+        qualificados.add(momento);
+      }
+    }
+
     if (mounted) {
       setState(() {
-        _sugestoes = lista;
+        _sugestoes = qualificados;
         _carregandoSugestoes = false;
       });
     }
   }
 
   void _iniciarCriacaoMemoriaComGrupo(DetectedMoment momento) {
-    Navigator.of(context).push(
+    CuratorDecisionLogService.instance.atualizarAcaoUsuario(momento.id, 'abriu');
+    Navigator.of(context).push<Memoria>(
       MaterialPageRoute(
         builder: (_) => NovaMemoriaScreen(
           onSalvar: SupabaseService.instance.salvarMemoriaComFoto,
           sugestaoMomento: momento,
         ),
       ),
-    ).then((_) {
+    ).then((resultado) {
+      if (resultado is Memoria) {
+        CuratorDecisionLogService.instance.atualizarAcaoUsuario(momento.id, 'criou_memoria');
+      }
       _carregarSugestoes();
     });
   }
@@ -313,6 +337,8 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               TextButton(
                 onPressed: () {
+                  CuratorInvitationScoringService.instance.registrarMomentoIgnorado(pending.id);
+                  CuratorDecisionLogService.instance.atualizarAcaoUsuario(pending.id, 'ignorou');
                   setState(() {
                     _esconderBanner = true;
                   });
