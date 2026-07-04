@@ -4,15 +4,17 @@ import '../models/contribuicao.dart';
 import '../models/curador_sessao.dart';
 import '../models/memoria.dart';
 import '../models/detected_moment.dart';
+import '../models/memoria_do_dia.dart';
 import '../models/memoria_relacionamento.dart';
 import '../models/pessoa.dart';
 import '../models/pessoa_linha_tempo.dart';
-import '../services/curator_decision_log_service.dart';
+import '../services/curador_decision_log_service.dart';
 import '../services/curator_invitation_scoring_service.dart';
 import '../services/curador_sessao_service.dart';
 import '../services/memory_growth_invitation_service.dart';
 import '../services/memory_growth_scoring_service.dart';
 import '../services/memory_relationship_service.dart';
+import '../services/memorias_do_dia_service.dart';
 import '../services/moment_detection_service.dart';
 import '../services/pessoa_timeline_service.dart';
 import '../services/supabase_service.dart';
@@ -20,6 +22,7 @@ import '../theme/app_theme.dart';
 import '../widgets/memory_card.dart';
 import '../widgets/home/curador_continuar_card.dart';
 import '../widgets/home/detected_moment_card.dart';
+import '../widgets/home/memoria_do_dia_card.dart';
 import '../widgets/home/memoria_pode_crescer_card.dart';
 import 'conexoes_descobertas_screen.dart';
 import 'curador_screen.dart';
@@ -73,6 +76,10 @@ class _HomeScreenState extends State<HomeScreen> {
   CuradorSessao? _sessaoCuradorAtiva;
   bool _carregandoSessaoCurador = true;
 
+  // Sprint M — Memórias do Dia
+  List<MemoriaDoDia> _memoriasDoDia = const [];
+  bool _carregandoMemDia = true;
+
   // Sprint K — Conexões pendentes (Home: "Conexões descobertas")
   List<MemoriaRelacionamento> _conexoesPendentes = const [];
 
@@ -84,6 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _carregarMemoriasQuePodemCrescer();
     _carregarSessaoCurador();
     _carregarConexoesPendentes();
+    _carregarMemoriasDoDia();
   }
 
   Future<void> _carregarSessaoCurador() async {
@@ -112,6 +120,58 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     ));
     if (processou == true) _carregarConexoesPendentes();
+  }
+
+  Future<void> _carregarMemoriasDoDia() async {
+    setState(() => _carregandoMemDia = true);
+    final lista = await MemoriasDoDiaService.instance.listarParaHome(limite: 5);
+    if (mounted) {
+      setState(() {
+        _memoriasDoDia = lista;
+        _carregandoMemDia = false;
+      });
+    }
+  }
+
+  Future<void> _abrirMemoriaDoDia(MemoriaDoDia m) async {
+    final mems = widget.memorias;
+    if (mems.isEmpty) return;
+    final encontrada =
+        mems.cast<Memoria?>().firstWhere((x) => x?.id == m.id, orElse: () => null);
+    if (encontrada != null) {
+      widget.onAbrirMemoria(encontrada);
+      return;
+    }
+    widget.onAbrirMemoria(mems.first);
+  }
+
+  Future<void> _continuarMemoriaDoDia(MemoriaDoDia m) async {
+    final mems = widget.memorias;
+    if (mems.isEmpty) return;
+    final encontrada =
+        mems.cast<Memoria?>().firstWhere((x) => x?.id == m.id, orElse: () => null);
+    if (encontrada == null || encontrada.id == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CuradorScreen(
+          titulo: encontrada.titulo,
+          contextoOriginal: encontrada.contexto,
+          isProativo: false,
+          complementoMemoriaId: encontrada.id,
+        ),
+      ),
+    );
+    if (mounted) _carregarMemoriasDoDia();
+  }
+
+  Future<void> _atualizarTudo() async {
+    await Future.wait([
+      _carregarMemoriasDoDia(),
+      _carregarPessoasVivas(),
+      _carregarConexoesPendentes(),
+      _carregarMemoriasQuePodemCrescer(),
+      _carregarSessaoCurador(),
+    ]);
   }
 
   Future<void> _abrirMapaVida() async {
@@ -256,8 +316,12 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: RefreshIndicator(
+              onRefresh: _atualizarTudo,
+              color: AppColors.roxo,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -423,6 +487,38 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
 
+                // SPRINT M — Memórias do Dia
+                if (_memoriasDoDia.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 8),
+                    child: Text(
+                      'Hoje na sua história',
+                      style: TextStyle(
+                        color: AppColors.roxo,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 12),
+                    child: Text(
+                      'Memórias que aconteceram neste mesmo dia em outros anos da sua vida.',
+                      style: TextStyle(
+                        color: Color(0xFF7A7280),
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  ..._memoriasDoDia.take(3).map((m) => MemoriaDoDiaCard(
+                        item: m,
+                        onRelembrar: () => _abrirMemoriaDoDia(m),
+                        onContinuar: () => _continuarMemoriaDoDia(m),
+                      )),
+                ],
+
                 // SPRINT K — Conexões descobertas
                 if (_conexoesPendentes.isNotEmpty) ...[
                   const SizedBox(height: 20),
@@ -538,6 +634,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ],
+            ),
             ),
           ),
         ),
