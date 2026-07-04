@@ -4,13 +4,15 @@ import '../models/contribuicao.dart';
 import '../models/curador_sessao.dart';
 import '../models/memoria.dart';
 import '../models/detected_moment.dart';
+import '../models/memoria_relacionamento.dart';
 import '../models/pessoa.dart';
 import '../models/pessoa_linha_tempo.dart';
-import '../services/curador_decision_log_service.dart';
-import '../services/curador_invitation_scoring_service.dart';
+import '../services/curator_decision_log_service.dart';
+import '../services/curator_invitation_scoring_service.dart';
 import '../services/curador_sessao_service.dart';
 import '../services/memory_growth_invitation_service.dart';
 import '../services/memory_growth_scoring_service.dart';
+import '../services/memory_relationship_service.dart';
 import '../services/moment_detection_service.dart';
 import '../services/pessoa_timeline_service.dart';
 import '../services/supabase_service.dart';
@@ -19,7 +21,9 @@ import '../widgets/memory_card.dart';
 import '../widgets/home/curador_continuar_card.dart';
 import '../widgets/home/detected_moment_card.dart';
 import '../widgets/home/memoria_pode_crescer_card.dart';
+import 'conexoes_descobertas_screen.dart';
 import 'curador_screen.dart';
+import 'mapa_vida_screen.dart';
 import 'nova_memoria_screen.dart';
 import 'pessoa_detalhe_screen.dart';
 
@@ -65,9 +69,12 @@ class _HomeScreenState extends State<HomeScreen> {
   List<MemoriaComScore> _memoriasQuePodemCrescer = const [];
   bool _carregandoCrescer = true;
 
-  // Sprint J â€” SessÃ£o ativa do Curador Contextual
+  // Sprint J — Sessão ativa do Curador Contextual
   CuradorSessao? _sessaoCuradorAtiva;
   bool _carregandoSessaoCurador = true;
+
+  // Sprint K — Conexões pendentes (Home: "Conexões descobertas")
+  List<MemoriaRelacionamento> _conexoesPendentes = const [];
 
   @override
   void initState() {
@@ -76,6 +83,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _carregarPessoasVivas();
     _carregarMemoriasQuePodemCrescer();
     _carregarSessaoCurador();
+    _carregarConexoesPendentes();
   }
 
   Future<void> _carregarSessaoCurador() async {
@@ -86,6 +94,38 @@ class _HomeScreenState extends State<HomeScreen> {
         _carregandoSessaoCurador = false;
       });
     }
+  }
+
+  Future<void> _carregarConexoesPendentes() async {
+    final lista = await MemoryRelationshipService.instance
+        .listarPendentesDoUsuario(limite: 6);
+    if (mounted) {
+      setState(() => _conexoesPendentes = lista);
+    }
+  }
+
+  Future<void> _abrirTelaConexoes() async {
+    final processou = await Navigator.of(context).push<bool>(MaterialPageRoute(
+      builder: (_) => ConexoesDescobertasScreen(
+        memorias: widget.memorias,
+        onAbrirMemoria: (m) => widget.onAbrirMemoria(m),
+      ),
+    ));
+    if (processou == true) _carregarConexoesPendentes();
+  }
+
+  Future<void> _abrirMapaVida() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => MapaVidaScreen(
+          memorias: widget.memorias,
+          onAbrirMemoria: (m) {
+            Navigator.of(context).pop();
+            widget.onAbrirMemoria(m);
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _carregarPessoasVivas() async {
@@ -205,6 +245,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Image.asset('assets/logo.png', height: 72),
+                    Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Mapa da Vida',
+                          onPressed: _abrirMapaVida,
+                          icon: const Icon(Icons.timeline,
+                              color: AppColors.dourado, size: 22),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                    ),
                     MouseRegion(
                       cursor: SystemMouseCursors.click,
                       child: GestureDetector(
@@ -322,6 +373,45 @@ class _HomeScreenState extends State<HomeScreen> {
                           _dispensarMemoriaCrescer(item.memoria.memoriaId),
                     ),
                   ),
+                ],
+
+                // SPRINT K — Conexões descobertas
+                if (_conexoesPendentes.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 8),
+                    child: Text(
+                      'Conexões descobertas',
+                      style: TextStyle(
+                        color: AppColors.roxo,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 12),
+                    child: Text(
+                      'Encontramos histórias que parecem fazer parte do mesmo momento da sua vida. Deseja conectá-las?',
+                      style: TextStyle(
+                        color: Color(0xFF7A7280),
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  _buildCardConexoes(_conexoesPendentes.first),
+                  if (_conexoesPendentes.length > 1)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: TextButton(
+                        onPressed: _abrirTelaConexoes,
+                        child: Text(
+                          'Ver mais ${_conexoesPendentes.length - 1} conexões',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
                 ],
 
                 const SizedBox(height: 28),
@@ -735,6 +825,118 @@ class _HomeScreenState extends State<HomeScreen> {
       await CuradorSessaoService.instance.cancelarSessao(s.id!);
       _carregarSessaoCurador();
     }
+  }
+
+  // Sprint K — Card de "Conexão Descoberta" na Home.
+  Widget _buildCardConexoes(MemoriaRelacionamento rel) {
+    final legendas = rel.motivos.legendasHumanas;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.dourado.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.timeline_outlined, color: AppColors.dourado, size: 18),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'O Curador encontrou uma conexão',
+                  style: TextStyle(
+                    color: AppColors.roxo,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '"${rel.tituloOrigem ?? 'Memória'}" parece fazer parte da mesma fase de "${rel.tituloDestino ?? 'outra história'}".',
+            style: const TextStyle(
+              color: AppColors.roxo,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+            ),
+          ),
+          if (legendas.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            ...legendas.take(3).map((s) => Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle_outline,
+                          size: 12, color: AppColors.verdeApoio),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          s,
+                          style: const TextStyle(
+                            color: Color(0xFF7A7280),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () async {
+                  await MemoryRelationshipService.instance.ignorar(rel.id!);
+                  _carregarConexoesPendentes();
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF7A7280),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: const Text('Nunca sugerir'),
+              ),
+              const SizedBox(width: 4),
+              TextButton(
+                onPressed: () async {
+                  await MemoryRelationshipService.instance.ignorar(rel.id!);
+                  _carregarConexoesPendentes();
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF7A7280),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: const Text('Agora não'),
+              ),
+              const SizedBox(width: 4),
+              FilledButton.icon(
+                onPressed: () async {
+                  await MemoryRelationshipService.instance.confirmar(rel.id!);
+                  _carregarConexoesPendentes();
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.roxo,
+                  foregroundColor: Colors.white,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                ),
+                icon: const Icon(Icons.check, size: 14),
+                label: const Text('Conectar',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 

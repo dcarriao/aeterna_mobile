@@ -298,6 +298,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
         builder: (_) => MemoriaDetalheScreen(
           memoria: memoria,
           somenteLeitura: memoria.isRecebidaDeOutraConta,
+          memoriasConhecidas: _memorias,
+          onAbrirMemoria: (m) => _abrirDetalhe(context, m),
         ),
       ),
     );

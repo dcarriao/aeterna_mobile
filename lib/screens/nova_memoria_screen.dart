@@ -14,6 +14,7 @@ import '../models/media_group.dart';
 import '../models/pending_memory.dart';
 import '../services/curador_sessao_service.dart';
 import '../services/media_suggestion_service.dart';
+import '../services/memory_relationship_service.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 class NovaMemoriaScreen extends StatefulWidget {
@@ -643,6 +644,20 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
         );
         Navigator.of(context).pop(finalMemoria);
       }
+
+      // Sprint K — hook incremental: após salvar a memória, dispara o
+      // cálculo de relações (sem O(n²) — só para esta memória).
+      // Fire-and-forget: falha no relacionamento não impede a memória de
+      // ter sido salva.
+      // ignore: unawaited_futures
+      MemoryRelationshipService.instance
+          .aoSalvarMemoria(memoria.id!);
+
+      if (!mounted) return;
+      // Tenta devolver a versão completa (com id) ao caller. Se a
+      // construção de finalMemoria não chegou a rodar, devolve só o
+      // rascunho para que a navegação continue funcionando.
+      Navigator.of(context).pop(memoria);
     } catch (erro) {
       if (!mounted) return;
       setState(() => _salvando = false);

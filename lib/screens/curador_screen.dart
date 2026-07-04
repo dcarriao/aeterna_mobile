@@ -5,11 +5,13 @@ import '../models/contribuicao.dart';
 import '../models/curador_resposta_ia.dart';
 import '../models/curador_sessao.dart';
 import '../models/detected_moment.dart';
+import '../models/memoria_relacionamento.dart';
 import '../models/pending_memory.dart';
 import '../models/pessoa.dart';
 import '../curador/perguntas.dart';
 import '../services/curador_sessao_service.dart';
 import '../services/legacy_curator_service.dart';
+import '../services/memory_relationship_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 
@@ -100,6 +102,9 @@ class _CuradorScreenState extends State<CuradorScreen> {
   List<Map<String, String>>? _pessoasCarregadas;
   DateTime? _dataMemoriaCarregada;
   String? _categoriaCarregada;
+
+  // Sprint K — Histórias relacionadas (modo complemento)
+  List<MemoriaRelacionamento> _relacionadosComplemento = const [];
 
   @override
   void initState() {
@@ -239,6 +244,12 @@ class _CuradorScreenState extends State<CuradorScreen> {
           .toList();
       _dataMemoriaCarregada = m.dataMemoria;
       _categoriaCarregada = m.categoria;
+
+      // Sprint K — carrega relações confirmadas para mencionar
+      // memórias parecidas no Curador (sem IA, só heurística
+      // já persistida).
+      _relacionadosComplemento = await MemoryRelationshipService.instance
+          .listarRelacionamentosConfirmados(id);
     } catch (e) {
       print('[CuradorScreen] _carregarContextoComplemento ERRO: $e');
     }
@@ -608,6 +619,13 @@ class _CuradorScreenState extends State<CuradorScreen> {
         ),
         const SizedBox(height: 20),
         _buildHistoricoResumido(),
+        // Sprint K — Card "Lembro que você tem uma história parecida"
+        // no modo complemento (só aparece se houver relações
+        // confirmadas e a memória sendo complementada não for a
+        // própria relacionada).
+        if (widget.complementoMemoriaId != null &&
+            _relacionadosComplemento.isNotEmpty)
+          _buildCardRelacionadosComplemento(),
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(24),
@@ -710,6 +728,80 @@ class _CuradorScreenState extends State<CuradorScreen> {
           ],
         ),
       ],
+    );
+  }
+
+  // Sprint K — Card de "Lembro que você tem uma história parecida" no
+  // modo complemento do Curador.
+  Widget _buildCardRelacionadosComplemento() {
+    final rels = _relacionadosComplemento.take(2).toList();
+    if (rels.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F6F0),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.dourado.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.history_toggle_off, size: 14, color: AppColors.dourado),
+              SizedBox(width: 6),
+              Text(
+                'Lembro que você tem uma história parecida',
+                style: TextStyle(
+                  color: AppColors.roxo,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...rels.map((r) {
+            final idOrigem = widget.complementoMemoriaId;
+            final outroId = (r.memoriaOrigemId == idOrigem)
+                ? r.memoriaDestinoId
+                : r.memoriaOrigemId;
+            final titulo = (r.memoriaOrigemId == idOrigem)
+                ? (r.tituloDestino ?? 'Outra história')
+                : (r.tituloOrigem ?? 'Outra história');
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.timeline_outlined,
+                      size: 12, color: AppColors.dourado),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      titulo,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.roxo,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '(${r.score}%)',
+                    style: const TextStyle(
+                      color: Color(0xFF7A7280),
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
     );
   }
 

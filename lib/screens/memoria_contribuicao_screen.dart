@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/contribuicao.dart';
 import '../models/pessoa.dart';
+import '../services/memory_relationship_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 
@@ -159,6 +160,14 @@ class _MemoriaContribuicaoScreenState
           duration: const Duration(seconds: 4),
         ),
       );
+
+      // Sprint K — hook incremental: contribuição nova pode gerar
+      // novas relações (ex: pessoas em comum entre memórias). Fire-
+      // and-forget.
+      // ignore: unawaited_futures
+      MemoryRelationshipService.instance
+          .aoReceberContribuicao(widget.memoriaId);
+
       Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {

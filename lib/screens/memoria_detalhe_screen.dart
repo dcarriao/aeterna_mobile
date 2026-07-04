@@ -5,9 +5,11 @@ import '../curador/perguntas.dart';
 import '../models/contribuicao.dart';
 import '../models/memoria.dart';
 import '../models/memoria_pode_crescer.dart';
+import '../models/memoria_relacionamento.dart';
 import '../models/pessoa.dart';
 import '../services/memory_growth_invitation_service.dart';
 import '../services/memory_growth_scoring_service.dart';
+import '../services/memory_relationship_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import 'curador_screen.dart';
@@ -15,10 +17,12 @@ import 'memoria_contribuicao_screen.dart';
 import 'nova_memoria_screen.dart';
 
 class MemoriaDetalheScreen extends StatefulWidget {
-  const MemoriaDetalheScreen({
+  MemoriaDetalheScreen({
     required this.memoria,
     this.onEditar,
     this.somenteLeitura = false,
+    this.memoriasConhecidas,
+    this.onAbrirMemoria,
     super.key,
   });
 
@@ -28,6 +32,16 @@ class MemoriaDetalheScreen extends StatefulWidget {
 
   final Memoria memoria;
   final VoidCallback? onEditar; // Mantido para compatibilidade, mas faremos a navegação reativa interna
+
+  /// Sprint K — Lista de memórias conhecidas (passada pela main)
+  /// para que "Histórias relacionadas" possa navegar para a memória
+  /// de destino ao tocar em "Ver história". Se não for passada,
+  /// o card de relacionado aparece mas o botão "Ver" é omitido.
+  final List<Memoria>? memoriasConhecidas;
+
+  /// Callback de navegação para abrir uma memória relacionada. Default:
+  /// usa o callback padrão do projeto.
+  final void Function(Memoria)? onAbrirMemoria;
 
   @override
   State<MemoriaDetalheScreen> createState() => _MemoriaDetalheScreenState();
@@ -67,6 +81,10 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
   List<Contribuicao> _contribuicoesPendentes = [];
   bool _aprovacaoObrigatoria = true;
   int _countPendentes = 0;
+
+  // Sprint K — Histórias Relacionadas e Mapa da Vida
+  List<MemoriaRelacionamento> _relacionados = const [];
+  bool _carregandoRelacionados = true;
 
   bool get _souDono =>
       widget.memoria.donoUsuarioId != null &&
@@ -150,8 +168,29 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
           _carregandoDados = false;
         });
       }
+      // Sprint K — Carrega as relações já persistidas (sem O(n²)).
+      if (!mounted) return;
+      if (_memoria.id != null) {
+        final rels = await MemoryRelationshipService.instance
+            .listarRelacionamentosConfirmados(_memoria.id!);
+        if (mounted) {
+          setState(() {
+            _relacionados = rels;
+            _carregandoRelacionados = false;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() => _carregandoRelacionados = false);
+        }
+      }
     } catch (_) {
-      if (mounted) setState(() => _carregandoDados = false);
+      if (mounted) {
+        setState(() {
+          _carregandoDados = false;
+          _carregandoRelacionados = false;
+        });
+      }
     }
   }
 
@@ -723,6 +762,153 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
     );
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  // SPRINT K — HISTÓRIAS RELACIONADAS
+  // ════════════════════════════════════════════════════════════════════════
+  Widget _buildSecaoRelacionados() {
+    if (_carregandoRelacionados) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.roxo),
+          ),
+        ),
+      );
+    }
+    if (_relacionados.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: const [
+            Icon(Icons.timeline_outlined, color: AppColors.dourado, size: 20),
+            SizedBox(width: 8),
+            Text(
+              'Histórias relacionadas',
+              style: TextStyle(
+                color: AppColors.roxo,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Outras memórias que fazem parte desta fase da sua vida.',
+          style: TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
+        ),
+        const SizedBox(height: 16),
+        ..._relacionados.map((r) => _buildCardRelacionado(r)),
+      ],
+    );
+  }
+
+  Widget _buildCardRelacionado(MemoriaRelacionamento r) {
+    final outroId = r.memoriaOrigemId == _memoria.id
+        ? r.memoriaDestinoId
+        : r.memoriaOrigemId;
+    final outroTitulo = r.memoriaOrigemId == _memoria.id
+        ? (r.tituloDestino ?? '')
+        : (r.tituloOrigem ?? '');
+    final legendas = r.motivos.legendasHumanas;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.dourado.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  outroTitulo.isEmpty ? 'Outra história' : outroTitulo,
+                  style: const TextStyle(
+                    color: AppColors.roxo,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0x1AD4A84F),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'Conexão ${r.score}%',
+                  style: const TextStyle(
+                    color: AppColors.dourado,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (legendas.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            ...legendas.map((s) => Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle_outline,
+                          size: 14, color: AppColors.verdeApoio),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          s,
+                          style: const TextStyle(
+                            color: Color(0xFF625B67),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+          ],
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => _abrirMemoriaRelacionada(outroId),
+              icon: const Icon(Icons.arrow_forward, size: 14),
+              label: const Text(
+                'Ver história',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _abrirMemoriaRelacionada(int outroId) {
+    final mems = widget.memoriasConhecidas;
+    final callback = widget.onAbrirMemoria;
+    if (mems == null || callback == null) return;
+    final m = mems.cast<Memoria?>().firstWhere(
+          (x) => x?.id == outroId,
+          orElse: () => null,
+        );
+    if (m == null) return;
+    callback(m);
+  }
+
   Widget _buildCardContribuicaoPendente(Contribuicao c) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1216,6 +1402,10 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                       // ── 2. SEÇÃO EVOLUÇÃO DA MEMÓRIA ──
                       const SizedBox(height: 32),
                       _buildSecaoEvolucao(),
+
+                      // ── 2.5 SPRINT K — HISTÓRIAS RELACIONADAS ──
+                      const SizedBox(height: 24),
+                      _buildSecaoRelacionados(),
 
                       // ── 3. Botão "Contribuir" (discreto, abaixo da evolução) ──
                       if (!_carregandoDados && _memoria.id != null) ...[
