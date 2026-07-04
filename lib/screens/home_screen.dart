@@ -8,7 +8,7 @@ import '../models/memoria_do_dia.dart';
 import '../models/memoria_relacionamento.dart';
 import '../models/pessoa.dart';
 import '../models/pessoa_linha_tempo.dart';
-import '../services/curador_decision_log_service.dart';
+import '../services/curator_decision_log_service.dart';
 import '../services/curator_invitation_scoring_service.dart';
 import '../services/curador_sessao_service.dart';
 import '../services/memory_growth_invitation_service.dart';
