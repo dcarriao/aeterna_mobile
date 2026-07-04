@@ -186,7 +186,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 FilledButton(
                   onPressed: enviando ? null : () async {
                     final email = controller.text.trim();
-                    if (email.isEmpty || !email.contains('@')) {
+                    // Validação: e-mail vazio ou em formato inválido.
+                    if (email.isEmpty ||
+                        !email.contains('@') ||
+                        !email.contains('.')) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Por favor, insira um e-mail válido.')),
                       );
@@ -201,11 +204,19 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SnackBar(content: Text('Link de recuperação enviado com sucesso! Verifique seu e-mail.')),
                         );
                       }
-                    } catch (e) {
+                    } catch (_) {
+                      // Mensagem amigável: nunca expor a exceção bruta
+                      // (ex.: "Null check operator used on a null value")
+                      // diretamente ao usuário.
                       setDialogState(() => enviando = false);
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Erro ao enviar: $e')),
+                          const SnackBar(
+                            content: Text(
+                              'Não foi possível enviar o link de recuperação. '
+                              'Verifique o e-mail e tente novamente.',
+                            ),
+                          ),
                         );
                       }
                     }

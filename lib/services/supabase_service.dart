@@ -25,11 +25,19 @@ class SupabaseService {
 
   SupabaseClient? _supabaseClient;
 
+  // BUG 2: evita o crash "Null check operator used on a null value" ao
+  // usar métodos de auth (ex: resetPasswordForEmail) — ver pessoa.dart
+  // para a explicação completa (fluxo PKCE exige asyncStorage que não é
+  // fornecido a este cliente headless).
+  static const _authOptions =
+      AuthClientOptions(authFlowType: AuthFlowType.implicit);
+
   SupabaseClient get _client {
     if (!isConfigured) {
       throw const SupabaseConfigurationException();
     }
-    return _supabaseClient ??= SupabaseClient(_url, _anonKey);
+    return _supabaseClient ??=
+        SupabaseClient(_url, _anonKey, authOptions: _authOptions);
   }
 
   static Future<void> initialize() async {
@@ -41,7 +49,8 @@ class SupabaseService {
       print('[Supabase] ALERTA: SUPABASE_ANON_KEY está vazia! O app funcionará em modo offline.');
     }
     if (!instance.isConfigured) return;
-    instance._supabaseClient = SupabaseClient(_url, _anonKey);
+    instance._supabaseClient =
+        SupabaseClient(_url, _anonKey, authOptions: _authOptions);
   }
 
   Future<List<Memoria>> listarMemorias() async {

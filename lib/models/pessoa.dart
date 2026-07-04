@@ -100,7 +100,20 @@ class PessoaRepository {
     if (!isConfigured) {
       throw Exception('SUPABASE_ANON_KEY não configurada.');
     }
-    return _client ??= SupabaseClient(_url, _anonKey);
+    // BUG 2: o fluxo padrão do pacote `supabase` é PKCE, que exige um
+    // `GotrueAsyncStorage` para guardar o code_verifier localmente. Como
+    // este cliente não fornece esse storage (nem há tela de callback para
+    // trocar o "code" recebido por e-mail), qualquer chamada de auth como
+    // `resetPasswordForEmail` acabava caindo em `_asyncStorage!.setItem(...)`
+    // com `_asyncStorage == null`, gerando
+    // "Null check operator used on a null value". Usamos o fluxo `implicit`,
+    // que não depende de storage local — o link recebido por e-mail já
+    // contém o token de redefinição de senha diretamente.
+    return _client ??= SupabaseClient(
+      _url,
+      _anonKey,
+      authOptions: const AuthClientOptions(authFlowType: AuthFlowType.implicit),
+    );
   }
 
   static Future<int?> obterUsuarioIdPorEmail(String email) async {
@@ -455,8 +468,14 @@ class PessoaRepository {
   }
 
   static Future<void> recuperarSenha(String email) async {
-    if (!isConfigured) return;
-    await _supabase.auth.resetPasswordForEmail(email);
+    final emailLimpo = email.trim();
+    if (emailLimpo.isEmpty) {
+      throw Exception('Informe um e-mail para recuperar a senha.');
+    }
+    if (!isConfigured) {
+      throw Exception('SUPABASE_ANON_KEY não configurada.');
+    }
+    await _supabase.auth.resetPasswordForEmail(emailLimpo.toLowerCase());
   }
 
   static Future<String?> obterVideoDaMemoria(int? memoriaId) async {
