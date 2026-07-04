@@ -164,16 +164,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) _carregarMemoriasDoDia();
   }
 
-  Future<void> _atualizarTudo() async {
-    await Future.wait([
-      _carregarMemoriasDoDia(),
-      _carregarPessoasVivas(),
-      _carregarConexoesPendentes(),
-      _carregarMemoriasQuePodemCrescer(),
-      _carregarSessaoCurador(),
-    ]);
-  }
-
   Future<void> _abrirMapaVida() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -316,12 +306,8 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
-            child: RefreshIndicator(
-              onRefresh: _atualizarTudo,
-              color: AppColors.roxo,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -634,7 +620,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ],
-            ),
             ),
           ),
         ),
