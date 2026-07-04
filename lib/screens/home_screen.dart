@@ -2,14 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../models/memoria.dart';
 import '../models/detected_moment.dart';
+import '../models/pessoa.dart';
+import '../models/pessoa_linha_tempo.dart';
 import '../services/curator_decision_log_service.dart';
 import '../services/curator_invitation_scoring_service.dart';
 import '../services/moment_detection_service.dart';
+import '../services/pessoa_timeline_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/memory_card.dart';
 import '../widgets/home/detected_moment_card.dart';
 import 'nova_memoria_screen.dart';
+import 'pessoa_detalhe_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -46,10 +50,21 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _carregandoSugestoes = false;
   bool _esconderBanner = false;
 
+  // Sprint H — Pessoas Vivas Recentemente
+  List<PessoaVivaResumo> _pessoasVivas = const [];
+
   @override
   void initState() {
     super.initState();
     _carregarSugestoes();
+    _carregarPessoasVivas();
+  }
+
+  Future<void> _carregarPessoasVivas() async {
+    final pessoas = await PessoaTimelineService.instance.obterPessoasRecentes(limite: 6);
+    if (mounted) {
+      setState(() => _pessoasVivas = pessoas);
+    }
   }
 
   // SPRINT F — Sensibilidade dos Convites do Curador: só momentos com score
@@ -186,6 +201,34 @@ class _HomeScreenState extends State<HomeScreen> {
                     sugestoes: _sugestoes,
                     onCriarHistoria: _iniciarCriacaoMemoriaComGrupo,
                   ),
+                ],
+
+                // SPRINT H — Pessoas Vivas Recentemente
+                if (_pessoasVivas.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 8),
+                    child: Text(
+                      'Pessoas importantes',
+                      style: TextStyle(
+                        color: AppColors.roxo,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 12),
+                    child: Text(
+                      'As pessoas da sua família que apareceram em memórias ou ganharam novas lembranças recentemente.',
+                      style: TextStyle(
+                        color: Color(0xFF7A7280),
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  ..._pessoasVivas.take(4).map((p) => _buildCardPessoaViva(p)),
                 ],
 
                 const SizedBox(height: 28),
@@ -365,6 +408,107 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  // Sprint H — Card de "Pessoa Viva" na Home
+  Widget _buildCardPessoaViva(PessoaVivaResumo p) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: () => _abrirPessoa(p),
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.borda),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: const Color(0xFFF0EAF5),
+                  backgroundImage: p.fotoUrl != null && p.fotoUrl!.isNotEmpty
+                      ? NetworkImage(p.fotoUrl!)
+                      : null,
+                  child: (p.fotoUrl == null || p.fotoUrl!.isEmpty)
+                      ? const Icon(Icons.person, color: AppColors.roxo, size: 22)
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        p.nome,
+                        style: const TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        p.parentesco,
+                        style: const TextStyle(
+                          color: AppColors.dourado,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Última memória ${p.ultimaInteracaoHumana}'
+                        '${p.totalEventos > 0 ? ' · ${p.totalEventos} ${p.totalEventos == 1 ? "registro" : "registros"}' : ''}',
+                        style: const TextStyle(
+                          color: Color(0xFF7A7280),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: Color(0xFF9B949D)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _abrirPessoa(PessoaVivaResumo resumo) async {
+    // Carrega o Pessoa completo do banco (precisa do `p.id` real, não
+    // do `id` local do construtor).
+    final todas = await PessoaRepository.listar();
+    if (!mounted) return;
+    final pessoa = todas.firstWhere(
+      (p) => p.id == resumo.id,
+      orElse: () => Pessoa(
+        nome: resumo.nome,
+        parentesco: resumo.parentesco,
+      ),
+    );
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => PessoaDetalheScreen(
+          pessoa: pessoa,
+          onAbrirMemoria: (id) {
+            // A Home não tem callback direto para abrir uma memória;
+            // apenas volta para que a navegação existente (main.dart)
+            // seja usada. Solução prática: usar widget.onAbrirMemoria.
+            // Como esse callback não está no HomeScreen, delegamos
+            // para a main via Navigator.
+            Navigator.of(context).pop();
+          },
+        ),
+      ),
+    );
+    if (mounted) _carregarPessoasVivas();
   }
 }
 

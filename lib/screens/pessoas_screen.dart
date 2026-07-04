@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models/pessoa.dart';
+import '../models/pessoa_linha_tempo.dart';
+import '../services/pessoa_timeline_service.dart';
 import '../theme/app_theme.dart';
 import 'convites_screen.dart';
 import 'nova_pessoa_screen.dart';
@@ -24,12 +26,43 @@ class _PessoasScreenState extends State<PessoasScreen> {
   List<Pessoa> _pessoas = [];
   Map<int, List<int>> _vinculos = {};
   bool _carregando = true;
+  List<PessoaSugerida> _sugestoes = const [];
+  List<PessoaVivaResumo> _pessoasVivas = const [];
+  bool _carregandoSugestoes = true;
 
   @override
   void initState() {
     super.initState();
     print('[PessoasScreen] initState -> carregando');
     _carregar();
+    _carregarSugestoes();
+  }
+
+  Future<void> _carregarSugestoes() async {
+    final sug = await PessoaTimelineService.instance.obterSugestoes();
+    final vivas = await PessoaTimelineService.instance.obterPessoasRecentes(limite: 10);
+    if (mounted) {
+      setState(() {
+        _sugestoes = sug;
+        _pessoasVivas = vivas;
+        _carregandoSugestoes = false;
+      });
+    }
+  }
+
+  Future<void> _cadastrarSugestao(PessoaSugerida s) async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => NovaPessoaScreen(
+          pessoa: Pessoa(
+            id: DateTime.now().millisecondsSinceEpoch,
+            nome: s.nome,
+            parentesco: 'Outro',
+          ),
+        ),
+      ),
+    );
+    if (mounted) _carregarSugestoes();
   }
 
   Future<void> _carregar() async {
@@ -141,52 +174,116 @@ class _PessoasScreenState extends State<PessoasScreen> {
             constraints: const BoxConstraints(maxWidth: 560),
             child: _carregando
                 ? const Center(child: CircularProgressIndicator())
-                : _pessoas.isEmpty
+                : _pessoas.isEmpty && _sugestoes.isEmpty
                     ? _EstadoVazio(onAdicionar: _adicionarPessoa)
-                    : ListView.separated(
+                    : ListView(
                         padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
-                        itemCount: _pessoas.length + 1,
-                        separatorBuilder: (context, index) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
-                          if (index == 0) {
-                            return const Padding(
-                              padding: EdgeInsets.only(bottom: 12, left: 4),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Pessoas importantes',
-                                    style: TextStyle(
-                                      color: AppColors.roxo,
-                                      fontSize: 26,
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                        children: [
+                          // ── HEADER ──
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 12, left: 4),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Pessoas importantes',
+                                  style: TextStyle(
+                                    color: AppColors.roxo,
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.w800,
                                   ),
-                                  SizedBox(height: 6),
-                                  Text(
-                                    'As pessoas que fazem parte da sua história.',
-                                    style: TextStyle(
-                                      color: AppColors.textoSuave,
-                                      fontSize: 15,
-                                    ),
+                                ),
+                                SizedBox(height: 6),
+                                Text(
+                                  'As pessoas que fazem parte da sua história.',
+                                  style: TextStyle(
+                                    color: AppColors.textoSuave,
+                                    fontSize: 15,
                                   ),
-                                ],
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // ── SPRINT H — DESCOBERTA AUTOMÁTICA ──
+                          if (_sugestoes.isNotEmpty)
+                            ..._sugestoes.map((s) => _buildCardSugestao(s)),
+                          if (_sugestoes.isNotEmpty) const SizedBox(height: 16),
+
+                          // ── LISTA DE PESSOAS CADASTRADAS ──
+                          if (_pessoas.isNotEmpty) ...[
+                            for (var i = 0; i < _pessoas.length; i++) ...[
+                              if (i > 0) const SizedBox(height: 12),
+                              Builder(
+                                builder: (_) {
+                                  final pessoa = _pessoas[i];
+                                  return _PessoaCard(
+                                    pessoa: pessoa,
+                                    totalMemorias: _contarMemorias(pessoa.id),
+                                    onTap: () => _abrirDetalhe(pessoa),
+                                  );
+                                },
                               ),
-                            );
-                          }
-
-                          final pessoa = _pessoas[index - 1];
-                          final totalMemorias = _contarMemorias(pessoa.id);
-
-                          return _PessoaCard(
-                            pessoa: pessoa,
-                            totalMemorias: totalMemorias,
-                            onTap: () => _abrirDetalhe(pessoa),
-                          );
-                        },
+                            ],
+                          ],
+                        ],
                       ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildCardSugestao(PessoaSugerida s) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F6F0),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.dourado.withValues(alpha: 0.4), width: 1.4),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.auto_awesome, color: AppColors.dourado, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Talvez você queira cadastrar ${s.nome}',
+                  style: const TextStyle(
+                    color: AppColors.roxo,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  s.ocorrencias == 1
+                      ? 'Aparece em 1 história sua.'
+                      : 'Aparece em ${s.ocorrencias} histórias suas.',
+                  style: const TextStyle(
+                    color: Color(0xFF7A7280),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => _cadastrarSugestao(s),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.dourado,
+              side: const BorderSide(color: AppColors.dourado, width: 1.2),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              visualDensity: VisualDensity.compact,
+            ),
+            icon: const Icon(Icons.person_add_alt_1, size: 14),
+            label: const Text('Cadastrar', style: TextStyle(fontSize: 12)),
+          ),
+        ],
       ),
     );
   }

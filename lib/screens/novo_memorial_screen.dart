@@ -7,7 +7,13 @@ import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 
 class NovoMemorialScreen extends StatefulWidget {
-  const NovoMemorialScreen({super.key});
+  const NovoMemorialScreen({this.pessoaParaVincular, super.key});
+
+  /// Sprint H — quando aberto a partir de "Criar memorial para esta
+  /// pessoa" na PessoaDetalheScreen, pré-preenche o formulário com os
+  /// dados da pessoa (nome, parentesco, datas) e a vincula no
+  /// `contatos.memorial_id` após criar o memorial.
+  final Pessoa? pessoaParaVincular;
 
   @override
   State<NovoMemorialScreen> createState() => _NovoMemorialScreenState();
@@ -32,7 +38,19 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
   @override
   void initState() {
     super.initState();
+    // Sprint H — pré-preenchimento a partir de "Criar memorial para esta
+    // pessoa" na PessoaDetalheScreen.
+    final p = widget.pessoaParaVincular;
+    if (p != null) {
+      _nomeController.text = p.nome;
+      _parentescoController.text = p.parentesco;
+      _dataNascimento = p.dataNascimento;
+    }
     _carregarPessoas();
+    if (p != null) {
+      // Pré-seleciona a pessoa no dropdown de vinculação.
+      _pessoaSelecionada = p;
+    }
   }
 
   @override

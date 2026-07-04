@@ -1,10 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../models/memoria.dart';
+import '../models/memorial.dart';
 import '../models/pessoa.dart';
+import '../models/pessoa_linha_tempo.dart';
+import '../services/pessoa_timeline_service.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
+import 'memorial_detalhe_screen.dart';
+import 'nova_memoria_screen.dart';
 import 'nova_pessoa_screen.dart';
+import 'novo_memorial_screen.dart';
 
+/// Sprint H — Pessoa VIVA.
+/// Cada pessoa cadastrada ganha uma "Linha do Tempo" construída
+/// automaticamente a partir de memórias/fotos/vídeos/contribuições em
+/// que aparece. As estatísticas são computadas em uma única RPC
+/// (`pessoa_estatisticas(pessoa_id)`), e a timeline também é uma única
+/// query (`pessoa_linha_tempo`).
 class PessoaDetalheScreen extends StatefulWidget {
   const PessoaDetalheScreen({
     required this.pessoa,
@@ -23,14 +37,22 @@ class PessoaDetalheScreen extends StatefulWidget {
 
 class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
   Pessoa? _pessoa;
-  List<int> _memoriasViculadas = [];
+  List<int> _memoriasVinculadas = [];
   bool _carregando = true;
+
+  // Sprint H — agregações
+  PessoaEstatisticas _stats = const PessoaEstatisticas(
+    totalMemorias: 0, totalFotos: 0, totalVideos: 0, totalContribuicoes: 0);
+  List<PessoaTimelineEvento> _eventos = const [];
+  MemorialResumo? _memorialVinculado;
+  bool _carregandoEventos = true;
 
   @override
   void initState() {
     super.initState();
     _pessoa = widget.pessoa;
     _carregar();
+    _carregarAgregacoes();
   }
 
   Future<void> _carregar() async {
@@ -48,7 +70,7 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
       if (mounted) {
         setState(() {
           _pessoa = atualizada;
-          _memoriasViculadas = ids;
+          _memoriasVinculadas = ids;
           _carregando = false;
         });
       }
@@ -59,6 +81,21 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
           const SnackBar(content: Text('Erro ao carregar dados.')),
         );
       }
+    }
+  }
+
+  Future<void> _carregarAgregacoes() async {
+    final stats = await PessoaTimelineService.instance.obterEstatisticas(widget.pessoa.id);
+    final eventos = await PessoaTimelineService.instance.obterLinhaDoTempo(widget.pessoa.id);
+    final memorial =
+        await PessoaTimelineService.instance.obterMemorialDaPessoa(widget.pessoa.id);
+    if (mounted) {
+      setState(() {
+        _stats = stats;
+        _eventos = eventos;
+        _memorialVinculado = memorial;
+        _carregandoEventos = false;
+      });
     }
   }
 
@@ -107,6 +144,38 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     }
   }
 
+  Future<void> _abrirMemorial(int memorialId) async {
+    final memoriais = await SupabaseService.instance.listarMemoriais();
+    if (!mounted) return;
+    final m = memoriais.where((mm) => mm.id == memorialId).firstOrNull;
+    if (m == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Memorial não encontrado.')),
+      );
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => MemorialDetalheScreen(memorial: m),
+      ),
+    );
+  }
+
+  Future<void> _criarMemorialParaPessoa() async {
+    final pessoa = _pessoa ?? widget.pessoa;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => NovoMemorialScreen(pessoaParaVincular: pessoa),
+      ),
+    );
+    if (mounted) _carregarAgregacoes();
+  }
+
+  String _formatarDataCurta(DateTime? data) {
+    if (data == null) return '—';
+    return DateFormat('MM/yyyy').format(data);
+  }
+
   @override
   Widget build(BuildContext context) {
     final pessoa = _pessoa ?? widget.pessoa;
@@ -133,203 +202,591 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
             constraints: const BoxConstraints(maxWidth: 560),
             child: _carregando
                 ? const Center(child: CircularProgressIndicator())
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
-                    children: [
-                      Center(
-                        child: CircleAvatar(
-                          radius: 52,
-                          backgroundColor: const Color(0xFFF0EAF5),
-                          backgroundImage: pessoa.fotoBytes != null
-                              ? MemoryImage(pessoa.fotoBytes!)
-                              : null,
-                          child: pessoa.fotoBytes == null
-                              ? const Icon(Icons.person,
-                                  size: 52, color: AppColors.roxo)
-                              : null,
+                : RefreshIndicator(
+                    onRefresh: _carregarAgregacoes,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+                      children: [
+                        // ── HEADER ──
+                        Center(
+                          child: CircleAvatar(
+                            radius: 52,
+                            backgroundColor: const Color(0xFFF0EAF5),
+                            backgroundImage: pessoa.fotoBytes != null
+                                ? MemoryImage(pessoa.fotoBytes!)
+                                : null,
+                            child: pessoa.fotoBytes == null
+                                ? const Icon(Icons.person,
+                                    size: 52, color: AppColors.roxo)
+                                : null,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        pessoa.nome,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: AppColors.roxo,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      if (pessoa.apelido != null &&
-                          pessoa.apelido!.isNotEmpty) ...[
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 20),
                         Text(
-                          pessoa.apelido!,
+                          pessoa.nome,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            color: Color(0xFF7A7280),
-                            fontSize: 16,
+                            color: AppColors.roxo,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                      ],
-                      const SizedBox(height: 12),
-                      Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: const Color(0x26D4A84F),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            pessoa.parentesco,
-                            style: const TextStyle(
-                              color: AppColors.dourado,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (pessoa.dataNascimento != null) ...[
-                        const SizedBox(height: 18),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.cake_outlined,
-                                size: 16, color: AppColors.verdeApoio),
-                            const SizedBox(width: 6),
-                            Text(
-                              DateFormat('dd/MM/yyyy')
-                                  .format(pessoa.dataNascimento!),
-                              style: const TextStyle(
-                                color: Color(0xFF817987),
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                      if (pessoa.email != null && pessoa.email!.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.email_outlined,
-                                size: 16, color: AppColors.dourado),
-                            const SizedBox(width: 6),
-                            Text(
-                              pessoa.email!,
-                              style: const TextStyle(
-                                color: Color(0xFF817987),
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                      if (pessoa.telefone != null && pessoa.telefone!.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.phone_outlined,
-                                size: 16, color: AppColors.dourado),
-                            const SizedBox(width: 6),
-                            Text(
-                              pessoa.telefone!,
-                              style: const TextStyle(
-                                color: Color(0xFF817987),
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                      const SizedBox(height: 32),
-                      Row(
-                        children: [
-                          const Icon(Icons.auto_stories_outlined,
-                              size: 18, color: AppColors.dourado),
-                          const SizedBox(width: 8),
+                        if (pessoa.apelido != null &&
+                            pessoa.apelido!.isNotEmpty) ...[
+                          const SizedBox(height: 4),
                           Text(
-                            _memoriasViculadas.isEmpty
-                                ? 'Nenhuma memória vinculada'
-                                : '${_memoriasViculadas.length} ${_memoriasViculadas.length == 1 ? 'memória' : 'memórias'}',
+                            pessoa.apelido!,
+                            textAlign: TextAlign.center,
                             style: const TextStyle(
-                              color: AppColors.roxo,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF7A7280),
+                              fontSize: 16,
                             ),
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 12),
-                      if (_memoriasViculadas.isEmpty)
-                        Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.borda),
-                          ),
-                          child: const Text(
-                            'As memórias que você vincular a esta pessoa aparecerão aqui.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Color(0xFF7A7280),
-                              fontSize: 14,
-                              height: 1.4,
+                        const SizedBox(height: 12),
+                        Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0x26D4A84F),
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                          ),
-                        )
-                      else
-                        ..._memoriasViculadas.map(
-                          (id) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Material(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              child: InkWell(
-                                onTap: () => widget.onAbrirMemoria(id),
-                                borderRadius: BorderRadius.circular(12),
-                                child: Container(
-                                  padding: const EdgeInsets.all(14),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
-                                    border:
-                                        Border.all(color: AppColors.borda),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.auto_stories_outlined,
-                                          size: 20, color: AppColors.roxo),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          widget.titulosMemorias[id] ?? 'Memória',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            color: AppColors.roxo,
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                      const Icon(Icons.chevron_right,
-                                          color: Color(0xFF9B949D)),
-                                    ],
-                                  ),
-                                ),
+                            child: Text(
+                              pessoa.parentesco,
+                              style: const TextStyle(
+                                color: AppColors.dourado,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
                         ),
-                    ],
+                        if (pessoa.dataNascimento != null) ...[
+                          const SizedBox(height: 18),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.cake_outlined,
+                                  size: 16, color: AppColors.verdeApoio),
+                              const SizedBox(width: 6),
+                              Text(
+                                DateFormat('dd/MM/yyyy')
+                                    .format(pessoa.dataNascimento!),
+                                style: const TextStyle(
+                                  color: Color(0xFF817987),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (pessoa.email != null && pessoa.email!.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.email_outlined,
+                                  size: 16, color: AppColors.dourado),
+                              const SizedBox(width: 6),
+                              Text(
+                                pessoa.email!,
+                                style: const TextStyle(
+                                  color: Color(0xFF817987),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (pessoa.telefone != null && pessoa.telefone!.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.phone_outlined,
+                                  size: 16, color: AppColors.dourado),
+                              const SizedBox(width: 6),
+                              Text(
+                                pessoa.telefone!,
+                                style: const TextStyle(
+                                  color: Color(0xFF817987),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+
+                        // ── ESTATÍSTICAS ──
+                        const SizedBox(height: 24),
+                        _buildEstatisticas(),
+
+                        // ── MEMORIAL VINCULADO ──
+                        const SizedBox(height: 20),
+                        _buildSecaoMemorial(),
+
+                        // ── LINHA DO TEMPO DA PESSOA ──
+                        const SizedBox(height: 28),
+                        _buildSecaoLinhaDoTempo(),
+
+                        // ── MEMÓRIAS VINCULADAS (lista auxiliar) ──
+                        const SizedBox(height: 28),
+                        _buildSecaoMemorias(),
+
+                        const SizedBox(height: 32),
+                      ],
+                    ),
                   ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildEstatisticas() {
+    final stats = _stats;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F6F0),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.dourado.withValues(alpha: 0.3), width: 1.4),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.insights_outlined, color: AppColors.dourado, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Patrimônio afetivo',
+                style: TextStyle(
+                  color: AppColors.roxo,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _EstatisticaBloco(
+                icone: Icons.auto_stories_outlined,
+                valor: stats.totalMemorias,
+                rotulo: 'memórias',
+                cor: AppColors.roxo,
+              ),
+              _EstatisticaBloco(
+                icone: Icons.photo_outlined,
+                valor: stats.totalFotos,
+                rotulo: 'fotos',
+                cor: AppColors.dourado,
+              ),
+              _EstatisticaBloco(
+                icone: Icons.videocam_outlined,
+                valor: stats.totalVideos,
+                rotulo: 'vídeos',
+                cor: AppColors.verdeApoio,
+              ),
+              _EstatisticaBloco(
+                icone: Icons.add_comment_outlined,
+                valor: stats.totalContribuicoes,
+                rotulo: 'contribuições',
+                cor: AppColors.roxo,
+              ),
+            ],
+          ),
+          if (stats.primeiraData != null || stats.ultimaData != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                if (stats.primeiraData != null)
+                  Text(
+                    'Primeira memória: ${_formatarDataCurta(stats.primeiraData)}',
+                    style: const TextStyle(
+                      color: Color(0xFF7A7280),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                if (stats.ultimaData != null)
+                  Text(
+                    'Última: ${_formatarDataCurta(stats.ultimaData)}',
+                    style: const TextStyle(
+                      color: Color(0xFF7A7280),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSecaoMemorial() {
+    if (_memorialVinculado != null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.borda),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.favorite_outline, color: AppColors.dourado, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Memorial',
+                    style: TextStyle(
+                      color: AppColors.roxo,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _memorialVinculado!.nome,
+                    style: const TextStyle(
+                      color: Color(0xFF7A7280),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: () => _abrirMemorial(_memorialVinculado!.id),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.dourado,
+                foregroundColor: Colors.white,
+              ),
+              icon: const Icon(Icons.open_in_new, size: 14),
+              label: const Text('Abrir'),
+            ),
+          ],
+        ),
+      );
+    }
+    return OutlinedButton.icon(
+      onPressed: _criarMemorialParaPessoa,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.dourado,
+        side: const BorderSide(color: AppColors.dourado, width: 1.4),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        minimumSize: const Size.fromHeight(50),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      icon: const Icon(Icons.add, size: 18),
+      label: const Text(
+        'Criar memorial para esta pessoa',
+        style: TextStyle(fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+
+  Widget _buildSecaoLinhaDoTempo() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: const [
+            Icon(Icons.history_edu_outlined, color: AppColors.dourado, size: 20),
+            SizedBox(width: 8),
+            Text(
+              'Linha do tempo',
+              style: TextStyle(
+                color: AppColors.roxo,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Como esta pessoa foi aparecendo nas suas histórias, em ordem cronológica.',
+          style: TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
+        ),
+        const SizedBox(height: 16),
+        if (_carregandoEventos)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.roxo),
+              ),
+            ),
+          )
+        else if (_eventos.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.borda),
+            ),
+            child: const Text(
+              'Esta pessoa ainda não apareceu em nenhuma memória ou contribuição. '
+              'Adicione o nome dela em uma memória para ela ganhar vida aqui.',
+              style: TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
+            ),
+          )
+        else
+          ..._eventos.map((e) => _buildItemTimelinePessoa(e)),
+      ],
+    );
+  }
+
+  Widget _buildItemTimelinePessoa(PessoaTimelineEvento e) {
+    final data = e.data;
+    final dataStr = DateFormat('MMM/yyyy').format(data);
+    final ehMemoria = e.tipo == PessoaTimelineTipo.memoria;
+    final ehContribuicao = e.tipo == PessoaTimelineTipo.contribuicao;
+    final ehFoto = e.tipo == PessoaTimelineTipo.foto;
+
+    final icone = ehMemoria
+        ? Icons.auto_stories_outlined
+        : ehContribuicao
+            ? Icons.add_comment_outlined
+            : ehFoto
+                ? Icons.photo_outlined
+                : Icons.videocam_outlined;
+    final cor = ehMemoria
+        ? AppColors.roxo
+        : ehContribuicao
+            ? AppColors.verdeApoio
+            : AppColors.dourado;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: () {
+            if (ehMemoria) {
+              widget.onAbrirMemoria(e.conteudoId);
+            } else if (e.memoriaOrigemId != null) {
+              widget.onAbrirMemoria(e.memoriaOrigemId!);
+            }
+          },
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.borda),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Column(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: cor.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(icone, size: 18, color: cor),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            e.tipo.rotulo,
+                            style: TextStyle(
+                              color: cor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '· $dataStr',
+                            style: const TextStyle(
+                              color: Color(0xFF9B949D),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        e.titulo,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (ehContribuicao && e.autorContribuicao != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'por ${e.autorContribuicao}',
+                          style: const TextStyle(
+                            color: Color(0xFF7A7280),
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSecaoMemorias() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.auto_stories_outlined,
+                size: 18, color: AppColors.dourado),
+            const SizedBox(width: 8),
+            Text(
+              _memoriasVinculadas.isEmpty
+                  ? 'Nenhuma memória vinculada'
+                  : '${_memoriasVinculadas.length} ${_memoriasVinculadas.length == 1 ? 'memória' : 'memórias'}',
+              style: const TextStyle(
+                color: AppColors.roxo,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_memoriasVinculadas.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.borda),
+            ),
+            child: const Text(
+              'As memórias em que você adicionar esta pessoa aparecerão aqui.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFF7A7280), fontSize: 14, height: 1.4),
+            ),
+          )
+        else
+          ..._memoriasVinculadas.map(
+            (id) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  onTap: () => widget.onAbrirMemoria(id),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.borda),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.auto_stories_outlined,
+                            size: 20, color: AppColors.roxo),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            widget.titulosMemorias[id] ?? 'Memória',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.roxo,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right,
+                            color: Color(0xFF9B949D)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _EstatisticaBloco extends StatelessWidget {
+  const _EstatisticaBloco({
+    required this.icone,
+    required this.valor,
+    required this.rotulo,
+    required this.cor,
+  });
+
+  final IconData icone;
+  final int valor;
+  final String rotulo;
+  final Color cor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icone, color: cor, size: 24),
+        const SizedBox(height: 6),
+        Text(
+          '$valor',
+          style: const TextStyle(
+            color: AppColors.roxo,
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        Text(
+          rotulo,
+          style: const TextStyle(
+            color: Color(0xFF7A7280),
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

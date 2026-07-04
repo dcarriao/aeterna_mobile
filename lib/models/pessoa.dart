@@ -98,6 +98,21 @@ class PessoaRepository {
 
   static SupabaseClient? _client;
 
+  /// Getter público (Sprint H) — usado por `PessoaTimelineService` para
+  /// chamar funções RPC do Supabase sem precisar replicar a inicialização
+  /// do cliente. Lança exceção se `isConfigured` for false; para
+  /// checagem segura, sempre prefira `isConfigured` antes de chamar.
+  static SupabaseClient get supabaseClient {
+    if (!isConfigured) {
+      throw Exception('SUPABASE_ANON_KEY não configurada.');
+    }
+    return _client ??= SupabaseClient(
+      _url,
+      _anonKey,
+      authOptions: const AuthClientOptions(authFlowType: AuthFlowType.implicit),
+    );
+  }
+
   static SupabaseClient get _supabase {
     if (!isConfigured) {
       throw Exception('SUPABASE_ANON_KEY não configurada.');
