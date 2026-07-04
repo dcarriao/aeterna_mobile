@@ -20,6 +20,7 @@ import 'screens/timeline_screen.dart';
 import 'screens/memoriais_screen.dart';
 import 'services/supabase_service.dart';
 import 'services/curator_invitation_service.dart';
+import 'services/memory_growth_invitation_service.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -27,6 +28,10 @@ Future<void> main() async {
   await SupabaseService.initialize();
   await LegacyCuratorService.initialize();
   await CuratorInvitationService.instance.inicializar();
+  // Sprint I — Curador de Memórias Contínuas: inicializa o canal
+  // de notificação próprio e agenda o job do Workmanager.
+  await MemoryGrowthInvitationService.instance.inicializar();
+  await MemoryGrowthInvitationService.instance.registrarVerificacaoPeriodica();
   runApp(const AeternaApp());
 }
 

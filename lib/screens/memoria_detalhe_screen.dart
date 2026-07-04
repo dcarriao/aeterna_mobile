@@ -4,9 +4,13 @@ import 'package:intl/intl.dart';
 import '../curador/perguntas.dart';
 import '../models/contribuicao.dart';
 import '../models/memoria.dart';
+import '../models/memoria_pode_crescer.dart';
 import '../models/pessoa.dart';
+import '../services/memory_growth_invitation_service.dart';
+import '../services/memory_growth_scoring_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
+import 'curador_screen.dart';
 import 'memoria_contribuicao_screen.dart';
 import 'nova_memoria_screen.dart';
 
@@ -254,6 +258,193 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
         );
       }
     }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SPRINT I — BANNER "ESSA MEMÓRIA PODE CRESCER" NA DETALHE
+  // ════════════════════════════════════════════════════════════════════════
+  MemoriaComScore? _conviteCuradorComplemento;
+  bool _carregandoConviteComplemento = false;
+
+  Future<void> _carregarConviteComplemento() async {
+    if (_memoria.id == null) return;
+    if (_conviteCuradorComplemento != null) return; // já carregado
+    setState(() => _carregandoConviteComplemento = true);
+    final convite = await MemoryGrowthInvitationService.instance
+        .obterParaMemoria(_memoria.id!);
+    if (mounted) {
+      setState(() {
+        _conviteCuradorComplemento = convite;
+        _carregandoConviteComplemento = false;
+      });
+    }
+  }
+
+  Future<void> _dispensarConviteComplemento() async {
+    if (_conviteCuradorComplemento == null) return;
+    await MemoryGrowthScoringService.instance
+        .dispensarConvite(_conviteCuradorComplemento!.memoria.memoriaId);
+    if (mounted) {
+      setState(() => _conviteCuradorComplemento = null);
+    }
+  }
+
+  Future<void> _abrirCuradorComplemento() async {
+    if (_conviteCuradorComplemento == null || _memoria.id == null) return;
+    final result = await Navigator.of(context).push<CuradorResultado>(
+      MaterialPageRoute(
+        builder: (_) => CuradorScreen(
+          titulo: _memoria.titulo,
+          contextoOriginal: _memoria.contexto,
+          isProativo: false,
+          complementoMemoriaId: _memoria.id,
+        ),
+      ),
+    );
+    if (result == null) return;
+    final texto = result.contextoEnriquecido.trim();
+    if (texto.isEmpty) return;
+    try {
+      final dados = await PessoaRepository.obterUsuario();
+      final nome = dados != null
+          ? '${dados['nome'] ?? ''} ${dados['sobrenome'] ?? ''}'.trim()
+          : 'Eu';
+      final contrib = Contribuicao(
+        tipoConteudo: 'memoria',
+        conteudoId: _memoria.id!,
+        usuarioDonoId: _memoria.donoUsuarioId ?? SupabaseService.usuarioId,
+        usuarioContribuidorEmail: PessoaRepository.usuarioEmail ?? '',
+        usuarioContribuidorNome: nome.isEmpty ? 'Eu' : nome,
+        tipoContribuicao: 'texto',
+        texto: texto,
+        status: 'aprovado',
+        createdAt: DateTime.now(),
+      );
+      await SupabaseService.instance.salvarContribuicao(contrib);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Complemento adicionado à história.')),
+        );
+        setState(() => _conviteCuradorComplemento = null);
+        _carregarDados();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao salvar complemento: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _buildBannerCuradorComplemento() {
+    // Carregamento preguiçoso
+    if (_conviteCuradorComplemento == null && !_carregandoConviteComplemento) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _carregarConviteComplemento();
+      });
+    }
+
+    if (_carregandoConviteComplemento) return const SizedBox.shrink();
+    if (_conviteCuradorComplemento == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9F6F0),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: AppColors.dourado.withValues(alpha: 0.4),
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.auto_awesome, color: AppColors.dourado, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'O Curador sugere complementar esta história',
+                    style: TextStyle(
+                      color: AppColors.roxo,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _motivoConviteComplemento(),
+              style: const TextStyle(
+                color: Color(0xFF625B67),
+                fontSize: 13,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: _dispensarConviteComplemento,
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF7A7280),
+                  ),
+                  child: const Text(
+                    'Agora não',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: _abrirCuradorComplemento,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.roxo,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  icon: const Icon(Icons.edit_note, size: 16),
+                  label: const Text(
+                    'Complementar',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _motivoConviteComplemento() {
+    final positivos = _conviteCuradorComplemento!.score.criterios
+        .where((c) => c.pontos > 0)
+        .map((c) => c.nome.toLowerCase())
+        .toList();
+    if (positivos.isEmpty) return 'O Curador percebeu que esta história pode crescer.';
+    if (positivos.any((p) => p.contains('colaborador'))) {
+      return 'Existem familiares cadastrados para essa história que ainda não contribuíram.';
+    }
+    if (positivos.any((p) => p.contains('autor único'))) {
+      return 'Esta história foi escrita só por você. Convidar outra pessoa pode enriquecê-la.';
+    }
+    if (positivos.any((p) => p.contains('muitas mídias'))) {
+      return 'Vimos mídias na galeria que ainda não foram associadas a essa história.';
+    }
+    if (positivos.any((p) => p.contains('última atualização'))) {
+      return 'Esta história não é atualizada há mais de 90 dias. Talvez valha a pena revisitá-la.';
+    }
+    return 'O Curador percebeu que esta história pode crescer.';
   }
 
   Widget _buildSecaoEvolucao() {
@@ -995,6 +1186,12 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                       ],
 
                       const SizedBox(height: 28),
+
+                      // ═════════════════════════════════════════════════════════
+                      // SPRINT I — CONVITE DO CURADOR PARA COMPLEMENTO
+                      // ═════════════════════════════════════════════════════════
+                      if (!_carregandoDados && widget.somenteLeitura == false)
+                        _buildBannerCuradorComplemento(),
 
                       // ═════════════════════════════════════════════════════════
                       // SPRINT G — ENRIQUECIMENTO COLABORATIVO DA MEMÓRIA

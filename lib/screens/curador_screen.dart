@@ -1,10 +1,13 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
-import '../models/pending_memory.dart';
+import '../models/contribuicao.dart';
 import '../models/detected_moment.dart';
+import '../models/pending_memory.dart';
+import '../models/pessoa.dart';
 import '../curador/perguntas.dart';
 import '../services/legacy_curator_service.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 
 class CuradorResultado {
@@ -27,6 +30,7 @@ class CuradorScreen extends StatefulWidget {
     this.proativoVideosCount = 0,
     this.pendingMemory,
     this.detectedMoment,
+    this.complementoMemoriaId,
     super.key,
   });
 
@@ -43,6 +47,16 @@ class CuradorScreen extends StatefulWidget {
   final PendingMemory? pendingMemory;
   final DetectedMoment? detectedMoment;
 
+  /// Sprint I — Modo Complemento. Quando fornecido, a CuradorScreen
+  /// entra em um modo especial: carrega a memória existente
+  /// (contribuições, pessoas vinculadas) e oferece a primeira
+  /// pergunta "você gostaria de complementar esta história ou
+  /// registrar um novo capítulo?". O resultado devolvido
+  /// ([CuradorResultado.contextoEnriquecido]) é o COMPLEMENTO
+  /// a ser enviado como contribuição (não sobrescreve a memória
+  /// original).
+  final int? complementoMemoriaId;
+
   @override
   State<CuradorScreen> createState() => _CuradorScreenState();
 }
@@ -58,10 +72,64 @@ class _CuradorScreenState extends State<CuradorScreen> {
   AnaliseLegado? _analiseLegado;
   String? _narrativa;
 
+  // Sprint I — Modo Complemento: contexto carregado da memória existente.
+  String _contextoOriginalMemoria = '';
+  List<Contribuicao> _contribuicoesExistentes = const [];
+  int _contribuicoesAprovadasCount = 0;
+  List<Map<String, String>>? _pessoasCarregadas;
+  DateTime? _dataMemoriaCarregada;
+  String? _categoriaCarregada;
+
   @override
   void initState() {
     super.initState();
     _iniciouConversa = widget.pendingMemory == null && widget.detectedMoment == null;
+    if (widget.complementoMemoriaId != null) {
+      _carregarContextoComplemento();
+    } else {
+      _carregarPerguntas();
+    }
+  }
+
+  // Sprint I — Carrega a memória existente + suas contribuições
+  // aprovadas para oferecer a primeira pergunta apropriada.
+  Future<void> _carregarContextoComplemento() async {
+    final id = widget.complementoMemoriaId!;
+    try {
+      final todasMemorias = await SupabaseService.instance.listarMemorias();
+      final m = todasMemorias.firstWhere(
+        (mm) => mm.id == id,
+        orElse: () => todasMemorias.first,
+      );
+      _contextoOriginalMemoria = m.contexto;
+
+      // Carrega contribuições aprovadas (Sprint G)
+      final contribs = await SupabaseService.instance
+          .listarContribuicoesDaMemoria(id, apenasAprovadas: true);
+      _contribuicoesExistentes = contribs;
+      _contribuicoesAprovadasCount = contribs.length;
+
+      // Carrega pessoas vinculadas (apenas para popular o prompt — não
+      // sobrescreve o que o caller já tenha passado)
+      final ids = await PessoaRepository.obterPessoasDaMemoria(id);
+      final todasPessoas = await PessoaRepository.listar();
+      final pessoas = todasPessoas
+          .where((p) => ids.contains(p.id))
+          .map((p) => {'nome': p.nome, 'parentesco': p.parentesco})
+          .toList();
+      if (!mounted) return;
+      setState(() {
+        // Como widget.* são `final`, só setamos se ainda não tiverem
+        // valor (o caller pode já ter passado explicitamente).
+        if (widget.pessoas == null) {
+          _pessoasCarregadas = pessoas;
+        }
+        if (widget.dataMemoria == null) _dataMemoriaCarregada = m.dataMemoria;
+        if (widget.categoria == null) _categoriaCarregada = m.categoria;
+      });
+    } catch (e) {
+      print('[CuradorScreen] carregarContextoComplemento ERRO: $e');
+    }
     _carregarPerguntas();
   }
 
@@ -72,6 +140,37 @@ class _CuradorScreenState extends State<CuradorScreen> {
   }
 
   Future<void> _carregarPerguntas() async {
+    if (widget.complementoMemoriaId != null) {
+      // Sprint I — Modo Complemento: pergunta inicial + perguntas
+      // adaptadas ao estado da memória.
+      setState(() {
+        _perguntas = [
+          const PerguntaCurador(
+            texto: 'Você gostaria de complementar esta história ou '
+                'registrar um novo capítulo?',
+            categoria: CategoriaPergunta.legado,
+          ),
+          PerguntaCurador(
+            texto: _contribuicoesAprovadasCount == 0
+                ? 'O que aconteceu desde a última vez que essa memória foi atualizada?'
+                : 'O que aconteceu desde a última contribuição registrada?',
+            categoria: CategoriaPergunta.factual,
+          ),
+          const PerguntaCurador(
+            texto: 'Existe algum detalhe novo que merece ser guardado '
+                '— uma foto, um lugar, uma conversa?',
+            categoria: CategoriaPergunta.emocional,
+          ),
+          const PerguntaCurador(
+            texto: 'O que você gostaria que as próximas gerações '
+                'lembrassem dessa história?',
+            categoria: CategoriaPergunta.legado,
+          ),
+        ];
+        _carregandoPerguntas = false;
+      });
+      return;
+    }
     if (widget.isProativo) {
       if (LegacyCuratorService.instance.isConfigured) {
         final dataStr = widget.dataMemoria != null
@@ -122,9 +221,9 @@ class _CuradorScreenState extends State<CuradorScreen> {
           await LegacyCuratorService.instance.gerarPerguntas(
         widget.contextoOriginal,
         widget.titulo,
-        widget.pessoas ?? [],
-        dataMemoria: widget.dataMemoria,
-        categoria: widget.categoria,
+        widget.pessoas ?? _pessoasCarregadas ?? [],
+        dataMemoria: widget.dataMemoria ?? _dataMemoriaCarregada,
+        categoria: widget.categoria ?? _categoriaCarregada,
       );
       if (perguntasIA != null && perguntasIA.isNotEmpty) {
         if (mounted) {
@@ -246,6 +345,29 @@ class _CuradorScreenState extends State<CuradorScreen> {
       );
 
   String _montarContextoEnriquecido() {
+    // Sprint I — Modo Complemento: o resultado é um COMPLEMENTO (não
+    // uma reescrita). Devolvemos apenas o texto novo gerado a partir
+    // das respostas do Curador; a história original permanece intacta
+    // e esse complemento será enviado como contribuição.
+    if (widget.complementoMemoriaId != null) {
+      if (_narrativa != null && _narrativa!.isNotEmpty) return _narrativa!;
+      if (_respostas.isEmpty) return '';
+
+      final buffer = StringBuffer();
+      buffer.writeln('Complemento:');
+      buffer.writeln();
+      // Pula a primeira pergunta ("você gostaria de complementar…") — é
+      // apenas orientativa. Mantém as respostas a partir da segunda.
+      for (var i = 1; i < _perguntas.length; i++) {
+        final resposta = _respostas[_perguntas[i].texto];
+        if (resposta != null && resposta.isNotEmpty) {
+          buffer.writeln(resposta);
+          buffer.writeln();
+        }
+      }
+      return buffer.toString().trim();
+    }
+
     if (_narrativa != null && _narrativa!.isNotEmpty) return _narrativa!;
     if (_respostas.isEmpty) return widget.contextoOriginal;
 

@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
 
+import '../models/contribuicao.dart';
 import '../models/memoria.dart';
 import '../models/detected_moment.dart';
 import '../models/pessoa.dart';
 import '../models/pessoa_linha_tempo.dart';
 import '../services/curator_decision_log_service.dart';
 import '../services/curator_invitation_scoring_service.dart';
+import '../services/memory_growth_invitation_service.dart';
+import '../services/memory_growth_scoring_service.dart';
 import '../services/moment_detection_service.dart';
 import '../services/pessoa_timeline_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/memory_card.dart';
 import '../widgets/home/detected_moment_card.dart';
+import '../widgets/home/memoria_pode_crescer_card.dart';
+import 'curador_screen.dart';
 import 'nova_memoria_screen.dart';
 import 'pessoa_detalhe_screen.dart';
 
@@ -53,11 +58,16 @@ class _HomeScreenState extends State<HomeScreen> {
   // Sprint H — Pessoas Vivas Recentemente
   List<PessoaVivaResumo> _pessoasVivas = const [];
 
+  // Sprint I — Memórias que podem crescer
+  List<MemoriaComScore> _memoriasQuePodemCrescer = const [];
+  bool _carregandoCrescer = true;
+
   @override
   void initState() {
     super.initState();
     _carregarSugestoes();
     _carregarPessoasVivas();
+    _carregarMemoriasQuePodemCrescer();
   }
 
   Future<void> _carregarPessoasVivas() async {
@@ -65,6 +75,23 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       setState(() => _pessoasVivas = pessoas);
     }
+  }
+
+  Future<void> _carregarMemoriasQuePodemCrescer() async {
+    setState(() => _carregandoCrescer = true);
+    final memorias =
+        await MemoryGrowthInvitationService.instance.listarParaHome(limite: 3);
+    if (mounted) {
+      setState(() {
+        _memoriasQuePodemCrescer = memorias;
+        _carregandoCrescer = false;
+      });
+    }
+  }
+
+  Future<void> _dispensarMemoriaCrescer(int memoriaId) async {
+    await MemoryGrowthScoringService.instance.dispensarConvite(memoriaId);
+    if (mounted) _carregarMemoriasQuePodemCrescer();
   }
 
   // SPRINT F — Sensibilidade dos Convites do Curador: só momentos com score
@@ -229,6 +256,44 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   ..._pessoasVivas.take(4).map((p) => _buildCardPessoaViva(p)),
+                ],
+
+                // SPRINT I — Memórias que podem crescer
+                if (_memoriasQuePodemCrescer.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 8),
+                    child: Text(
+                      'Memórias que podem crescer',
+                      style: TextStyle(
+                        color: AppColors.roxo,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 12),
+                    child: Text(
+                      'O Curador percebeu que estas histórias podem ficar ainda mais ricas com novas contribuições.',
+                      style: TextStyle(
+                        color: Color(0xFF7A7280),
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  ..._memoriasQuePodemCrescer.map(
+                    (item) => MemoriaPodeCrescerCard(
+                      item: item,
+                      onAbrirMemoria: (id) =>
+                          widget.onAbrirMemoria(_resolveMemoria(id)),
+                      onAbrirCurador: () =>
+                          _abrirCuradorComplemento(item),
+                      onDispensar: () =>
+                          _dispensarMemoriaCrescer(item.memoria.memoriaId),
+                    ),
+                  ),
                 ],
 
                 const SizedBox(height: 28),
@@ -509,6 +574,88 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     if (mounted) _carregarPessoasVivas();
+  }
+
+  // Sprint I — Abre a CuradorScreen em modo "complemento" para a
+  // memória selecionada. Ao voltar com um `CuradorResultado`, o texto
+  // enriquecido vira uma contribuição (NÃO sobrescreve a memória).
+  Future<void> _abrirCuradorComplemento(MemoriaComScore item) async {
+    // Carrega a memória completa (precisa do `id` real + contexto)
+    // a partir de widget.memorias (passado pela main.dart).
+    final m = widget.memorias.firstWhere(
+      (mm) => mm.id == item.memoria.memoriaId,
+      orElse: () => widget.memorias.first,
+    );
+    if (m.id == null) return;
+    final result = await Navigator.of(context).push<CuradorResultado>(
+      MaterialPageRoute(
+        builder: (_) => CuradorScreen(
+          titulo: m.titulo,
+          contextoOriginal: m.contexto,
+          isProativo: false,
+          // Sprint I: modo "complemento" — a CuradorScreen sabe que deve
+          // carregar a memória do banco (contribuições, pessoas) e
+          // oferecer a primeira pergunta "você gostaria de complementar
+          // esta história ou registrar um novo capítulo?". O retorno
+          // é tratado como CONTRIBUIÇÃO, não como reescrita.
+          complementoMemoriaId: m.id,
+        ),
+      ),
+    );
+    if (result == null) return;
+    final texto = result.contextoEnriquecido.trim();
+    if (texto.isEmpty) return;
+    try {
+      final contrib = Contribuicao(
+        tipoConteudo: 'memoria',
+        conteudoId: m.id!,
+        usuarioDonoId: m.donoUsuarioId ?? SupabaseService.usuarioId,
+        usuarioContribuidorEmail: PessoaRepository.usuarioEmail ?? '',
+        usuarioContribuidorNome: _meuNomeCurador,
+        tipoContribuicao: 'texto',
+        texto: texto,
+        status: 'aprovado', // dono é quem está criando
+        createdAt: DateTime.now(),
+      );
+      await SupabaseService.instance.salvarContribuicao(contrib);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Complemento adicionado à história.'),
+          ),
+        );
+        _carregarMemoriasQuePodemCrescer();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao salvar complemento: $e')),
+        );
+      }
+    }
+  }
+
+  String get _meuNomeCurador {
+    final user = SupabaseService.instance;
+    // O nome é resolvido na contribuição via PessoaRepository.obterUsuario();
+    // aqui devolvemos um placeholder caso ainda não tenha sido carregado.
+    return 'Eu';
+  }
+
+  /// Helper para o callback de abrir memória a partir de cards da
+  /// Home (que recebem apenas o id).
+  Memoria _resolveMemoria(int id) {
+    return widget.memorias.firstWhere(
+      (m) => m.id == id,
+      orElse: () => widget.memorias.isNotEmpty
+          ? widget.memorias.first
+          : Memoria(
+              titulo: '',
+              contexto: '',
+              categoria: 'momentos',
+              criadaEm: DateTime.now(),
+            ),
+    );
   }
 }
 

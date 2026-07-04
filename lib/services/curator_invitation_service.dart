@@ -6,21 +6,38 @@ import '../models/detected_moment.dart';
 import 'curator_decision_log_service.dart';
 import 'curator_invitation_scoring_service.dart';
 import 'moment_detection_service.dart';
+import 'workmanager_fanout.dart';
 
-// Função global obrigatória para o Workmanager (headless isolate)
+// Função global obrigatória para o Workmanager (headless isolate).
+//
+// Sprint I: agora faz fan-out para a tarefa de "memórias que podem
+// crescer" também. O Workmanager só permite um dispatcher por processo,
+// então todas as tarefas agendadas compartilham este ponto de entrada.
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     print('[Workmanager] Executando tarefa em background: $task');
     try {
-      final success = await CuratorInvitationService.instance.verificarNovasMidiasEConvidar();
-      return success;
+      if (task == WorkmanagerFanOut.sprintITaskName) {
+        // Sprint I — fan-out para a verificação de memórias contínuas.
+        final bridge = WorkmanagerFanOut.sprintIBridge;
+        if (bridge != null) bridge();
+      } else {
+        // Sprint F (default).
+        final success = await CuratorInvitationService.instance
+            .verificarNovasMidiasEConvidar();
+        return success;
+      }
+      return true;
     } catch (e) {
       print('[Workmanager] Erro na execução da tarefa: $e');
       return false;
     }
   });
 }
+
+/// Ponte global para o entry-point do Workmanager — ver
+/// `lib/services/workmanager_fanout.dart`.
 
 /// SPRINT F — Sensibilidade dos Convites do Curador.
 ///
