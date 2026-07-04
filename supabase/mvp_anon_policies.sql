@@ -173,3 +173,32 @@ drop policy if exists "mvp anon update usuarios" on public.usuarios;
 create policy "mvp anon update usuarios"
 on public.usuarios for update to anon
 using (true);
+
+-- Conteúdo permissões (compartilhamento de memórias/fotos/vídeos com contatos)
+-- Necessário para o BUG 1: a tela Compartilhadas precisa ler vínculos de
+-- QUALQUER usuário (não só os do usuário logado) para descobrir memórias
+-- que outra conta compartilhou com o e-mail do usuário atual.
+grant select, insert, update, delete on table public.conteudo_permissoes to anon;
+grant usage, select on all sequences in schema public to anon;
+
+alter table public.conteudo_permissoes enable row level security;
+
+drop policy if exists "mvp anon select conteudo_permissoes" on public.conteudo_permissoes;
+create policy "mvp anon select conteudo_permissoes"
+on public.conteudo_permissoes for select to anon
+using (true);
+
+drop policy if exists "mvp anon insert conteudo_permissoes" on public.conteudo_permissoes;
+create policy "mvp anon insert conteudo_permissoes"
+on public.conteudo_permissoes for insert to anon
+with check (true);
+
+drop policy if exists "mvp anon update conteudo_permissoes" on public.conteudo_permissoes;
+create policy "mvp anon update conteudo_permissoes"
+on public.conteudo_permissoes for update to anon
+using (true);
+
+drop policy if exists "mvp anon delete conteudo_permissoes" on public.conteudo_permissoes;
+create policy "mvp anon delete conteudo_permissoes"
+on public.conteudo_permissoes for delete to anon
+using (true);

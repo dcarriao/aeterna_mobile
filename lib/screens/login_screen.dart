@@ -94,6 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Define a sessão dinâmica
       PessoaRepository.usuarioId = uid;
+      PessoaRepository.usuarioEmail = email;
       SupabaseService.usuarioId = uid;
 
       final preferencias = await SharedPreferences.getInstance();
@@ -134,6 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
         final uid = await PessoaRepository.obterUsuarioIdPorEmail(email);
         if (uid != null) {
           PessoaRepository.usuarioId = uid;
+          PessoaRepository.usuarioEmail = email;
           SupabaseService.usuarioId = uid;
           final preferencias = await SharedPreferences.getInstance();
           await preferencias.setBool('is_logged_in', true);

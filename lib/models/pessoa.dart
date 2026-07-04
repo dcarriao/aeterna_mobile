@@ -88,6 +88,10 @@ class PessoaRepository {
   // ID de usuário dinâmico para isolamento de dados
   static int usuarioId = 2;
 
+  // E-mail do usuário logado, usado para localizar memórias que outras
+  // contas compartilharam com este usuário (vínculo por e-mail do contato).
+  static String? usuarioEmail;
+
   static bool get isConfigured => _anonKey.isNotEmpty;
 
   static SupabaseClient? _client;
@@ -543,6 +547,91 @@ class PessoaRepository {
 
   static Future<List<int>> obterFamiliaresDaMemoria(int? memoriaId) =>
       obterPessoasDaMemoria(memoriaId);
+
+  // ── MEMÓRIAS COMPARTILHADAS COM O USUÁRIO LOGADO (Bug 1) ──
+  //
+  // `conteudo_permissoes.contato_id` aponta para um registro da tabela
+  // `contatos` (agenda pessoal de quem compartilhou), NÃO para a conta
+  // (`usuarios`) de quem recebeu. Para descobrir memórias que outra conta
+  // compartilhou com o usuário logado, cruzamos pelo e-mail: procuramos
+  // registros de `contatos` (de QUALQUER dono) cujo e-mail seja igual ao
+  // e-mail de login do usuário atual, e então buscamos os vínculos de
+  // `conteudo_permissoes` para esses contatos.
+  static Future<Map<int, Map<String, dynamic>>>
+      listarMemoriasCompartilhadasComigo() async {
+    if (!isConfigured ||
+        usuarioEmail == null ||
+        usuarioEmail!.trim().isEmpty) {
+      return {};
+    }
+
+    try {
+      final email = usuarioEmail!.trim();
+
+      // 1. Contatos (em agendas de outras contas) que representam o usuário
+      //    logado (mesmo e-mail de login).
+      final contatosRows = await _supabase
+          .from('contatos')
+          .select('id, usuario_id')
+          .ilike('email', email);
+
+      if (contatosRows.isEmpty) return {};
+
+      final donoPorContato = <int, int>{};
+      for (final r in contatosRows) {
+        final donoId = (r['usuario_id'] as num?)?.toInt();
+        final contatoId = (r['id'] as num?)?.toInt();
+        if (donoId != null && contatoId != null && donoId != usuarioId) {
+          donoPorContato[contatoId] = donoId;
+        }
+      }
+      if (donoPorContato.isEmpty) return {};
+
+      // 2. Vínculos de compartilhamento de memórias para esses contatos.
+      final permissoes = await _supabase
+          .from('conteudo_permissoes')
+          .select('conteudo_id, contato_id')
+          .eq('tipo_conteudo', 'memoria')
+          .inFilter('contato_id', donoPorContato.keys.toList());
+
+      if (permissoes.isEmpty) return {};
+
+      final donoPorMemoria = <int, int>{};
+      for (final p in permissoes) {
+        final memId = (p['conteudo_id'] as num).toInt();
+        final contatoId = (p['contato_id'] as num).toInt();
+        final donoId = donoPorContato[contatoId];
+        if (donoId != null) donoPorMemoria[memId] = donoId;
+      }
+      if (donoPorMemoria.isEmpty) return {};
+
+      // 3. Nome de quem compartilhou, para exibição na tela Compartilhadas.
+      final donoIds = donoPorMemoria.values.toSet().toList();
+      final usuariosRows = await _supabase
+          .from('usuarios')
+          .select('id, nome, sobrenome')
+          .inFilter('id', donoIds);
+
+      final nomesPorDono = <int, String>{
+        for (final u in usuariosRows)
+          (u['id'] as num).toInt():
+              '${u['nome'] ?? ''} ${u['sobrenome'] ?? ''}'.trim(),
+      };
+
+      return {
+        for (final entry in donoPorMemoria.entries)
+          entry.key: {
+            'usuario_id': entry.value,
+            'nome': (nomesPorDono[entry.value]?.isNotEmpty ?? false)
+                ? nomesPorDono[entry.value]
+                : 'Familiar',
+          },
+      };
+    } catch (e) {
+      print('[PessoaRepo] listarMemoriasCompartilhadasComigo() ERRO: $e');
+      return {};
+    }
+  }
 
   // ── DATAS DE MEMÓRIA (Supabase memorias.data_evento) ──
 

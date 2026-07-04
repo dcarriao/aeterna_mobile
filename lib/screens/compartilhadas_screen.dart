@@ -9,12 +9,18 @@ class CompartilhadasScreen extends StatefulWidget {
     required this.memorias,
     required this.onAbrirMemoria,
     required this.onCompartilhar,
+    this.memoriasRecebidas = const [],
     super.key,
   });
 
   final List<Memoria> memorias;
   final void Function(Memoria memoria) onAbrirMemoria;
   final VoidCallback onCompartilhar;
+
+  /// Memórias que OUTRAS contas compartilharam com o usuário logado
+  /// (Bug 1 — antes não existia distinção entre "compartilhei" e
+  /// "compartilharam comigo").
+  final List<Memoria> memoriasRecebidas;
 
   @override
   State<CompartilhadasScreen> createState() => _CompartilhadasScreenState();
@@ -66,137 +72,252 @@ class _CompartilhadasScreenState extends State<CompartilhadasScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final compartilhadas = _compartilhamentos.keys.toSet();
-
-    if (_carregando) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Compartilhadas')),
-        body: const SafeArea(
-            child: Center(child: CircularProgressIndicator())),
-      );
-    }
-
-    final memorias = _memoriasFiltradas;
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Compartilhadas')),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: widget.memorias.every((m) => !compartilhadas.contains(m.id))
-                ? _EstadoVazio(onCompartilhar: widget.onCompartilhar)
-                : Column(
-                    children: [
-                      if (_pessoas.isNotEmpty) _buildFiltro(),
-                      Expanded(
-                        child: memorias.isEmpty
-                            ? Center(
-                                child: Text(
-                                  'Nenhuma memória compartilhada com este familiar.',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: Color(0xFF7A7280),
-                                    fontSize: 15,
-                                  ),
-                                ),
-                              )
-                            : ListView.separated(
-                                padding:
-                                    const EdgeInsets.fromLTRB(20, 8, 20, 40),
-                                itemCount: memorias.length,
-                                separatorBuilder: (_, _) =>
-                                    const SizedBox(height: 12),
-                                itemBuilder: (context, index) {
-                                  final m = memorias[index];
-                                  final ids = m.familiaresIds ??
-                                      _compartilhamentos[m.id] ??
-                                      [];
-                                  final nomes = ids
-                                      .map((id) => _pessoaPorId(id)?.nome)
-                                      .whereType<String>()
-                                      .take(3)
-                                      .toList();
-
-                                  return Material(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: InkWell(
-                                      onTap: () => widget.onAbrirMemoria(m),
-                                      borderRadius: BorderRadius.circular(14),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(16),
-                                        decoration: BoxDecoration(
-                                          borderRadius:
-                                              BorderRadius.circular(14),
-                                          border: Border.all(
-                                              color: AppColors.borda),
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                const Icon(
-                                                    Icons.share_outlined,
-                                                    size: 16,
-                                                    color: AppColors.dourado),
-                                                const SizedBox(width: 6),
-                                                Text(
-                                                  '${ids.length} ${ids.length == 1 ? 'familiar' : 'familiares'}',
-                                                  style: const TextStyle(
-                                                    color: AppColors.dourado,
-                                                    fontSize: 13,
-                                                    fontWeight:
-                                                        FontWeight.w600,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 8),
-                                            Text(
-                                              m.titulo,
-                                              style: const TextStyle(
-                                                color: AppColors.roxo,
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              m.contexto,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                color: Color(0xFF625B67),
-                                                fontSize: 14,
-                                                height: 1.4,
-                                              ),
-                                            ),
-                                            if (nomes.isNotEmpty) ...[
-                                              const SizedBox(height: 10),
-                                              Text(
-                                                'Com ${nomes.join(', ')}',
-                                                style: const TextStyle(
-                                                  color: Color(0xFF7A7280),
-                                                  fontSize: 13,
-                                                ),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                      ),
-                    ],
-                  ),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Compartilhadas'),
+          bottom: const TabBar(
+            labelColor: AppColors.roxo,
+            unselectedLabelColor: AppColors.textoSuave,
+            indicatorColor: AppColors.dourado,
+            tabs: [
+              Tab(text: 'Você compartilhou'),
+              Tab(text: 'Compartilharam com você'),
+            ],
+          ),
+        ),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: TabBarView(
+                children: [
+                  _buildAbaVoceCompartilhou(),
+                  _buildAbaRecebidas(),
+                ],
+              ),
+            ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildAbaVoceCompartilhou() {
+    if (_carregando) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final compartilhadas = _compartilhamentos.keys.toSet();
+    final memorias = _memoriasFiltradas;
+
+    if (widget.memorias.every((m) => !compartilhadas.contains(m.id))) {
+      return _EstadoVazio(onCompartilhar: widget.onCompartilhar);
+    }
+
+    return Column(
+      children: [
+        if (_pessoas.isNotEmpty) _buildFiltro(),
+        Expanded(
+          child: memorias.isEmpty
+              ? Center(
+                  child: Text(
+                    'Nenhuma memória compartilhada com este familiar.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Color(0xFF7A7280),
+                      fontSize: 15,
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+                  itemCount: memorias.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final m = memorias[index];
+                    final ids = m.familiaresIds ??
+                        _compartilhamentos[m.id] ??
+                        [];
+                    final nomes = ids
+                        .map((id) => _pessoaPorId(id)?.nome)
+                        .whereType<String>()
+                        .take(3)
+                        .toList();
+
+                    return Material(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        onTap: () => widget.onAbrirMemoria(m),
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: AppColors.borda),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.share_outlined,
+                                      size: 16, color: AppColors.dourado),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${ids.length} ${ids.length == 1 ? 'familiar' : 'familiares'}',
+                                    style: const TextStyle(
+                                      color: AppColors.dourado,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                m.titulo,
+                                style: const TextStyle(
+                                  color: AppColors.roxo,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                m.contexto,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFF625B67),
+                                  fontSize: 14,
+                                  height: 1.4,
+                                ),
+                              ),
+                              if (nomes.isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Com ${nomes.join(', ')}',
+                                  style: const TextStyle(
+                                    color: Color(0xFF7A7280),
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAbaRecebidas() {
+    final recebidas = widget.memoriasRecebidas;
+
+    if (recebidas.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.inbox_outlined,
+                size: 58, color: AppColors.dourado),
+            const SizedBox(height: 20),
+            const Text(
+              'Ninguém compartilhou memórias com você ainda.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.roxo,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Quando um familiar compartilhar uma memória com o seu '
+              'e-mail de cadastro, ela aparecerá aqui.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xFF746D78),
+                fontSize: 15,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+      itemCount: recebidas.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final m = recebidas[index];
+        return Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            onTap: () => widget.onAbrirMemoria(m),
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.borda),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.people_alt_outlined,
+                          size: 16, color: AppColors.roxo),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Compartilhada por '
+                        '${m.compartilhadaPorNome ?? 'Familiar'}',
+                        style: const TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    m.titulo,
+                    style: const TextStyle(
+                      color: AppColors.roxo,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    m.contexto,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF625B67),
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

@@ -91,6 +91,67 @@ class SupabaseService {
     }).toList();
   }
 
+  /// Busca memórias que OUTRAS contas compartilharam com o usuário logado.
+  ///
+  /// [vinculos] é o mapa `memoriaId -> {usuario_id, nome}` retornado por
+  /// `PessoaRepository.listarMemoriasCompartilhadasComigo()`. Essas
+  /// memórias podem pertencer a qualquer `usuario_id`, por isso a busca
+  /// NÃO filtra por `usuario_id == usuarioId` (Bug 1).
+  Future<List<Memoria>> listarMemoriasRecebidas(
+    Map<int, Map<String, dynamic>> vinculos,
+  ) async {
+    if (!isConfigured || vinculos.isEmpty) return const [];
+
+    final ids = vinculos.keys.toList();
+    final memoriaRows = await _client
+        .from('memorias')
+        .select('id, titulo, conteudo, categoria, data_criacao, data_evento')
+        .inFilter('id', ids)
+        .order('data_criacao', ascending: false);
+
+    if (memoriaRows.isEmpty) return const [];
+
+    final memoriaIds = memoriaRows.map<int>((row) => row['id'] as int).toList();
+    final vinculoFotoRows = await _client
+        .from('memoria_fotos')
+        .select('memoria_id, foto_id')
+        .inFilter('memoria_id', memoriaIds);
+
+    final fotoPorMemoria = <int, String>{};
+    if (vinculoFotoRows.isNotEmpty) {
+      final fotoIds = vinculoFotoRows
+          .map<int>((row) => row['foto_id'] as int)
+          .toSet()
+          .toList();
+      final fotoRows = await _client
+          .from('fotos')
+          .select('id, caminho_arquivo')
+          .inFilter('id', fotoIds);
+      final urlsPorFoto = <int, String>{
+        for (final row in fotoRows)
+          if (row['caminho_arquivo'] != null)
+            row['id'] as int: row['caminho_arquivo'] as String,
+      };
+      for (final vinculo in vinculoFotoRows) {
+        final url = urlsPorFoto[vinculo['foto_id'] as int];
+        if (url != null) {
+          fotoPorMemoria.putIfAbsent(vinculo['memoria_id'] as int, () => url);
+        }
+      }
+    }
+
+    return memoriaRows.map<Memoria>((row) {
+      final id = row['id'] as int;
+      final info = vinculos[id];
+      return Memoria.fromMap(
+        row,
+        fotoUrl: fotoPorMemoria[id],
+        donoUsuarioId: info?['usuario_id'] as int?,
+        compartilhadaPorNome: info?['nome'] as String?,
+      );
+    }).toList();
+  }
+
   Future<Memoria> salvarMemoriaComFoto(MemoriaRascunho rascunho) async {
     if (!isConfigured) {
       return Memoria(

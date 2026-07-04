@@ -15,6 +15,8 @@ class Memoria {
     this.dataMemoria,
     this.video,
     this.videoUrl,
+    this.donoUsuarioId,
+    this.compartilhadaPorNome,
   });
 
   final int? id;
@@ -31,7 +33,20 @@ class Memoria {
   final Uint8List? video;
   final String? videoUrl;
 
-  factory Memoria.fromMap(Map<String, dynamic> map, {String? fotoUrl}) {
+  // Preenchidos apenas para memórias RECEBIDAS de outra conta (Bug 1):
+  // identifica o dono real da memória (usuarios.id) e seu nome, para exibir
+  // "Compartilhado por Fulano" na tela Compartilhadas.
+  final int? donoUsuarioId;
+  final String? compartilhadaPorNome;
+
+  bool get isRecebidaDeOutraConta => donoUsuarioId != null;
+
+  factory Memoria.fromMap(
+    Map<String, dynamic> map, {
+    String? fotoUrl,
+    int? donoUsuarioId,
+    String? compartilhadaPorNome,
+  }) {
     final dataEventoStr = map['data_evento'] as String?;
     final dataEvento = dataEventoStr != null ? DateTime.tryParse(dataEventoStr) : null;
     final criadaEm = dataEvento ??
@@ -46,6 +61,8 @@ class Memoria {
       criadaEm: criadaEm,
       fotoUrl: fotoUrl,
       dataMemoria: dataEvento,
+      donoUsuarioId: donoUsuarioId,
+      compartilhadaPorNome: compartilhadaPorNome,
     );
   }
 }

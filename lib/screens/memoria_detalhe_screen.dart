@@ -11,8 +11,13 @@ class MemoriaDetalheScreen extends StatefulWidget {
   const MemoriaDetalheScreen({
     required this.memoria,
     this.onEditar,
+    this.somenteLeitura = false,
     super.key,
   });
+
+  /// Quando true, oculta os controles de editar/excluir (usado para
+  /// memórias recebidas de outra conta na tela Compartilhadas — Bug 1).
+  final bool somenteLeitura;
 
   final Memoria memoria;
   final VoidCallback? onEditar; // Mantido para compatibilidade, mas faremos a navegação reativa interna
@@ -73,6 +78,8 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
             isCompartilhada: famIds.isNotEmpty,
             familiaresIds: famIds,
             dataMemoria: _memoria.dataMemoria,
+            donoUsuarioId: _memoria.donoUsuarioId,
+            compartilhadaPorNome: _memoria.compartilhadaPorNome,
           );
           _familiares = todasAsPessoas.where((p) => famIds.contains(p.id)).toList();
           _participantes = todasAsPessoas.where((p) => partIds.contains(p.id)).toList();
@@ -158,11 +165,12 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
           onPressed: () => Navigator.of(context).pop(_memoria),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: AppColors.roxo),
-            tooltip: 'Excluir história',
-            onPressed: _carregandoDados ? null : _excluirHistoria,
-          ),
+          if (!widget.somenteLeitura)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: AppColors.roxo),
+              tooltip: 'Excluir história',
+              onPressed: _carregandoDados ? null : _excluirHistoria,
+            ),
           const SizedBox(width: 8),
         ],
       ),
@@ -210,6 +218,40 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                         ),
                       if (_memoria.foto != null || _memoria.fotoUrl != null)
                         const SizedBox(height: 24),
+
+                      // ── RECEBIDA DE OUTRA CONTA (Bug 1) ──
+                      if (_memoria.isRecebidaDeOutraConta) ...[
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0x262B1747),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.people_alt_outlined,
+                                      size: 14, color: AppColors.roxo),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Compartilhada por '
+                                    '${_memoria.compartilhadaPorNome ?? 'Familiar'}',
+                                    style: const TextStyle(
+                                      color: AppColors.roxo,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                      ],
 
                       // ── COMPARTILHADA BADGE ──
                       if (_memoria.isCompartilhada) ...[
@@ -492,19 +534,20 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                       const SizedBox(height: 28),
 
                       // ── BOTÃO EDITAR HISTÓRIA ──
-                      FilledButton.icon(
-                        onPressed: _editarHistoria,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.roxo,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                      if (!widget.somenteLeitura)
+                        FilledButton.icon(
+                          onPressed: _editarHistoria,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.roxo,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
                           ),
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          label: const Text('Editar história'),
                         ),
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                        label: const Text('Editar história'),
-                      ),
                     ],
                   ),
           ),

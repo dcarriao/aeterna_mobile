@@ -40,6 +40,7 @@ class AeternaApp extends StatefulWidget {
 class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
   final _service = SupabaseService.instance;
   final List<Memoria> _memorias = [];
+  final List<Memoria> _memoriasRecebidas = [];
   final _navigatorKey = GlobalKey<NavigatorState>();
   bool _mostrarOnboarding = true;
   bool _entrou = false;
@@ -151,6 +152,7 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
         final uid = await PessoaRepository.obterUsuarioIdPorEmail(email);
         if (uid != null) {
           PessoaRepository.usuarioId = uid;
+          PessoaRepository.usuarioEmail = email;
           SupabaseService.usuarioId = uid;
           if (mounted) {
             setState(() {
@@ -222,11 +224,31 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       if (mounted) {
         setState(() => _memorias.replaceRange(0, _memorias.length, memorias));
         _carregarVinculosMemorias();
+        _carregarMemoriasRecebidas();
       }
     } catch (_) {
       // A tela continua disponível e oferece nova tentativa em Minha História.
     } finally {
       if (mounted) setState(() => _carregandoMemorias = false);
+    }
+  }
+
+  // Bug 1: memórias que OUTRAS contas (ex: Darlan) compartilharam com o
+  // usuário logado (ex: Alice), vinculadas por e-mail do contato.
+  Future<void> _carregarMemoriasRecebidas() async {
+    if (!_service.isConfigured) return;
+    try {
+      final vinculos = await PessoaRepository.listarMemoriasCompartilhadasComigo();
+      final recebidas = await _service.listarMemoriasRecebidas(vinculos);
+      if (mounted) {
+        setState(() {
+          _memoriasRecebidas
+            ..clear()
+            ..addAll(recebidas);
+        });
+      }
+    } catch (_) {
+      // Silencioso: a aba Compartilhadas continua funcional sem esta parte.
     }
   }
 
@@ -270,6 +292,7 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => MemoriaDetalheScreen(
           memoria: memoria,
+          somenteLeitura: memoria.isRecebidaDeOutraConta,
         ),
       ),
     );
@@ -308,6 +331,7 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (_) => CompartilhadasScreen(
           memorias: _memorias,
+          memoriasRecebidas: _memoriasRecebidas,
           onAbrirMemoria: (memoria) => _abrirDetalhe(context, memoria),
           onCompartilhar: () => _abrirNovaMemoria(context),
         ),
@@ -359,6 +383,7 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
                 setState(() {
                   _entrou = false;
                   _memorias.clear(); // Limpa cache local de memórias
+                  _memoriasRecebidas.clear(); // Limpa cache de recebidas
                   _usuarioFotoUrl = null; // Limpa cache local da foto
                 });
                 Navigator.of(context).popUntil((route) => route.isFirst);
