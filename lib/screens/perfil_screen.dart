@@ -5,6 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
+import 'cofre_screen.dart';
+import 'mensagens_futuro_screen.dart';
+import 'quem_sou_eu_screen.dart';
 
 class PerfilScreen extends StatefulWidget {
   const PerfilScreen({
@@ -332,52 +335,55 @@ class _PerfilScreenState extends State<PerfilScreen> {
                 ),
                 const SizedBox(height: 16),
 
+                // ── RECURSOS ──
+                _PerfilSectionCard(
+                  titulo: 'Recursos',
+                  icon: Icons.widgets_outlined,
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.schedule_send_outlined, color: AppColors.dourado, size: 20),
+                      title: const Text('Mensagens para o Futuro', style: TextStyle(color: AppColors.roxo, fontSize: 14, fontWeight: FontWeight.w600)),
+                      trailing: const Icon(Icons.chevron_right, color: Color(0xFFB0A8B8)),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MensagensFuturoScreen())),
+                    ),
+                    const Divider(height: 1, color: Color(0xFFEDE8DC)),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.lock_outline, color: AppColors.dourado, size: 20),
+                      title: const Text('Cofre', style: TextStyle(color: AppColors.roxo, fontSize: 14, fontWeight: FontWeight.w600)),
+                      trailing: const Icon(Icons.chevron_right, color: Color(0xFFB0A8B8)),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CofreScreen())),
+                    ),
+                    const Divider(height: 1, color: Color(0xFFEDE8DC)),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.face_outlined, color: AppColors.dourado, size: 20),
+                      title: const Text('Quem Sou Eu', style: TextStyle(color: AppColors.roxo, fontSize: 14, fontWeight: FontWeight.w600)),
+                      trailing: const Icon(Icons.chevron_right, color: Color(0xFFB0A8B8)),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const QuemSouEuScreen())),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
                 // ── MEU PLANO CARD ──
                 _PerfilSectionCard(
                   titulo: 'Meu Plano',
                   icon: Icons.star_outline,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Plano Família Premium',
-                              style: TextStyle(color: AppColors.roxo, fontSize: 16, fontWeight: FontWeight.w800),
-                            ),
-                            Text(
-                              'Status: Ativo',
-                              style: TextStyle(color: AppColors.verdeApoio, fontSize: 12, fontWeight: FontWeight.w700),
-                            ),
-                          ],
-                        ),
-                        OutlinedButton(
-                          onPressed: () {
-                            Navigator.of(context).push<void>(
-                              MaterialPageRoute(builder: (_) => const _PlanoScreen()),
-                            );
-                          },
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.roxo,
-                            side: const BorderSide(color: AppColors.borda),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          child: const Text('Alterar Plano'),
-                        ),
-                      ],
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        'Estrutura base — integração de pagamentos futura.',
+                        style: TextStyle(color: Color(0xFF7A7280), fontSize: 12),
+                      ),
                     ),
-                    const SizedBox(height: 16),
                     const Divider(height: 1, color: Color(0xFFEDE8DC)),
                     const SizedBox(height: 12),
                     _LimiteProgressRow(label: 'Histórias registradas', atual: widget.totalMemorias, max: 100),
                     const SizedBox(height: 8),
                     _LimiteProgressRow(label: 'Contatos da família', atual: widget.totalPessoas, max: 15),
-                    const SizedBox(height: 8),
-                    const _LimiteProgressRow(label: 'Vídeos em histórias', atual: 3, max: 20),
-                    const SizedBox(height: 8),
-                    const _LimiteProgressRow(label: 'Fotos em histórias', atual: 8, max: 100),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -645,147 +651,4 @@ class _LimiteProgressRow extends StatelessWidget {
   }
 }
 
-class _PlanoScreen extends StatelessWidget {
-  const _PlanoScreen();
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.fundo,
-      appBar: AppBar(
-        title: const Text('Planos'),
-        centerTitle: false,
-        backgroundColor: AppColors.fundo,
-        elevation: 0,
-      ),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
-              children: [
-                const Text(
-                  'Escolha seu plano',
-                  style: TextStyle(color: AppColors.roxo, fontSize: 26, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Garanta espaço seguro e ilimitado para as próximas gerações.',
-                  style: TextStyle(color: AppColors.textoSuave, fontSize: 15),
-                ),
-                const SizedBox(height: 28),
-
-                // ── PLANO PREMIUM (ATIVO) ──
-                _PlanoCard(
-                  titulo: 'Plano Família Premium',
-                  preco: 'R\$ 29,90 / mês',
-                  ativo: true,
-                  detalhes: const [
-                    'Histórias ilimitadas',
-                    'Até 15 contatos vinculados',
-                    'Fotos e vídeos ilimitados no legado',
-                    'Acesso seguro e garantido para herdeiros',
-                    'Curador de histórias Inteligente (IA)',
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // ── PLANO BÁSICO ──
-                _PlanoCard(
-                  titulo: 'Plano Gratuito Inicial',
-                  preco: 'Grátis para sempre',
-                  ativo: false,
-                  detalhes: const [
-                    'Até 10 histórias registradas',
-                    'Até 3 contatos vinculados',
-                    'Curador padrão do app',
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PlanoCard extends StatelessWidget {
-  const _PlanoCard({
-    required this.titulo,
-    required this.preco,
-    required this.ativo,
-    required this.detalhes,
-  });
-
-  final String titulo;
-  final String preco;
-  final bool ativo;
-  final List<String> detalhes;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: ativo ? AppColors.dourado : const Color(0xFFEDE8DC), width: ativo ? 2 : 1),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x042B1747),
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(titulo, style: const TextStyle(color: AppColors.roxo, fontSize: 18, fontWeight: FontWeight.w800)),
-              if (ativo)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(color: const Color(0x26D4A84F), borderRadius: BorderRadius.circular(8)),
-                  child: const Text('Ativo', style: TextStyle(color: AppColors.dourado, fontSize: 11, fontWeight: FontWeight.w700)),
-                ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(preco, style: const TextStyle(color: AppColors.dourado, fontSize: 16, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 16),
-          const Divider(height: 1, color: Color(0xFFEDE8DC)),
-          const SizedBox(height: 16),
-          ...detalhes.map((d) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check, size: 16, color: AppColors.verdeApoio),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(d, style: const TextStyle(color: Color(0xFF625B67), fontSize: 13))),
-                  ],
-                ),
-              )),
-          const SizedBox(height: 16),
-          if (!ativo)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () {},
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.roxo,
-                  side: const BorderSide(color: AppColors.borda),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Text('Escolher plano'),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
