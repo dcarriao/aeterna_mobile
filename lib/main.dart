@@ -151,26 +151,45 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
   Future<void> _carregarSessao() async {
     final prefs = await SharedPreferences.getInstance();
     final logado = prefs.getBool('is_logged_in') ?? false;
-    if (logado) {
-      final email = prefs.getString('session_user_email');
-      if (email != null && email.isNotEmpty) {
-        final uid = await PessoaRepository.obterUsuarioIdPorEmail(email);
-        if (uid != null) {
-          PessoaRepository.usuarioId = uid;
-          PessoaRepository.usuarioEmail = email;
-          SupabaseService.usuarioId = uid;
-          if (mounted) {
-            setState(() {
-              _entrou = true;
-            });
-            _carregarUsuario();
-            _carregarMemorias();
-          }
-          return;
+    if (!logado) {
+      _carregarUsuario();
+      _carregarMemorias();
+      return;
+    }
+
+    final uid = prefs.getInt('session_user_id');
+    final email = prefs.getString('session_user_email');
+    if (uid != null && uid > 0) {
+      PessoaRepository.usuarioId = uid;
+      SupabaseService.usuarioId = uid;
+      if (email != null) PessoaRepository.usuarioEmail = email;
+      if (mounted) {
+        setState(() => _entrou = true);
+        _carregarUsuario();
+        _carregarMemorias();
+      }
+      return;
+    }
+    // Fallback: buscar por email (sessões antigas sem session_user_id)
+    if (email != null && email.isNotEmpty) {
+      final uidByEmail = await PessoaRepository.obterUsuarioIdPorEmail(email);
+      if (uidByEmail != null) {
+        PessoaRepository.usuarioId = uidByEmail;
+        PessoaRepository.usuarioEmail = email;
+        SupabaseService.usuarioId = uidByEmail;
+        await prefs.setInt('session_user_id', uidByEmail);
+        if (mounted) {
+          setState(() => _entrou = true);
+          _carregarUsuario();
+          _carregarMemorias();
         }
+        return;
       }
     }
-    
+    // Sessão expirou
+    await prefs.setBool('is_logged_in', false);
+    await prefs.remove('session_user_email');
+    await prefs.remove('session_user_id');
     _carregarUsuario();
     _carregarMemorias();
   }
@@ -386,6 +405,7 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('is_logged_in', false);
               await prefs.remove('session_user_email');
+              await prefs.remove('session_user_id');
               if (mounted) {
                 setState(() {
                   _entrou = false;

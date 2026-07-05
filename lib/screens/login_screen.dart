@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/pessoa.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
+import 'cadastro_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({required this.onEntrar, super.key});
@@ -100,6 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final preferencias = await SharedPreferences.getInstance();
       await preferencias.setBool('is_logged_in', true);
       await preferencias.setString('session_user_email', email);
+      await preferencias.setInt('session_user_id', uid);
       await preferencias.setBool(_lembrarKey, _lembrarDados);
 
       if (_lembrarDados) {
@@ -140,6 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
           final preferencias = await SharedPreferences.getInstance();
           await preferencias.setBool('is_logged_in', true);
           await preferencias.setString('session_user_email', email);
+          await preferencias.setInt('session_user_id', uid);
         }
         widget.onEntrar();
       }
@@ -455,9 +458,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       const Divider(height: 28),
                       TextButton(
                         onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Criação de conta em breve.'),
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => CadastroScreen(
+                                onCadastrado: widget.onEntrar,
+                              ),
                             ),
                           );
                         },

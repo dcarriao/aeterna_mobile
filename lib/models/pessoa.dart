@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -180,6 +181,43 @@ class PessoaRepository {
     } catch (_) {
       return null;
     }
+  }
+
+  static Future<int?> criarUsuario({
+    required String nome,
+    required String sobrenome,
+    required String email,
+    required String senha,
+  }) async {
+    if (!isConfigured) return null;
+    try {
+      // Verificar se email já existe
+      final existentes = await _supabase
+          .from('usuarios')
+          .select('id')
+          .eq('email', email.trim().toLowerCase());
+      if (existentes.isNotEmpty) return -1; // código: email já cadastrado
+
+      final salt = _gerarSalt();
+      final bytes = utf8.encode(senha + salt);
+      final hash = sha256.convert(bytes).toString();
+      final resp = await _supabase.from('usuarios').insert({
+        'nome': nome.trim(),
+        'sobrenome': sobrenome.trim(),
+        'email': email.trim().toLowerCase(),
+        'senha_hash': hash,
+        'salt': salt,
+      }).select('id').single();
+      return resp['id'] as int?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String _gerarSalt() {
+    final random = Random();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    return base64Url.encode(bytes);
   }
 
   // ── CONTATOS (Supabase) ──
