@@ -1,3 +1,4 @@
+import 'dart:io' as io;
 import 'dart:typed_data';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -102,6 +103,20 @@ class MomentDetectionService {
     } catch (e) {
       print('[MomentDetectionService] Erro ao obter momentos detectados: $e');
       return [];
+    }
+  }
+
+  Future<io.File?> obterMidiaMaisRecente(DetectedMoment momento) async {
+    try {
+      final permission = await PhotoManager.requestPermissionExtend();
+      if (!permission.isAuth) return null;
+      final todas = [...momento.videos, ...momento.fotos];
+      if (todas.isEmpty) return null;
+      todas.sort((a, b) => b.createDateTime.compareTo(a.createDateTime));
+      return await todas.first.file;
+    } catch (e) {
+      print('[MomentDetectionService] Erro ao obter midia: $e');
+      return null;
     }
   }
 }

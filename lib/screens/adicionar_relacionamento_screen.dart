@@ -7,12 +7,10 @@ import '../theme/app_theme.dart';
 
 /// Sprint L — Tela para adicionar uma relação pessoa-pessoa.
 ///
-/// Fluxo:
-///   1. Escolher o TIPO da relação (ex: CONJUGE, IRMAO, PAI, MÃE).
-///   2. Escolher a OUTRA PESSOA (lista de contatos do mesmo usuário,
-///      exceto a origem).
-///   3. Confirmar — cria a relação (que vai persistir simetricamente
-///      na VIEW `grafo_pessoas_relacionamentos`).
+/// Fluxo (redesenhado para eliminar ambiguidade de perspectiva):
+///   Etapa 1 — "Conectando {origem}": escolher a outra pessoa (com busca).
+///   Etapa 2 — "Quem {destino} é para {origem}?": escolher o tipo de relação.
+///   O sistema calcula automaticamente a direção e os rótulos inversos.
 class AdicionarRelacionamentoScreen extends StatefulWidget {
   const AdicionarRelacionamentoScreen({
     required this.pessoaOrigemId,
@@ -32,11 +30,17 @@ class _AdicionarRelacionamentoScreenState
     extends State<AdicionarRelacionamentoScreen> {
   List<TipoRelacionamento> _tipos = TIPOS_RELACIONAMENTO_INICIAIS;
   List<Pessoa> _contatos = const [];
+  List<Pessoa> _contatosFiltrados = const [];
   bool _carregando = true;
   bool _salvando = false;
 
+  /// true = etapa de escolher pessoa, false = etapa de escolher tipo
+  bool _escolhendoPessoa = true;
+  String _filtroBusca = '';
+
   String? _tipoId;
   int? _outraPessoaId;
+  String? _outraPessoaNome;
 
   @override
   void initState() {
@@ -53,9 +57,33 @@ class _AdicionarRelacionamentoScreenState
         _contatos = contatos
             .where((p) => p.id != widget.pessoaOrigemId)
             .toList();
+        _aplicarFiltro();
         _carregando = false;
       });
     }
+  }
+
+  void _aplicarFiltro() {
+    if (_filtroBusca.isEmpty) {
+      _contatosFiltrados = List.from(_contatos);
+    } else {
+      final q = _filtroBusca.toLowerCase();
+      _contatosFiltrados = _contatos
+          .where((p) =>
+              p.nome.toLowerCase().contains(q) ||
+              (p.apelido?.toLowerCase().contains(q) ?? false))
+          .toList();
+    }
+    _contatosFiltrados.sort((a, b) => a.nome.compareTo(b.nome));
+  }
+
+  void _selecionarPessoa(Pessoa p) {
+    setState(() {
+      _outraPessoaId = p.id;
+      _outraPessoaNome = p.nome;
+      _escolhendoPessoa = false;
+      _tipoId = null;
+    });
   }
 
   @override
@@ -63,249 +91,41 @@ class _AdicionarRelacionamentoScreenState
     return Scaffold(
       backgroundColor: AppColors.fundo,
       appBar: AppBar(
-        title: const Text('Adicionar relação',
-            style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.w800)),
+        title: Text(
+          _escolhendoPessoa ? 'Conectando ${widget.pessoaOrigemNome}' : 'Qual a relação?',
+          style: const TextStyle(
+              color: AppColors.roxo, fontWeight: FontWeight.w800, fontSize: 16),
+        ),
         backgroundColor: AppColors.fundo,
         elevation: 0,
         iconTheme: const IconThemeData(color: AppColors.roxo),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (!_escolhendoPessoa) {
+              setState(() {
+                _escolhendoPessoa = true;
+                _outraPessoaId = null;
+                _outraPessoaNome = null;
+              });
+            } else {
+              Navigator.of(context).pop();
+            }
+          },
+        ),
       ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
             child: _carregando
-                ? const Center(child: CircularProgressIndicator(color: AppColors.roxo))
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.roxo))
                 : Padding(
                     padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF9F6F0),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: AppColors.dourado.withValues(alpha: 0.3),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.diversity_3,
-                                  color: AppColors.dourado, size: 20),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Conectando ${widget.pessoaOrigemNome} à família',
-                                  style: const TextStyle(
-                                    color: AppColors.roxo,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        const Text(
-                          'Que relação você quer registrar?',
-                          style: TextStyle(
-                            color: AppColors.roxo,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Expanded(
-                          child: ListView.separated(
-                            itemCount: _tipos.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 6),
-                            itemBuilder: (_, i) {
-                              final t = _tipos[i];
-                              final selecionado = _tipoId == t.id;
-                              return Material(
-                                color: selecionado
-                                    ? const Color(0xFFF9F6F0)
-                                    : Colors.white,
-                                borderRadius: BorderRadius.circular(10),
-                                child: InkWell(
-                                  onTap: () =>
-                                      setState(() => _tipoId = t.id),
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: selecionado
-                                            ? AppColors.dourado
-                                            : AppColors.borda,
-                                        width: selecionado ? 1.6 : 1,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          selecionado
-                                              ? Icons.radio_button_checked
-                                              : Icons.radio_button_unchecked,
-                                          color: selecionado
-                                              ? AppColors.dourado
-                                              : const Color(0xFF9B949D),
-                                          size: 18,
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                t.rotuloA,
-                                                style: const TextStyle(
-                                                  color: AppColors.roxo,
-                                                  fontSize: 14,
-                                                  fontWeight: FontWeight.w800,
-                                                ),
-                                              ),
-                                              Text(
-                                                t.categoria,
-                                                style: const TextStyle(
-                                                  color: Color(0xFF7A7280),
-                                                  fontSize: 11,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Com quem?',
-                          style: TextStyle(
-                            color: AppColors.roxo,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        if (_contatos.isEmpty)
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.borda),
-                            ),
-                            child: const Text(
-                              'Você precisa cadastrar outra pessoa antes de criar uma relação.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Color(0xFF7A7280),
-                                fontSize: 13,
-                              ),
-                            ),
-                          )
-                        else
-                          SizedBox(
-                            height: 200,
-                            child: ListView.separated(
-                              itemCount: _contatos.length,
-                              separatorBuilder: (_, _) => const SizedBox(height: 4),
-                              itemBuilder: (_, i) {
-                                final p = _contatos[i];
-                                final selecionado = _outraPessoaId == p.id;
-                                return Material(
-                                  color: selecionado
-                                      ? const Color(0xFFF9F6F0)
-                                      : Colors.white,
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: InkWell(
-                                    onTap: () => setState(
-                                        () => _outraPessoaId = p.id),
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Container(
-                                      padding: const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(
-                                          color: selecionado
-                                              ? AppColors.dourado
-                                              : AppColors.borda,
-                                          width: 1.4,
-                                        ),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            selecionado
-                                                ? Icons.radio_button_checked
-                                                : Icons.radio_button_unchecked,
-                                            color: selecionado
-                                                ? AppColors.dourado
-                                                : const Color(0xFF9B949D),
-                                            size: 16,
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Text(
-                                              '${p.nome} (${p.parentesco})',
-                                              style: const TextStyle(
-                                                color: AppColors.roxo,
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: _salvando
-                                ? null
-                                : _tipoId != null && _outraPessoaId != null
-                                    ? _salvar
-                                    : null,
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppColors.roxo,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            icon: _salvando
-                                ? const SizedBox.square(
-                                    dimension: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(Icons.check, size: 18),
-                            label: const Text('Conectar',
-                                style: TextStyle(
-                                    fontSize: 15, fontWeight: FontWeight.w800)),
-                          ),
-                        ),
-                      ],
-                    ),
+                    child: _escolhendoPessoa
+                        ? _buildEtapaPessoa()
+                        : _buildEtapaTipo(),
                   ),
           ),
         ),
@@ -313,21 +133,375 @@ class _AdicionarRelacionamentoScreenState
     );
   }
 
+  // ── ETAPA 1: ESCOLHER A PESSOA ──
+
+  Widget _buildEtapaPessoa() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildHeader(),
+        const SizedBox(height: 20),
+        const Text(
+          'Escolha uma pessoa',
+          style: TextStyle(
+            color: AppColors.roxo,
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          decoration: InputDecoration(
+            hintText: 'Buscar por nome...',
+            prefixIcon:
+                const Icon(Icons.search, color: Color(0xFF9B949D), size: 20),
+            contentPadding:
+                const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+          ),
+          onChanged: (v) => setState(() {
+            _filtroBusca = v;
+            _aplicarFiltro();
+          }),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: _contatosFiltrados.isEmpty
+              ? Center(
+                  child: Text(
+                    _filtroBusca.isEmpty
+                        ? 'Você precisa cadastrar outra pessoa antes de criar uma relação.'
+                        : 'Nenhum contato encontrado.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Color(0xFF7A7280),
+                      fontSize: 13,
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  itemCount: _contatosFiltrados.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 4),
+                  itemBuilder: (_, i) {
+                    final p = _contatosFiltrados[i];
+                    return Material(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      child: InkWell(
+                        onTap: () => _selecionarPessoa(p),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.borda),
+                          ),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor: const Color(0xFFE8E2D8),
+                                child: Text(
+                                  p.nome.isNotEmpty
+                                      ? p.nome[0].toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    color: AppColors.roxo,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      p.nome,
+                                      style: const TextStyle(
+                                        color: AppColors.roxo,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    if (p.parentesco.isNotEmpty)
+                                      Text(
+                                        p.parentesco,
+                                        style: const TextStyle(
+                                          color: Color(0xFF7A7280),
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.chevron_right,
+                                  color: Color(0xFF9B949D), size: 20),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  // ── ETAPA 2: ESCOLHER O TIPO DE RELAÇÃO ──
+
+  Widget _buildEtapaTipo() {
+    // Agrupa tipos por categoria
+    final agrupados = <String, List<TipoRelacionamento>>{};
+    for (final t in _tipos) {
+      agrupados.putIfAbsent(t.categoria, () => []).add(t);
+    }
+    // Ordem das categorias
+    final ordem = ['familia', 'afinidade', 'conjugue', 'amizade', 'outro'];
+    final rotulos = {
+      'familia': 'Família',
+      'afinidade': 'Afinidade',
+      'conjugue': 'Conjugal',
+      'amizade': 'Amizade',
+      'outro': 'Outro',
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF9F6F0),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: AppColors.dourado.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.swap_horiz,
+                  color: AppColors.dourado, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: RichText(
+                  text: TextSpan(
+                    style: const TextStyle(fontSize: 14),
+                    children: [
+                      TextSpan(
+                        text: 'Quem ',
+                        style: TextStyle(
+                          color: AppColors.roxo.withValues(alpha: 0.7),
+                        ),
+                      ),
+                      TextSpan(
+                        text: _outraPessoaNome ?? '...',
+                        style: const TextStyle(
+                          color: AppColors.roxo,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      TextSpan(
+                        text: ' é para ',
+                        style: TextStyle(
+                          color: AppColors.roxo.withValues(alpha: 0.7),
+                        ),
+                      ),
+                      TextSpan(
+                        text: widget.pessoaOrigemNome,
+                        style: const TextStyle(
+                          color: AppColors.roxo,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const TextSpan(text: '?'),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: ListView(
+            children: [
+              for (final cat in ordem)
+                if (agrupados.containsKey(cat) && agrupados[cat]!.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6, top: 4),
+                    child: Text(
+                      rotulos[cat] ?? cat,
+                      style: const TextStyle(
+                        color: Color(0xFF7A7280),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                  for (final t in agrupados[cat]!) ...[
+                    _buildTipoTile(t),
+                    const SizedBox(height: 6),
+                  ],
+                ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _salvando || _tipoId == null
+                ? null
+                : _salvar,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.roxo,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            icon: _salvando
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.check, size: 18),
+            label: const Text('Conectar',
+                style:
+                    TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTipoTile(TipoRelacionamento t) {
+    final selecionado = _tipoId == t.id;
+    return Material(
+      color: selecionado ? const Color(0xFFF9F6F0) : Colors.white,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: () => setState(() => _tipoId = t.id),
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selecionado ? AppColors.dourado : AppColors.borda,
+              width: selecionado ? 1.6 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selecionado
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                color: selecionado
+                    ? AppColors.dourado
+                    : const Color(0xFF9B949D),
+                size: 18,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  t.rotuloA,
+                  style: const TextStyle(
+                    color: AppColors.roxo,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (selecionado && !t.simetrico)
+                Text(
+                  '→ ${t.rotuloB}',
+                  style: const TextStyle(
+                    color: Color(0xFF7A7280),
+                    fontSize: 12,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9F6F0),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.dourado.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.diversity_3,
+              color: AppColors.dourado, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Conectando ${widget.pessoaOrigemNome} à família',
+              style: const TextStyle(
+                color: AppColors.roxo,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _salvar() async {
     if (_tipoId == null || _outraPessoaId == null) return;
     setState(() => _salvando = true);
-    final id = await PessoaRelacionamentoService.instance.criar(
-      pessoaAId: widget.pessoaOrigemId,
-      pessoaBId: _outraPessoaId!,
-      tipo: _tipoId!,
-    );
-    if (mounted) {
-      if (id != null) {
-        Navigator.of(context).pop();
-      } else {
+
+    try {
+      final t = _tipos.firstWhere((t) => t.id == _tipoId);
+
+      // O usuário respondeu "Quem {destino} é para {origem}?" com t.rotuloA.
+      // Isso significa que o DESTINO assume o papel de rotuloA.
+      // Como mantemos pessoaA=origem (convenção), trocamos os rótulos
+      // para tipos assimétricos.
+      final id = await PessoaRelacionamentoService.instance.criar(
+        pessoaAId: widget.pessoaOrigemId,
+        pessoaBId: _outraPessoaId!,
+        tipo: _tipoId!,
+        relacaoA: t.simetrico ? t.rotuloA : t.rotuloB,
+        relacaoB: t.simetrico ? t.rotuloB : t.rotuloA,
+      );
+
+      if (mounted) {
+        if (id != null) {
+          Navigator.of(context).pop();
+        } else {
+          setState(() => _salvando = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Não foi possível criar a relação.')),
+          );
+        }
+      }
+    } catch (_) {
+      if (mounted) {
         setState(() => _salvando = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Não foi possível criar a relação.')),
+          const SnackBar(
+              content: Text('Erro ao criar a relação. Tente novamente.')),
         );
       }
     }

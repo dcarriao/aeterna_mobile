@@ -138,14 +138,32 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         createdAt: widget.pessoa?.createdAt,
       );
       print('[NovaPessoaScreen] _salvar() -> chamando PessoaRepository.salvar(${pessoa.nome}) isUpdate=$_editando');
-      await PessoaRepository.salvar(pessoa, isUpdate: _editando);
-      print('[NovaPessoaScreen] _salvar() -> salvar concluido');
+      final novoId = await PessoaRepository.salvar(pessoa, isUpdate: _editando);
+      print('[NovaPessoaScreen] _salvar() -> salvar concluido id=$novoId');
+
+      // Se é uma pessoa nova com tipo de relação selecionado, criar o
+      // vínculo via PessoaRelacionamentoService (sem o trigger legado
+      // indeterminístico).
+      if (!_editando && _tipoId != null && novoId != null) {
+        final t = _tipos.firstWhere(
+          (x) => x.id == _tipoId,
+          orElse: () => _tipos.last,
+        );
+        // A pergunta é "Relação com você": o usuário selecionou o que a
+        // NOVA pessoa é para ELE (rotuloA). Mantemos pessoaA = usuário,
+        // e trocamos os rótulos para tipos assimétricos.
+        await PessoaRelacionamentoService.instance.criar(
+          pessoaAId: PessoaRepository.usuarioId,
+          pessoaBId: novoId,
+          tipo: _tipoId!,
+          relacaoA: t.simetrico ? t.rotuloA : t.rotuloB,
+          relacaoB: t.simetrico ? t.rotuloB : t.rotuloA,
+        );
+      }
 
       if (!mounted) return;
       setState(() => _salvando = false);
 
-      // Convite fica FORA do memorial: ao cadastrar/editar uma pessoa com
-      // e-mail, oferece enviar o convite real (fora do fluxo de memorial).
       if (pessoa.email != null && pessoa.email!.isNotEmpty) {
         await _oferecerConvite(pessoa.nome, pessoa.email!);
       }

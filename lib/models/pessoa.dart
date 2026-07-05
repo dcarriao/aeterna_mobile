@@ -205,8 +205,8 @@ class PessoaRepository {
     }
   }
 
-  static Future<void> salvar(Pessoa pessoa, {bool isUpdate = false}) async {
-    if (!isConfigured) return;
+  static Future<int?> salvar(Pessoa pessoa, {bool isUpdate = false}) async {
+    if (!isConfigured) return null;
 
     print('[PessoaRepo] salvar() isUpdate=$isUpdate nome=${pessoa.nome} id=${pessoa.id}');
     
@@ -248,14 +248,19 @@ class PessoaRepository {
             .from('contatos')
             .update(data)
             .eq('id', pessoa.id);
-        print('[PessoaRepo] salvar() -> update concluido');
+        return pessoa.id;
       } else {
         data['data_criacao'] = pessoa.createdAt.toIso8601String();
-        await _supabase.from('contatos').insert(data);
-        print('[PessoaRepo] salvar() -> insert concluido');
+        final result = await _supabase
+            .from('contatos')
+            .insert(data)
+            .select('id')
+            .single();
+        return result['id'] as int?;
       }
     } catch (e) {
       print('[PessoaRepo] salvar() ERRO: $e');
+      return null;
     }
   }
 
