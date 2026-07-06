@@ -48,7 +48,6 @@ class ShareViewController: SLComposeServiceViewController {
         group.notify(queue: .main) { [weak self] in
             guard let self = self, !completou else { return }
             completou = true
-            guard let self = self else { return }
             if let url = firstImageUrl {
                 self.launchMainApp(with: url)
             }
