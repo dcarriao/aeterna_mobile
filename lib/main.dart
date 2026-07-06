@@ -21,10 +21,15 @@ import 'screens/memoriais_screen.dart';
 import 'services/supabase_service.dart';
 import 'services/curator_invitation_service.dart';
 import 'services/memory_growth_invitation_service.dart';
+import 'services/push_notification_service.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Sprint R.4 — Firebase DEVE ser inicializado antes de qualquer
+  // outro serviço que dependa de plataforma (ex: Supabase usa
+  // `firebase_messaging` via method channel em alguns cenários).
+  await PushNotificationService.instance.initialize();
   await SupabaseService.initialize();
   await LegacyCuratorService.initialize();
   await CuratorInvitationService.instance.inicializar();
@@ -163,6 +168,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       PessoaRepository.usuarioId = uid;
       SupabaseService.usuarioId = uid;
       if (email != null) PessoaRepository.usuarioEmail = email;
+      // Sprint R.4 — associa o token FCM ao usuário restaurado
+      PushNotificationService.instance.salvarTokenParaUsuario();
       if (mounted) {
         setState(() => _entrou = true);
         _carregarUsuario();
@@ -178,6 +185,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
         PessoaRepository.usuarioEmail = email;
         SupabaseService.usuarioId = uidByEmail;
         await prefs.setInt('session_user_id', uidByEmail);
+        // Sprint R.4 — associa o token FCM ao usuário restaurado
+        PushNotificationService.instance.salvarTokenParaUsuario();
         if (mounted) {
           setState(() => _entrou = true);
           _carregarUsuario();
@@ -444,6 +453,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
     setState(() {
       _entrou = true;
     });
+    // Sprint R.4 — associa o token FCM ao usuário que acabou de logar
+    PushNotificationService.instance.salvarTokenParaUsuario();
     _carregarUsuario();
     _carregarMemorias();
   }

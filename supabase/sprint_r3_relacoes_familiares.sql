@@ -1,0 +1,11 @@
+-- ============================================================================
+-- sprint_r3_relacoes_familiares.sql
+-- Sprint R.3 — Correcao: Relacoes Familiares (INDICE)
+-- ============================================================================
+-- ATENCAO: Este arquivo foi dividido em 2 partes independentes para
+-- evitar erro OOM / "Failed to fetch" no SQL editor do Supabase.
+--
+-- EXECUTE NA ORDEM:
+--   1. r3_parte1_seed_tipos.sql    (23 inserts individuais)
+--   2. r3_parte2_view_rpc_rls.sql   (view, RPCs, indices, RLS)
+-- ============================================================================

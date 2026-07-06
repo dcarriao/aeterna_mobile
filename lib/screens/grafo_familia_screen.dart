@@ -79,15 +79,25 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
 
   /// Retorna a lista de pessoas que são "filho(a)" em alguma
   /// relação (não devem ser raízes).
+  /// Usa os rótulos para determinar a direção da hierarquia em vez
+  /// de assumir que `pessoa_mais_nova_id` (greatest ID) é o filho.
   Set<int> _idsQueSaoFilhos() {
+    const childTerms = {
+      'Filho(a)', 'Neto(a)', 'Bisneto(a)', 'Sobrinho(a)', 'Afilhado(a)',
+    };
     final filhos = <int>{};
     for (final r in _grafo) {
-      final tipo = r['tipo'] as String? ?? '';
-      if (tipo == 'FILHO' || tipo == 'FILHA' || tipo == 'NETO' ||
-          tipo == 'SOBRINHO' || tipo == 'BISNETO' || tipo == 'AFILHADO') {
-        // pessoa_mais_nova é o filho
-        final filho = (r['pessoa_mais_nova_id'] as num).toInt();
-        filhos.add(filho);
+      final rotuloA = r['rotulo_a'] as String? ?? '';
+      final rotuloB = r['rotulo_b'] as String? ?? '';
+      final antigaId = (r['pessoa_mais_antiga_id'] as num).toInt();
+      final novaId = (r['pessoa_mais_nova_id'] as num).toInt();
+      if (childTerms.contains(rotuloA)) {
+        // antiga é filho(a) de nova
+        filhos.add(antigaId);
+      }
+      if (childTerms.contains(rotuloB)) {
+        // nova é filho(a) de antiga
+        filhos.add(novaId);
       }
     }
     return filhos;

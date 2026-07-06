@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "85322877144",
+    "project_id": "aeterna-94450",
+    "storage_bucket": "aeterna-94450.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:85322877144:android:7b896d970d8206460e6fad",
+        "android_client_info": {
+          "package_name": "br.com.aeternalegado.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBZkJAgyFb25Cx_bHR98FfMuieeEGy3zLI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
