@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
 import 'cofre_screen.dart';
+import 'explorador_screen.dart';
 import 'mensagens_futuro_screen.dart';
 import 'quem_sou_eu_screen.dart';
 
@@ -340,6 +341,14 @@ class _PerfilScreenState extends State<PerfilScreen> {
                   titulo: 'Recursos',
                   icon: Icons.widgets_outlined,
                   children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.explore_outlined, color: AppColors.dourado, size: 20),
+                      title: const Text('Explorador', style: TextStyle(color: AppColors.roxo, fontSize: 14, fontWeight: FontWeight.w600)),
+                      trailing: const Icon(Icons.chevron_right, color: Color(0xFFB0A8B8)),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ExploradorScreen())),
+                    ),
+                    const Divider(height: 1, color: Color(0xFFEDE8DC)),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.schedule_send_outlined, color: AppColors.dourado, size: 20),
