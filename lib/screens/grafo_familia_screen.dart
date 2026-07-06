@@ -27,6 +27,7 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   List<Map<String, dynamic>> _grafo = const [];
   Map<int, String> _nomePorId = const {};
   bool _carregando = true;
+  String? _erro;
 
   @override
   void initState() {
@@ -35,15 +36,30 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   }
 
   Future<void> _carregar() async {
-    final pessoas = await PessoaRepository.listar();
-    final grafo = await PessoaRelacionamentoService.instance.carregarGrafo();
-    if (mounted) {
-      setState(() {
-        _pessoas = pessoas;
-        _grafo = grafo;
-        _nomePorId = {for (final p in pessoas) p.id: p.nome};
-        _carregando = false;
-      });
+    setState(() {
+      _carregando = true;
+      _erro = null;
+    });
+    try {
+      final pessoas = await PessoaRepository.listar();
+      final grafo =
+          await PessoaRelacionamentoService.instance.carregarGrafo();
+      if (mounted) {
+        setState(() {
+          _pessoas = pessoas;
+          _grafo = grafo;
+          _nomePorId = {for (final p in pessoas) p.id: p.nome};
+          _carregando = false;
+        });
+      }
+    } catch (e) {
+      print('[GrafoFamilia] _carregar ERRO: $e');
+      if (mounted) {
+        setState(() {
+          _carregando = false;
+          _erro = 'Não foi possível carregar o Mapa da Família.';
+        });
+      }
     }
   }
 
@@ -54,24 +70,24 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   Map<int, List<Map<String, dynamic>>> _agruparPorPessoa() {
     final porPessoa = <int, List<Map<String, dynamic>>>{};
     for (final r in _grafo) {
-      // `pessoa_mais_antiga_id` é sempre < `pessoa_mais_nova_id` (SQL).
-      final a = (r['pessoa_mais_antiga_id'] as num).toInt();
-      final b = (r['pessoa_mais_nova_id'] as num).toInt();
-      porPessoa.putIfAbsent(a, () => []).add({
+      final aId = (r['pessoa_mais_antiga_id'] as num?)?.toInt();
+      final bId = (r['pessoa_mais_nova_id'] as num?)?.toInt();
+      if (aId == null || bId == null) continue;
+      porPessoa.putIfAbsent(aId, () => []).add({
         'relacionamento_id': r['relacionamento_id'],
-        'outra_id': b,
-        'rotulo_a': r['rotulo_a'],
-        'rotulo_b': r['rotulo_b'],
+        'outra_id': bId,
+        'rotulo_a': (r['rotulo_a'] as String?) ?? 'Conhecido(a)',
+        'rotulo_b': (r['rotulo_b'] as String?) ?? 'Conhecido(a)',
         'nome_b': r['nome_b'],
-        'tipo': r['tipo'],
+        'tipo': (r['tipo'] as String?) ?? 'OUTRO',
       });
-      porPessoa.putIfAbsent(b, () => []).add({
+      porPessoa.putIfAbsent(bId, () => []).add({
         'relacionamento_id': r['relacionamento_id'],
-        'outra_id': a,
-        'rotulo_a': r['rotulo_b'],
-        'rotulo_b': r['rotulo_a'],
+        'outra_id': aId,
+        'rotulo_a': (r['rotulo_b'] as String?) ?? 'Conhecido(a)',
+        'rotulo_b': (r['rotulo_a'] as String?) ?? 'Conhecido(a)',
         'nome_b': r['nome_a'],
-        'tipo': r['tipo'],
+        'tipo': (r['tipo'] as String?) ?? 'OUTRO',
       });
     }
     return porPessoa;
@@ -120,18 +136,52 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
             constraints: const BoxConstraints(maxWidth: 560),
             child: _carregando
                 ? const Center(child: CircularProgressIndicator(color: AppColors.roxo))
-                : _grafo.isEmpty
-                    ? _vazio()
-                    : RefreshIndicator(
-                        onRefresh: _carregar,
-                        child: ListView(
-                          padding:
-                              const EdgeInsets.fromLTRB(20, 16, 20, 40),
-                          children: _buildTree(),
-                        ),
-                      ),
+                : _erro != null
+                    ? _buildErro()
+                    : _grafo.isEmpty
+                        ? _vazio()
+                        : RefreshIndicator(
+                            onRefresh: _carregar,
+                            child: ListView(
+                              padding:
+                                  const EdgeInsets.fromLTRB(20, 16, 20, 40),
+                              children: _buildTree(),
+                            ),
+                          ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildErro() {
+    return Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.cloud_off, size: 56, color: AppColors.dourado),
+          const SizedBox(height: 16),
+          Text(
+            _erro!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.roxo,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _carregar,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Tentar novamente'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.roxo,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -175,18 +225,15 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
     final todasIds = grupos.keys.toList();
     final pessoasPorId = {for (final p in _pessoas) p.id: p};
 
-    // Raízes = todas as pessoas que NÃO são filhos.
     final raizes = todasIds.where((id) => !filhos.contains(id)).toList();
-
+    final visitados = <int>{};
     final widgets = <Widget>[];
 
     if (raizes.length == 1) {
-      // Caso comum: 1 raiz (o próprio usuário ou a pessoa mais
-      // antiga do grafo).
-      widgets.add(_buildNo(raizes.first, grupos, pessoasPorId, 0));
+      widgets.add(_buildNo(raizes.first, grupos, pessoasPorId, 0, visitados));
     } else {
       for (final id in raizes) {
-        widgets.add(_buildNo(id, grupos, pessoasPorId, 0));
+        widgets.add(_buildNo(id, grupos, pessoasPorId, 0, visitados));
       }
     }
 
@@ -222,7 +269,26 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
     Map<int, List<Map<String, dynamic>>> grupos,
     Map<int, Pessoa> pessoasPorId,
     int profundidade,
+    Set<int> visitados,
   ) {
+    if (visitados.contains(pessoaId)) {
+      // Ciclo detectado — mostra apenas o nome, sem recursão
+      final nome = pessoasPorId[pessoaId]?.nome ??
+          (_nomePorId[pessoaId] ?? 'Pessoa #$pessoaId');
+      return Padding(
+        padding: EdgeInsets.only(left: profundidade * 16.0, top: 2, bottom: 2),
+        child: Text(
+          '$nome (já listado)',
+          style: const TextStyle(
+            color: Color(0xFF7A7280),
+            fontSize: 12,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      );
+    }
+    visitados.add(pessoaId);
+
     final pessoa = pessoasPorId[pessoaId];
     final nome = pessoa?.nome ??
         (_nomePorId[pessoaId] ?? 'Pessoa #$pessoaId');
@@ -294,7 +360,7 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
             ),
           ),
           for (final r in relacionados)
-            _buildRelacionamento(r, pessoaId, grupos, pessoasPorId, profundidade + 1),
+            _buildRelacionamento(r, pessoaId, grupos, pessoasPorId, profundidade + 1, visitados),
         ],
       ),
     );
@@ -306,19 +372,12 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
     Map<int, List<Map<String, dynamic>>> grupos,
     Map<int, Pessoa> pessoasPorId,
     int profundidade,
+    Set<int> visitados,
   ) {
     final rotulo = rel['rotulo_a'] as String? ?? 'Conhecido(a)';
-    final outraId = (rel['outra_id'] as num).toInt();
-    final tipo = rel['tipo'] as String? ?? 'OUTRO';
-    final tipoObj = _tipos.firstWhere(
-      (t) => t.id == tipo,
-      orElse: () => const TipoRelacionamento(
-        id: 'OUTRO',
-        rotuloA: 'Conhecido(a)',
-        rotuloB: 'Conhecido(a)',
-        categoria: 'outro',
-      ),
-    );
+    final outraIdNum = rel['outra_id'];
+    if (outraIdNum == null) return const SizedBox.shrink();
+    final outraId = (outraIdNum as num).toInt();
     return Padding(
       padding: EdgeInsets.only(
         left: 20.0,
@@ -351,7 +410,7 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
               ),
             ],
           ),
-          _buildNo(outraId, grupos, pessoasPorId, profundidade),
+          _buildNo(outraId, grupos, pessoasPorId, profundidade, visitados),
         ],
       ),
     );

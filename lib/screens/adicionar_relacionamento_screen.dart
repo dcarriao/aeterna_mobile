@@ -485,23 +485,29 @@ class _AdicionarRelacionamentoScreenState
         relacaoB: t.simetrico ? t.rotuloB : t.rotuloA,
       );
 
-      if (mounted) {
-        if (id != null) {
-          Navigator.of(context).pop();
-        } else {
-          setState(() => _salvando = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Não foi possível criar a relação.')),
-          );
-        }
+      if (id != null) {
+        if (mounted) Navigator.of(context).pop();
+        return;
       }
-    } catch (_) {
+      throw Exception('A relação não pôde ser criada (retorno nulo).');
+    } catch (e) {
+      print('[AdicionarRelacionamento] _salvar ERRO: $e');
       if (mounted) {
         setState(() => _salvando = false);
+        String mensagem = 'Não foi possível criar a relação.';
+        final msg = e.toString();
+        if (msg.contains('unique') || msg.contains('duplicate')) {
+          mensagem = 'Esta relação já existe entre as duas pessoas.';
+        } else if (msg.contains('violates foreign key')) {
+          mensagem = 'Pessoa não encontrada no banco de dados.';
+        } else if (msg.contains('permission denied') ||
+            msg.contains('policy')) {
+          mensagem = 'Permissão negada. Contate o suporte.';
+        } else if (msg.contains('retorno nulo')) {
+          mensagem = 'Não foi possível criar a relação.';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Erro ao criar a relação. Tente novamente.')),
+          SnackBar(content: Text(mensagem)),
         );
       }
     }

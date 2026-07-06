@@ -447,13 +447,22 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
 
                 // Banner de Convite do Curador (Sprint D)
-                if (!_carregandoSugestoes && !_esconderBanner && _sugestoes.isNotEmpty) ...[
+                // Só mostra quando não há oportunidade proativa com mídia (evita
+                // duplicação do mesmo conteúdo na Home).
+                if (!_carregandoSugestoes &&
+                    !_esconderBanner &&
+                    _sugestoes.isNotEmpty &&
+                    _proactiveOpportunity?.detectedMoment == null) ...[
                   const SizedBox(height: 16),
                   _buildBannerConvite(_sugestoes.first),
                 ],
                 
                 // Card de Sugestões de Mídia Proativas
-                if (!_carregandoSugestoes && _sugestoes.isNotEmpty) ...[
+                // Só mostra quando não há oportunidade proativa com mídia (evita
+                // duplicação do mesmo conteúdo na Home).
+                if (!_carregandoSugestoes &&
+                    _sugestoes.isNotEmpty &&
+                    _proactiveOpportunity?.detectedMoment == null) ...[
                   const SizedBox(height: 16),
                   DetectedMomentCard(
                     sugestoes: _sugestoes,

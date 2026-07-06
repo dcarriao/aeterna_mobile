@@ -11,6 +11,41 @@ class PessoaRelacionamentoService {
   PessoaRelacionamentoService._();
   static final instance = PessoaRelacionamentoService._();
 
+  /// Converte uma linha da view `grafo_pessoas_relacionamentos` em
+  /// `OutraPessoaNaFamilia` para a pessoa `pessoaId`.
+  static OutraPessoaNaFamilia _linhaParaOutraPessoa(
+    Map<String, dynamic> row,
+    int pessoaId,
+  ) {
+    final a = (row['pessoa_mais_antiga_id'] as num?)?.toInt() ?? 0;
+    final b = (row['pessoa_mais_nova_id'] as num?)?.toInt() ?? 0;
+    final outraId = a == pessoaId ? b : a;
+    final rotuloDaOutra = a == pessoaId
+        ? (row['rotulo_b'] as String? ?? 'Conhecido(a)')
+        : (row['rotulo_a'] as String? ?? 'Conhecido(a)');
+    final rotuloDeMim = a == pessoaId
+        ? (row['rotulo_a'] as String? ?? 'Conhecido(a)')
+        : (row['rotulo_b'] as String? ?? 'Conhecido(a)');
+    final nomeB = a == pessoaId
+        ? (row['nome_a'] as String?)
+        : (row['nome_b'] as String?);
+    return OutraPessoaNaFamilia(
+      relacionamentoId: (row['relacionamento_id'] as num?)?.toInt() ?? 0,
+      outraPessoaId: outraId,
+      outraPessoaNome: nomeB ?? 'Pessoa #$outraId',
+      tipo: row['tipo'] as String? ?? 'OUTRO',
+      rotuloDaOutraParaMim: rotuloDaOutra,
+      rotuloDeMimParaAOutra: rotuloDeMim,
+      observacoes: row['observacoes'] as String?,
+      dataInicio: row['data_inicio'] != null
+          ? DateTime.tryParse('${row['data_inicio']}')
+          : null,
+      dataFim: row['data_fim'] != null
+          ? DateTime.tryParse('${row['data_fim']}')
+          : null,
+    );
+  }
+
   /// Carrega o catálogo de tipos de relação (do servidor, com
   /// fallback client-side se a chamada falhar).
   Future<List<TipoRelacionamento>> listarTipos() async {
@@ -36,6 +71,7 @@ class PessoaRelacionamentoService {
 
   /// Lista todas as relações de uma pessoa (em qualquer direção).
   /// Resultado usado pela PessoaDetalheScreen ("Família" section).
+  /// Tenta RPC primeiro; se falhar, fallback para query direta na view.
   Future<List<OutraPessoaNaFamilia>> listarRelacionamentos(
     int pessoaId,
   ) async {
@@ -50,7 +86,23 @@ class PessoaRelacionamentoService {
           .map(OutraPessoaNaFamilia.fromMap)
           .toList();
     } catch (e) {
-      print('[PessoaRelacionamento] listarRelacionamentos ERRO: $e');
+      print('[PessoaRelacionamento] listarRelacionamentos RPC ERRO: $e');
+    }
+    // Fallback: query direta na view (sem RPC disponível)
+    try {
+      final rows = await PessoaRepository.supabaseClient
+          .from('grafo_pessoas_relacionamentos')
+          .select('*')
+          .eq('usuario_id', PessoaRepository.usuarioId);
+      final lista = rows.cast<Map<String, dynamic>>();
+      return lista
+          .where((r) =>
+              (r['pessoa_mais_antiga_id'] as num?)?.toInt() == pessoaId ||
+              (r['pessoa_mais_nova_id'] as num?)?.toInt() == pessoaId)
+          .map((r) => _linhaParaOutraPessoa(r, pessoaId))
+          .toList();
+    } catch (e2) {
+      print('[PessoaRelacionamento] listarRelacionamentos fallback ERRO: $e2');
       return const [];
     }
   }
@@ -158,7 +210,7 @@ class PessoaRelacionamentoService {
       return (rows['id'] as num?)?.toInt();
     } catch (e) {
       print('[PessoaRelacionamento] criar ERRO: $e');
-      return null;
+      rethrow;
     }
   }
 

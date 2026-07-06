@@ -24,14 +24,15 @@
     <dict>
         <key>NSExtensionAttributes</key>
         <dict>
-            <key>NSExtensionActivationRule</key>
-            <string>SUBQUERY (
+<key>NSExtensionActivationRule</key>
+			<string>SUBQUERY (
                 extensionItems,
                 $extensionItem,
                 SUBQUERY (
                     $extensionItem.attachments,
                     $attachment,
-                    ANY $attachment.registeredTypeIdentifiersConformsToTypeClass == "public.image"
+                    ANY $attachment.registeredTypeIdentifiersConformsToTypeClass == "public.image" ||
+                    ANY $attachment.registeredTypeIdentifiersConformsToTypeClass == "public.movie"
                 ).@count > 0
             ).@count &gt; 0</string>
         </dict>
