@@ -7,12 +7,17 @@ class CofreService {
 
   Future<List<CofreItem>> listar() async {
     if (!PessoaRepository.isConfigured) return [];
-    final rows = await PessoaRepository.supabaseClient
-        .from('cofre_itens')
-        .select('id, titulo, tipo, conteudo, url_arquivo, created_at')
-        .eq('usuario_id', PessoaRepository.usuarioId)
-        .order('created_at', ascending: false);
-    return rows.map<CofreItem>((r) => CofreItem.fromMap(r)).toList();
+    try {
+      final rows = await PessoaRepository.supabaseClient
+          .from('cofre_itens')
+          .select('id, titulo, tipo, conteudo, url_arquivo, created_at')
+          .eq('usuario_id', PessoaRepository.usuarioId)
+          .order('created_at', ascending: false);
+      return rows.map<CofreItem>((r) => CofreItem.fromMap(r)).toList();
+    } catch (e) {
+      print('[Cofre] listar ERRO: $e');
+      return [];
+    }
   }
 
   Future<int?> criar(CofreItem item) async {

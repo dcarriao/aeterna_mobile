@@ -7,14 +7,19 @@ class QuemSouEuService {
 
   Future<List<QuemSouEuRegistro>> listar() async {
     if (!PessoaRepository.isConfigured) return [];
-    final rows = await PessoaRepository.supabaseClient
-        .from('quem_sou_eu')
-        .select('id, pergunta_chave, resposta, created_at, updated_at')
-        .eq('usuario_id', PessoaRepository.usuarioId)
-        .order('created_at', ascending: false);
-    return rows
-        .map<QuemSouEuRegistro>((r) => QuemSouEuRegistro.fromMap(r))
-        .toList();
+    try {
+      final rows = await PessoaRepository.supabaseClient
+          .from('quem_sou_eu')
+          .select('id, pergunta_chave, resposta, created_at, updated_at')
+          .eq('usuario_id', PessoaRepository.usuarioId)
+          .order('created_at', ascending: false);
+      return rows
+          .map<QuemSouEuRegistro>((r) => QuemSouEuRegistro.fromMap(r))
+          .toList();
+    } catch (e) {
+      print('[QuemSouEu] listar ERRO: $e');
+      return [];
+    }
   }
 
   Future<int?> salvar(QuemSouEuRegistro reg) async {

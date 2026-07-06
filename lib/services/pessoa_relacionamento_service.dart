@@ -134,6 +134,7 @@ class PessoaRelacionamentoService {
       }
 
       final insertData = {
+        'usuario_id': PessoaRepository.usuarioId,
         'pessoa_a_id': pessoaAId,
         'pessoa_b_id': pessoaBId,
         'tipo': tipo,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/mensagem_futuro.dart';
+import '../models/pessoa.dart';
 import '../services/mensagem_futuro_service.dart';
 import '../theme/app_theme.dart';
 
@@ -23,8 +24,12 @@ class _MensagensFuturoScreenState extends State<MensagensFuturoScreen> {
 
   Future<void> _carregar() async {
     setState(() => _carregando = true);
-    final lista = await MensagemFuturoService.instance.listar();
-    if (mounted) setState(() { _itens = lista; _carregando = false; });
+    try {
+      final lista = await MensagemFuturoService.instance.listar();
+      if (mounted) setState(() { _itens = lista; _carregando = false; });
+    } catch (_) {
+      if (mounted) setState(() => _carregando = false);
+    }
   }
 
   Future<void> _criar() async {
@@ -190,12 +195,51 @@ class _CriarMensagemFuturoScreenState extends State<_CriarMensagemFuturoScreen> 
   final _conteudoCtrl = TextEditingController();
   DateTime? _dataAgendamento;
   bool _salvando = false;
+  int? _destinatarioId;
+  String? _destinatarioNome;
 
   @override
   void dispose() {
     _tituloCtrl.dispose();
     _conteudoCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _escolherDestinatario() async {
+    final contatos = await PessoaRepository.listar();
+    if (!mounted) return;
+    final selecionado = await showDialog<Pessoa>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Escolher destinatário'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: contatos.isEmpty
+              ? const Text('Nenhuma pessoa cadastrada.')
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: contatos.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (_, i) => ListTile(
+                    title: Text(contatos[i].nome),
+                    onTap: () => Navigator.pop(ctx, contatos[i]),
+                  ),
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+        ],
+      ),
+    );
+    if (selecionado != null) {
+      setState(() {
+        _destinatarioId = selecionado.id;
+        _destinatarioNome = selecionado.nome;
+      });
+    }
   }
 
   Future<void> _salvar() async {
@@ -210,9 +254,19 @@ class _CriarMensagemFuturoScreenState extends State<_CriarMensagemFuturoScreen> 
       titulo: _tituloCtrl.text.trim(),
       conteudo: _conteudoCtrl.text.trim(),
       dataAgendamento: _dataAgendamento ?? DateTime.now().add(const Duration(days: 1)),
+      destinatarioId: _destinatarioId,
     );
-    await MensagemFuturoService.instance.criar(msg);
-    if (mounted) Navigator.of(context).pop(true);
+    try {
+      await MensagemFuturoService.instance.criar(msg);
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _salvando = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erro ao salvar. Tente novamente.')),
+        );
+      }
+    }
   }
 
   @override
@@ -247,6 +301,18 @@ class _CriarMensagemFuturoScreenState extends State<_CriarMensagemFuturoScreen> 
               ),
             ),
             const SizedBox(height: 16),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                _destinatarioNome ?? 'Escolher destinatário (opcional)',
+                style: TextStyle(
+                  color: _destinatarioNome != null ? AppColors.roxo : const Color(0xFF7A7280),
+                ),
+              ),
+              trailing: const Icon(Icons.person_outline, color: AppColors.dourado),
+              onTap: _escolherDestinatario,
+            ),
+            const SizedBox(height: 4),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(

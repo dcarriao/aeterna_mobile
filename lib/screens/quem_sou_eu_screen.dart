@@ -36,8 +36,12 @@ class _QuemSouEuScreenState extends State<QuemSouEuScreen> {
 
   Future<void> _carregar() async {
     setState(() => _carregando = true);
-    final lista = await QuemSouEuService.instance.listar();
-    if (mounted) setState(() { _registros = lista; _carregando = false; });
+    try {
+      final lista = await QuemSouEuService.instance.listar();
+      if (mounted) setState(() { _registros = lista; _carregando = false; });
+    } catch (_) {
+      if (mounted) setState(() => _carregando = false);
+    }
   }
 
   QuemSouEuRegistro? _buscarRegistro(String pergunta) {

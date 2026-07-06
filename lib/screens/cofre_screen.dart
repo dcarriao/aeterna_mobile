@@ -23,8 +23,12 @@ class _CofreScreenState extends State<CofreScreen> {
 
   Future<void> _carregar() async {
     setState(() => _carregando = true);
-    final lista = await CofreService.instance.listar();
-    if (mounted) setState(() { _itens = lista; _carregando = false; });
+    try {
+      final lista = await CofreService.instance.listar();
+      if (mounted) setState(() { _itens = lista; _carregando = false; });
+    } catch (_) {
+      if (mounted) setState(() => _carregando = false);
+    }
   }
 
   Future<void> _criar() async {
