@@ -36,6 +36,7 @@ extension_target.build_configurations.each do |config|
   config.build_settings['DEVELOPMENT_TEAM'] = 'R2KU8Q68QG'
   config.build_settings['CODE_SIGN_IDENTITY'] = 'Apple Distribution'
   config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+  config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'ShareExtension/ShareExtension.entitlements'
 end
 
 # 4. Embed in main app's build phase
