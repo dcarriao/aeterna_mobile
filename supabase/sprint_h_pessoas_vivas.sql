@@ -27,7 +27,7 @@
 --      ("Carlos aparece em 10 histórias, talvez você queira cadastrá-lo").
 --   5. Cria uma FUNÇÃO `memorial_da_pessoa(pessoa_id)` que devolve o id
 --      do memorial vinculado (se existir) — caminho Pessoa → Memorial.
---   6. Adiciona índice otimizado em `conteudo_permissoes.contato_id`
+--   6. Adiciona índice otimizado em `conteudo_permissoes.pessoa_id`
 --      (já existe da criação da tabela; conferido).
 --   7. GRANTs para as funções.
 --   8. Política RLS mínima necessária (re-aproveitando o padrão MVP anônimo
@@ -59,13 +59,13 @@ drop view if exists public.pessoa_linha_tempo;
 create view public.pessoa_linha_tempo
 with (security_invoker = true) as
 with memorias_da_pessoa as (
-    select distinct cp.contato_id, cp.conteudo_id as memoria_id
+    select distinct cp.pessoa_id, cp.conteudo_id as memoria_id
     from public.conteudo_permissoes cp
     where cp.tipo_conteudo = 'memoria'
 ),
 mem_eventos as (
     select
-        mdp.contato_id,
+        mdp.pessoa_id,
         'memoria'::text as tipo,
         m.id as conteudo_id,
         m.titulo as titulo,
@@ -78,7 +78,7 @@ mem_eventos as (
 ),
 foto_eventos as (
     select
-        mdp.contato_id,
+        mdp.pessoa_id,
         'foto'::text as tipo,
         mf.foto_id as conteudo_id,
         coalesce(f.titulo, 'Foto') as titulo,
@@ -92,7 +92,7 @@ foto_eventos as (
 ),
 contrib_eventos as (
     select
-        mdp.contato_id,
+        mdp.pessoa_id,
         'contribuicao'::text as tipo,
         c.id as conteudo_id,
         coalesce(c.texto, c.arquivo_url, 'Contribuição') as titulo,
@@ -144,7 +144,7 @@ begin
         select cp.conteudo_id as id
         from public.conteudo_permissoes cp
         where cp.tipo_conteudo = 'memoria'
-          and cp.contato_id = pessoa_id
+          and cp.pessoa_id = pessoa_id
     ),
     contribs_ids as (
         select c.id
@@ -201,20 +201,20 @@ begin
     return query
     with ultimas as (
         select
-            c.id as contato_id,
+            c.id as pessoa_id,
             greatest(
                 coalesce((select max(coalesce(m.data_evento::timestamp, m.data_criacao))
                           from public.conteudo_permissoes cp
                           join public.memorias m on m.id = cp.conteudo_id
                           where cp.tipo_conteudo = 'memoria'
-                            and cp.contato_id = c.id), '1970-01-01'::timestamp),
+                            and cp.pessoa_id = c.id), '1970-01-01'::timestamp),
                 coalesce((select max(c.criado_em)
                           from public.contribuicoes c2
                           where c2.tipo_conteudo = 'memoria'
                             and c2.usuario_dono_id = c.usuario_id
                             and c2.conteudo_id in (
                                 select cp.conteudo_id from public.conteudo_permissoes cp
-                                where cp.tipo_conteudo = 'memoria' and cp.contato_id = c.id
+                                where cp.tipo_conteudo = 'memoria' and cp.pessoa_id = c.id
                             )
                             and c2.status = 'aprovado'), '1970-01-01'::timestamp)
             ) as ultima
@@ -224,9 +224,9 @@ begin
     select
         c.id, c.nome, c.sobrenome, c.parentesco, c.email, c.foto_perfil,
         u.ultima,
-        (select count(*) from public.pessoa_linha_tempo plt where plt.contato_id = c.id)::bigint
+        (select count(*) from public.pessoa_linha_tempo plt where plt.pessoa_id = c.id)::bigint
     from ultimas u
-    join public.contatos c on c.id = u.contato_id
+    join public.contatos c on c.id = u.pessoa_id
     order by u.ultima desc nulls last
     limit limite;
 end;
@@ -331,10 +331,10 @@ grant execute on function public.memorial_da_pessoa(bigint) to anon;
 -- ============================================================================
 -- (6) Índices adicionais para performance
 -- ============================================================================
--- A view pessoa_linha_tempo faz JOINs por contato_id e memoria_id. Os
+-- A view pessoa_linha_tempo faz JOINs por pessoa_id e memoria_id. Os
 -- índices seguintes aceleram essas queries.
 create index if not exists idx_conteudo_permissoes_tipo_contato
-    on public.conteudo_permissoes (tipo_conteudo, contato_id);
+    on public.conteudo_permissoes (tipo_conteudo, pessoa_id);
 
 create index if not exists idx_memorias_data_evento_desc
     on public.memorias (data_evento desc nulls last);
@@ -353,7 +353,7 @@ create index if not exists idx_memoria_videos_memoria
 -- ============================================================================
 -- (7) Verificação sugerida (rode manualmente para auditar)
 -- ============================================================================
--- select * from pessoa_linha_tempo where contato_id = 42 limit 50;
+-- select * from pessoa_linha_tempo where pessoa_id = 42 limit 50;
 -- select * from pessoa_estatisticas(42);
 -- select * from pessoas_recentes(2, 5);
 -- select * from pessoas_sugeridas(2, 5);

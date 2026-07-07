@@ -29,8 +29,8 @@ class AdicionarRelacionamentoScreen extends StatefulWidget {
 class _AdicionarRelacionamentoScreenState
     extends State<AdicionarRelacionamentoScreen> {
   List<TipoRelacionamento> _tipos = TIPOS_RELACIONAMENTO_INICIAIS;
-  List<Pessoa> _contatos = const [];
-  List<Pessoa> _contatosFiltrados = const [];
+  List<Pessoa> _pessoas = const [];
+  List<Pessoa> _pessoasFiltradas = const [];
   bool _carregando = true;
   bool _salvando = false;
 
@@ -50,11 +50,11 @@ class _AdicionarRelacionamentoScreenState
 
   Future<void> _carregar() async {
     final tipos = await PessoaRelacionamentoService.instance.listarTipos();
-    final contatos = await PessoaRepository.listar();
+    final pessoas = await PessoaRepository.listar();
     if (mounted) {
       setState(() {
         _tipos = tipos;
-        _contatos = contatos
+        _pessoas = pessoas
             .where((p) => p.id != widget.pessoaOrigemId)
             .toList();
         _aplicarFiltro();
@@ -65,16 +65,16 @@ class _AdicionarRelacionamentoScreenState
 
   void _aplicarFiltro() {
     if (_filtroBusca.isEmpty) {
-      _contatosFiltrados = List.from(_contatos);
+      _pessoasFiltradas = List.from(_pessoas);
     } else {
       final q = _filtroBusca.toLowerCase();
-      _contatosFiltrados = _contatos
+      _pessoasFiltradas = _pessoas
           .where((p) =>
               p.nome.toLowerCase().contains(q) ||
               (p.apelido?.toLowerCase().contains(q) ?? false))
           .toList();
     }
-    _contatosFiltrados.sort((a, b) => a.nome.compareTo(b.nome));
+    _pessoasFiltradas.sort((a, b) => a.nome.compareTo(b.nome));
   }
 
   void _selecionarPessoa(Pessoa p) {
@@ -165,12 +165,12 @@ class _AdicionarRelacionamentoScreenState
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: _contatosFiltrados.isEmpty
+          child: _pessoasFiltradas.isEmpty
               ? Center(
                   child: Text(
                     _filtroBusca.isEmpty
                         ? 'Você precisa cadastrar outra pessoa antes de criar uma relação.'
-                        : 'Nenhum contato encontrado.',
+                        : 'Nenhuma pessoa encontrada.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: Color(0xFF7A7280),
@@ -179,10 +179,10 @@ class _AdicionarRelacionamentoScreenState
                   ),
                 )
               : ListView.separated(
-                  itemCount: _contatosFiltrados.length,
+                  itemCount: _pessoasFiltradas.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 4),
                   itemBuilder: (_, i) {
-                    final p = _contatosFiltrados[i];
+                    final p = _pessoasFiltradas[i];
                     return Material(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(10),

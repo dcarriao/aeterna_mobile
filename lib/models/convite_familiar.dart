@@ -9,7 +9,7 @@ class ConviteFamiliar {
   const ConviteFamiliar({
     this.id,
     required this.usuarioOrigemId,
-    this.contatoId,
+    this.pessoaId,
     required this.emailDestino,
     this.usuarioDestinoId,
     this.status = 'pendente',
@@ -24,7 +24,7 @@ class ConviteFamiliar {
 
   final int? id;
   final int usuarioOrigemId;
-  final int? contatoId;
+  final int? pessoaId;
   final String emailDestino;
   final int? usuarioDestinoId;
 
@@ -53,7 +53,7 @@ class ConviteFamiliar {
     return ConviteFamiliar(
       id: (map['id'] as num?)?.toInt(),
       usuarioOrigemId: (map['usuario_origem_id'] as num? ?? 0).toInt(),
-      contatoId: (map['contato_id'] as num?)?.toInt(),
+      pessoaId: (map['pessoa_id'] as num?)?.toInt(),
       emailDestino: map['email_destino'] as String? ?? '',
       usuarioDestinoId: (map['usuario_destino_id'] as num?)?.toInt(),
       status: map['status'] as String? ?? 'pendente',

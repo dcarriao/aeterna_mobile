@@ -206,7 +206,7 @@ class _CriarMensagemFuturoScreenState extends State<_CriarMensagemFuturoScreen> 
   }
 
   Future<void> _escolherDestinatario() async {
-    final contatos = await PessoaRepository.listar();
+    final pessoas = await PessoaRepository.listar();
     if (!mounted) return;
     final selecionado = await showDialog<Pessoa>(
       context: context,
@@ -214,15 +214,15 @@ class _CriarMensagemFuturoScreenState extends State<_CriarMensagemFuturoScreen> 
         title: const Text('Escolher destinatário'),
         content: SizedBox(
           width: double.maxFinite,
-          child: contatos.isEmpty
+          child: pessoas.isEmpty
               ? const Text('Nenhuma pessoa cadastrada.')
               : ListView.separated(
                   shrinkWrap: true,
-                  itemCount: contatos.length,
+                  itemCount: pessoas.length,
                   separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (_, i) => ListTile(
-                    title: Text(contatos[i].nome),
-                    onTap: () => Navigator.pop(ctx, contatos[i]),
+                    title: Text(pessoas[i].nome),
+                    onTap: () => Navigator.pop(ctx, pessoas[i]),
                   ),
                 ),
         ),

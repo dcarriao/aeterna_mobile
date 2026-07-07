@@ -1,8 +1,6 @@
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
 import 'package:supabase/supabase.dart';
 
 import 'convite_familiar.dart';
@@ -10,12 +8,18 @@ import 'convite_familiar.dart';
 class Pessoa {
   Pessoa({
     required this.nome,
-    required this.parentesco,
     this.apelido,
+    this.parentesco = 'Outro',
+    this.tipo = 'humano',
     this.dataNascimento,
     this.fotoBase64,
     this.email,
     this.telefone,
+    this.authUserId,
+    this.authId,
+    this.criadoPorId,
+    this.situacao = 'pendente',
+    this.falecido = false,
     DateTime? createdAt,
     int? id,
   })  : id = id ?? DateTime.now().millisecondsSinceEpoch,
@@ -25,10 +29,16 @@ class Pessoa {
   final String nome;
   final String? apelido;
   final String parentesco;
+  final String tipo;
   final DateTime? dataNascimento;
   final String? fotoBase64;
   final String? email;
   final String? telefone;
+  final String? authUserId;
+  final String? authId;
+  final int? criadoPorId;
+  final String situacao;
+  final bool falecido;
   final DateTime createdAt;
 
   Uint8List? get fotoBytes {
@@ -46,35 +56,52 @@ class Pessoa {
           ? fotoBase64
           : null;
 
+  bool get isPet => tipo == 'pet';
+  bool get isHumano => tipo == 'humano';
+  bool get isAutenticavel => isHumano && authUserId != null;
+
   Map<String, dynamic> toMap() {
     return {
-      'id': id,
+      if (id > 0) 'id': id,
       'nome': nome,
-      'apelido': apelido,
-      'parentesco': parentesco,
-      'dataNascimento': dataNascimento?.toIso8601String(),
-      'fotoBase64': fotoBase64,
+      'sobrenome': apelido,
       'email': email,
       'telefone': telefone,
-      'createdAt': createdAt.toIso8601String(),
+      'data_nascimento': dataNascimento?.toIso8601String(),
+      'foto_perfil': fotoBase64,
+      'tipo': tipo,
+      'situacao': situacao,
+      'falecido': falecido,
+      if (authUserId != null) 'auth_user_id': authUserId,
+      if (authId != null) 'auth_id': authId,
+      if (criadoPorId != null) 'criado_por_id': criadoPorId,
     };
   }
 
   factory Pessoa.fromMap(Map<String, dynamic> map) {
+    final criadaEm = map['created_at'] != null
+        ? DateTime.tryParse('${map['created_at']}')
+        : (map['data_criacao'] != null
+            ? DateTime.tryParse('${map['data_criacao']}')
+            : null);
     return Pessoa(
-      id: map['id'] is int ? map['id'] as int : int.tryParse('${map['id']}'),
+      id: map['id'] is int ? map['id'] as int : int.tryParse('${map['id']}') ?? 0,
       nome: (map['nome'] as String?) ?? '',
       apelido: (map['sobrenome'] as String?) ?? (map['apelido'] as String?),
       parentesco: (map['parentesco'] as String?) ?? 'Outro',
+      tipo: (map['tipo'] as String?) ?? 'humano',
       dataNascimento: map['data_nascimento'] != null
           ? DateTime.tryParse('${map['data_nascimento']}')
           : null,
       fotoBase64: (map['foto_perfil'] as String?) ?? (map['fotoBase64'] as String?),
       email: map['email'] as String?,
       telefone: map['telefone'] as String?,
-      createdAt: map['data_criacao'] != null
-          ? DateTime.tryParse('${map['data_criacao']}') ?? DateTime.now()
-          : DateTime.now(),
+      authUserId: map['auth_user_id'] as String?,
+      authId: map['auth_id'] as String?,
+      criadoPorId: (map['criado_por_id'] as num?)?.toInt(),
+      situacao: (map['situacao'] as String?) ?? 'pendente',
+      falecido: map['falecido'] as bool? ?? false,
+      createdAt: criadaEm ?? DateTime.now(),
     );
   }
 }
@@ -135,16 +162,10 @@ class PessoaRepository {
   }
 
   static Future<int?> obterUsuarioIdPorEmail(String email) async {
-    final anonMasked = _anonKey.length > 8 ? '${_anonKey.substring(0, 8)}...' : '(vazio)';
-    print('[PessoaRepo] obterUsuarioIdPorEmail: email=$email');
-    print('[PessoaRepo] SUPABASE_ANON_KEY: $anonMasked');
-    if (!isConfigured) {
-      print('[PessoaRepo] ALERTA: SUPABASE_ANON_KEY está vazia! Não é possível conectar ao Supabase.');
-      return null;
-    }
+    if (!isConfigured) return null;
     try {
       final rows = await _supabase
-          .from('usuarios')
+          .from('pessoas')
           .select('id')
           .eq('email', email.trim().toLowerCase());
       if (rows.isEmpty) return null;
@@ -157,28 +178,19 @@ class PessoaRepository {
   static Future<int?> autenticarUsuario(String email, String senha) async {
     if (!isConfigured) return null;
     try {
+      final response = await _supabase.auth.signInWithPassword(
+        email: email.trim().toLowerCase(),
+        password: senha,
+      );
+      if (response.user == null) return null;
       final rows = await _supabase
-          .from('usuarios')
-          .select('id, senha_hash, salt')
-          .eq('email', email.trim().toLowerCase());
+          .from('pessoas')
+          .select('id')
+          .eq('auth_user_id', response.user!.id);
       if (rows.isEmpty) return null;
-
-      final user = rows.first;
-      final uid = (user['id'] as num).toInt();
-      final hashDb = user['senha_hash'] as String?;
-      final salt = user['salt'] as String?;
-
-      if (hashDb == null || salt == null) return null;
-
-      // Calcular hash SHA-256 de (senha + salt)
-      final bytes = utf8.encode(senha + salt);
-      final hashCalculado = sha256.convert(bytes).toString();
-
-      if (hashCalculado == hashDb) {
-        return uid;
-      }
-      return null;
-    } catch (_) {
+      return (rows.first['id'] as num).toInt();
+    } catch (e) {
+      print('[PessoaRepo] autenticarUsuario ERRO: $e');
       return null;
     }
   }
@@ -191,51 +203,42 @@ class PessoaRepository {
   }) async {
     if (!isConfigured) return null;
     try {
-      // Verificar se email já existe
       final existentes = await _supabase
-          .from('usuarios')
+          .from('pessoas')
           .select('id')
           .eq('email', email.trim().toLowerCase());
-      if (existentes.isNotEmpty) return -1; // código: email já cadastrado
+      if (existentes.isNotEmpty) return -1;
 
-      final salt = _gerarSalt();
-      final bytes = utf8.encode(senha + salt);
-      final hash = sha256.convert(bytes).toString();
-      final resp = await _supabase.from('usuarios').insert({
+      final response = await _supabase.auth.signUp(
+        email: email.trim().toLowerCase(),
+        password: senha,
+      );
+      if (response.user == null) return null;
+
+      final resp = await _supabase.from('pessoas').insert({
         'nome': nome.trim(),
         'sobrenome': sobrenome.trim(),
         'email': email.trim().toLowerCase(),
-        'senha_hash': hash,
-        'salt': salt,
+        'auth_user_id': response.user!.id,
+        'situacao': 'ativo',
       }).select('id').single();
       return resp['id'] as int?;
-    } catch (_) {
+    } catch (e) {
+      print('[PessoaRepo] criarUsuario ERRO: $e');
       return null;
     }
-  }
-
-  static String _gerarSalt() {
-    final random = Random();
-    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
-    return base64Url.encode(bytes);
   }
 
   // ── CONTATOS (Supabase) ──
 
   static Future<List<Pessoa>> listar() async {
     if (!isConfigured) return [];
-
-    print('[PessoaRepo] listar() -> consultando Supabase contatos');
     try {
       final rows = await _supabase
-          .from('contatos')
-          .select('id, nome, sobrenome, email, telefone, parentesco, data_nascimento, foto_perfil, data_criacao')
-          .eq('usuario_id', usuarioId)
+          .from('pessoas')
+          .select('id, nome, sobrenome, email, telefone, tipo, data_nascimento, foto_perfil, situacao, falecido, created_at')
+          .eq('criado_por_id', usuarioId)
           .order('nome');
-      print('[PessoaRepo] listar() -> ${rows.length} contatos recebidos');
-      for (final r in rows) {
-        print('[PessoaRepo]   contato: id=${r["id"]} nome=${r["nome"]} parentesco=${r["parentesco"]}');
-      }
       return rows.map((r) => Pessoa.fromMap(r)).toList();
     } catch (e) {
       print('[PessoaRepo] listar() ERRO: $e');
@@ -259,9 +262,10 @@ class PessoaRepository {
     }
 
     final data = <String, dynamic>{
-      'usuario_id': usuarioId,
+      'criado_por_id': usuarioId,
       'nome': pessoa.nome,
-      'parentesco': pessoa.parentesco,
+      'tipo': pessoa.tipo,
+      'situacao': pessoa.situacao,
     };
     if (pessoa.apelido != null && pessoa.apelido!.isNotEmpty) {
       data['sobrenome'] = pessoa.apelido;
@@ -283,14 +287,14 @@ class PessoaRepository {
     try {
       if (isUpdate) {
         await _supabase
-            .from('contatos')
+            .from('pessoas')
             .update(data)
             .eq('id', pessoa.id);
         return pessoa.id;
       } else {
-        data['data_criacao'] = pessoa.createdAt.toIso8601String();
+        data['created_at'] = pessoa.createdAt.toIso8601String();
         final result = await _supabase
-            .from('contatos')
+            .from('pessoas')
             .insert(data)
             .select('id')
             .single();
@@ -305,12 +309,12 @@ class PessoaRepository {
   static Future<void> remover(int pessoaId) async {
     if (!isConfigured) return;
     try {
-      await _supabase.from('conteudo_permissoes').delete().eq('contato_id', pessoaId);
+      await _supabase.from('conteudo_permissoes').delete().eq('pessoa_id', pessoaId);
       await _supabase
-          .from('contatos')
-          .delete()
+          .from('pessoas')
+          .update({'situacao': 'inativo'})
           .eq('id', pessoaId)
-          .eq('usuario_id', usuarioId);
+          .eq('criado_por_id', usuarioId);
     } catch (_) {
       rethrow;
     }
@@ -465,14 +469,14 @@ class PessoaRepository {
     } catch (_) {}
   }
 
-  // ── USUÁRIO (Supabase usuarios) ──
+  // ── USUÁRIO (Supabase pessoas) ──
 
   static Future<Map<String, dynamic>?> obterUsuario() async {
     if (!isConfigured) return null;
     try {
       final rows = await _supabase
-          .from('usuarios')
-          .select('nome, sobrenome, email, telefone, data_nascimento, foto_perfil')
+          .from('pessoas')
+          .select('nome, sobrenome, email, telefone, data_nascimento, foto_perfil, tipo, auth_user_id')
           .eq('id', usuarioId);
       if (rows.isEmpty) return null;
       return rows.first as Map<String, dynamic>;
@@ -484,7 +488,7 @@ class PessoaRepository {
   static Future<void> salvarUsuario(Map<String, dynamic> data) async {
     if (!isConfigured) return;
     try {
-      await _supabase.from('usuarios').update(data).eq('id', usuarioId);
+      await _supabase.from('pessoas').update(data).eq('id', usuarioId);
     } catch (_) {}
   }
 
@@ -521,7 +525,7 @@ class PessoaRepository {
     await removerFotosDaMemoria(memoriaId);
     // 2. Remover vídeos vinculados
     await removerVideosDaMemoria(memoriaId);
-    // 3. Limpar vínculos de contatos e compartilhamento
+    // 3. Limpar vínculos de pessoas e compartilhamento
     await limparVinculosMemoria(memoriaId);
     // 4. Deletar o registro da memória em si
     await _supabase.from('memorias').delete().eq('id', memoriaId);
@@ -577,13 +581,13 @@ class PessoaRepository {
     try {
       final rows = await _supabase
           .from('conteudo_permissoes')
-          .select('conteudo_id, contato_id')
+          .select('conteudo_id, pessoa_id')
           .eq('tipo_conteudo', 'memoria');
       final map = <int, List<int>>{};
       for (final r in rows) {
         final memId = (r['conteudo_id'] as num).toInt();
-        final contatoId = (r['contato_id'] as num).toInt();
-        map.putIfAbsent(memId, () => []).add(contatoId);
+        final pessoaId = (r['pessoa_id'] as num).toInt();
+        map.putIfAbsent(memId, () => []).add(pessoaId);
       }
       return map;
     } catch (_) {
@@ -598,11 +602,11 @@ class PessoaRepository {
         .delete()
         .eq('conteudo_id', memoriaId)
         .eq('tipo_conteudo', 'memoria');
-    for (final contatoId in pessoaIds) {
+    for (final pessoaId in pessoaIds) {
       await _supabase.from('conteudo_permissoes').insert({
         'tipo_conteudo': 'memoria',
         'conteudo_id': memoriaId,
-        'contato_id': contatoId,
+        'pessoa_id': pessoaId,
       });
     }
   }
@@ -636,7 +640,7 @@ class PessoaRepository {
   // compartilhamentos antigos.
   //
   // Fonte LEGADA (fallback, mantida por compatibilidade): cruza
-  // `contatos.email` (de QUALQUER dono) com o e-mail de login do usuário
+  // `pessoas.email` (de QUALQUER dono) com o e-mail de login do usuário
   // atual, e busca vínculos em `conteudo_permissoes`. Cobre o caso de um
   // ambiente onde o backfill SQL ainda não foi rodado.
   static Future<Map<int, Map<String, dynamic>>>
@@ -676,37 +680,37 @@ class PessoaRepository {
       print('[PessoaRepo] listarMemoriasCompartilhadasComigo() (real) ERRO: $e');
     }
 
-    // 2) Fonte legada: cruzamento por e-mail (contatos x conteudo_permissoes).
+    // 2) Fonte legada: cruzamento por e-mail (pessoas x conteudo_permissoes).
     if (usuarioEmail != null && usuarioEmail!.trim().isNotEmpty) {
       try {
         final email = usuarioEmail!.trim();
 
-        final contatosRows = await _supabase
-            .from('contatos')
-            .select('id, usuario_id')
-            .ilike('email', email);
+        final pessoasRows = await _supabase
+            .from('pessoas')
+            .select('id, criado_por_id')
+            .eq('email', email.trim().toLowerCase());
 
         final donoPorContato = <int, int>{};
-        for (final r in contatosRows) {
-          final donoId = (r['usuario_id'] as num?)?.toInt();
-          final contatoId = (r['id'] as num?)?.toInt();
-          if (donoId != null && contatoId != null && donoId != usuarioId) {
-            donoPorContato[contatoId] = donoId;
+        for (final r in pessoasRows) {
+          final donoId = (r['criado_por_id'] as num?)?.toInt();
+          final pessoaId = (r['id'] as num?)?.toInt();
+          if (donoId != null && pessoaId != null && donoId != usuarioId) {
+            donoPorContato[pessoaId] = donoId;
           }
         }
 
         if (donoPorContato.isNotEmpty) {
           final permissoes = await _supabase
               .from('conteudo_permissoes')
-              .select('conteudo_id, contato_id')
+              .select('conteudo_id, pessoa_id')
               .eq('tipo_conteudo', 'memoria')
-              .inFilter('contato_id', donoPorContato.keys.toList());
+              .inFilter('pessoa_id', donoPorContato.keys.toList());
 
           final donoPorMemoria = <int, int>{};
           for (final p in permissoes) {
             final memId = (p['conteudo_id'] as num).toInt();
-            final contatoId = (p['contato_id'] as num).toInt();
-            final donoId = donoPorContato[contatoId];
+            final pessoaId = (p['pessoa_id'] as num).toInt();
+            final donoId = donoPorContato[pessoaId];
             if (donoId != null) donoPorMemoria[memId] = donoId;
           }
 
@@ -737,7 +741,7 @@ class PessoaRepository {
     if (ids.isEmpty) return {};
     try {
       final rows = await _supabase
-          .from('usuarios')
+          .from('pessoas')
           .select('id, nome, sobrenome')
           .inFilter('id', ids);
       return {
@@ -780,40 +784,36 @@ class PessoaRepository {
     }
   }
 
-  static Future<List<int>> obterContatosDoMemorial(int memorialId) async {
+  static Future<List<int>> obterPessoasDoMemorial(int memorialId) async {
     if (!isConfigured) return [];
     try {
       final rows = await _supabase
-          .from('contatos')
-          .select('id')
-          .eq('memorial_id', memorialId)
-          .eq('usuario_id', usuarioId);
-      return rows.map<int>((r) => (r['id'] as num).toInt()).toList();
+          .from('memorial_pessoas')
+          .select('pessoa_id')
+          .eq('memorial_id', memorialId);
+      return rows.map<int>((r) => (r['pessoa_id'] as num).toInt()).toList();
     } catch (_) {
       return [];
     }
   }
 
-  static Future<void> atualizarContatosDoMemorial(int memorialId, List<int> contatosIds) async {
+  static Future<void> atualizarPessoasDoMemorial(int memorialId, List<int> pessoaIds) async {
     if (!isConfigured) return;
     try {
-      // 1. Limpar contatos antigos vinculados a este memorial
       await _supabase
-          .from('contatos')
-          .update({'memorial_id': null})
-          .eq('memorial_id', memorialId)
-          .eq('usuario_id', usuarioId);
-          
-      // 2. Vincular novos contatos selecionados
-      if (contatosIds.isNotEmpty) {
-        await _supabase
-            .from('contatos')
-            .update({'memorial_id': memorialId})
-            .inFilter('id', contatosIds)
-            .eq('usuario_id', usuarioId);
+          .from('memorial_pessoas')
+          .delete()
+          .eq('memorial_id', memorialId);
+      if (pessoaIds.isNotEmpty) {
+        await _supabase.from('memorial_pessoas').insert(
+          pessoaIds.map((pid) => {
+            'memorial_id': memorialId,
+            'pessoa_id': pid,
+          }).toList(),
+        );
       }
     } catch (e) {
-      print('Erro ao atualizar contatos do memorial: $e');
+      print('Erro ao atualizar pessoas do memorial: $e');
     }
   }
 
@@ -831,7 +831,7 @@ class PessoaRepository {
   /// memorial.
   static Future<void> enviarConviteFamiliar({
     required String email,
-    int? contatoId,
+    int? pessoaId,
     String? tipoConteudoAlvo,
     int? conteudoIdAlvo,
     PapelColaborador? papelSugerido,
@@ -853,7 +853,7 @@ class PessoaRepository {
 
     await _supabase.from('convites_familiares').insert({
       'usuario_origem_id': usuarioId,
-      if (contatoId != null) 'contato_id': contatoId,
+      if (pessoaId != null) 'pessoa_id': pessoaId,
       'email_destino': emailLimpo,
       if (usuarioDestinoId != null) 'usuario_destino_id': usuarioDestinoId,
       'status': 'pendente',
@@ -882,14 +882,14 @@ class PessoaRepository {
           .map<int>((r) => (r['usuario_origem_id'] as num).toInt())
           .toSet()
           .toList();
-      final usuariosRows = await _supabase
-          .from('usuarios')
+      final pessoasRows = await _supabase
+          .from('pessoas')
           .select('id, nome, sobrenome')
           .inFilter('id', origemIds);
       final nomesPorId = <int, String>{
-        for (final u in usuariosRows)
-          (u['id'] as num).toInt():
-              '${u['nome'] ?? ''} ${u['sobrenome'] ?? ''}'.trim(),
+        for (final p in pessoasRows)
+          (p['id'] as num).toInt():
+              '${p['nome'] ?? ''} ${p['sobrenome'] ?? ''}'.trim(),
       };
 
       return rows
@@ -988,7 +988,7 @@ class PessoaRepository {
           .map<int>((r) => (r['vinculado_usuario_id'] as num).toInt())
           .toList();
       final usuariosRows = await _supabase
-          .from('usuarios')
+          .from('pessoas')
           .select('id, nome, sobrenome, email, foto_perfil')
           .inFilter('id', ids);
 
@@ -1062,14 +1062,14 @@ class PessoaRepository {
       if (rows.isEmpty) return [];
 
       final ids = rows.map<int>((r) => (r['usuario_id'] as num).toInt()).toList();
-      final usuariosRows = await _supabase
-          .from('usuarios')
+      final pessoasRows = await _supabase
+          .from('pessoas')
           .select('id, nome, sobrenome')
           .inFilter('id', ids);
       final nomesPorId = <int, String>{
-        for (final u in usuariosRows)
-          (u['id'] as num).toInt():
-              '${u['nome'] ?? ''} ${u['sobrenome'] ?? ''}'.trim(),
+        for (final p in pessoasRows)
+          (p['id'] as num).toInt():
+              '${p['nome'] ?? ''} ${p['sobrenome'] ?? ''}'.trim(),
       };
 
       return rows.map<Colaborador>((r) {

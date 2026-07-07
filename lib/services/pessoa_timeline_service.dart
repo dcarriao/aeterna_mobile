@@ -34,15 +34,12 @@ class PessoaTimelineService {
   ) async {
     try {
       final rows = await PessoaRepository.supabaseClient
-          .rpc('pessoa_linha_tempo', params: {})
+          .from('pessoa_linha_tempo')
           .select('*')
-          // A view retorna todos os contatos; filtramos no client.
-          // (Se a base ficar grande, criar função parametrizada depois.)
-          .limit(limite * 5);
+          .eq('pessoa_id', pessoaId)
+          .limit(limite);
       final eventos = rows
           .cast<Map<String, dynamic>>()
-          .where((r) => (r['contato_id'] as num?)?.toInt() == pessoaId)
-          .take(limite)
           .map<PessoaTimelineEvento>((r) => PessoaTimelineEvento.fromMap(r))
           .toList();
       return eventos;
@@ -110,7 +107,7 @@ class PessoaTimelineService {
   }
 
   /// "Fantasmas" — nomes que aparecem em memórias mas não têm cadastro
-  /// em `contatos` ainda. Alimenta a descoberta automática.
+  /// em `pessoas` ainda. Alimenta a descoberta automática.
   Future<List<PessoaSugerida>> obterSugestoes({int limite = 5}) async {
     if (!PessoaRepository.isConfigured) return const [];
     try {

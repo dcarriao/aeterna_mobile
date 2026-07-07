@@ -35,9 +35,8 @@ class MemoriasDoDiaService {
       {int limite = 5}) async {
     final todas = await listarParaHome(limite: limite * 3);
     if (todas.isEmpty) return const [];
-    // Sem join entre memoria_do_dia e contatos, o cliente não tem
-    // como filtrar por pessoa. Mantemos o método para evolução
-    // futura (Sprint N: vista com parâmetro p_pessoa_id).
+    // Sem filtro por pessoa na RPC, retorna tudo. Manter para
+    // evolução futura (Sprint N: vista com parâmetro p_pessoa_id).
     return todas;
   }
 }

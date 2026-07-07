@@ -1,0 +1,53 @@
+-- ============================================================
+-- Sprint S.3 — Fase 4: Cleanup (APÓS VALIDAÇÃO)
+-- Remove tabelas legadas e colunas temporárias
+-- ============================================================
+-- Autor: Plano S.2 aprovado
+-- Executar antes: sprint_s3_f3b_rls.sql
+-- Executar depois: NADA (último script)
+-- ATENÇÃO: Só executar APÓS 7 DIAS de validação em produção
+-- ============================================================
+
+-- ============================================================
+-- S2.4.0: Dropar tabela de mapping (temporária)
+-- ============================================================
+-- DROP TABLE IF EXISTS migracao_pessoas_map CASCADE;
+
+-- ============================================================
+-- S2.4.1: Renomear tabelas legadas (não dropar — manter como backup)
+-- ============================================================
+-- ALTER TABLE IF EXISTS usuarios RENAME TO usuarios_legado;
+-- ALTER TABLE IF EXISTS contatos RENAME TO contatos_legado;
+
+-- ============================================================
+-- S2.4.2: Remover colunas legado de pessoas
+-- ============================================================
+-- ALTER TABLE pessoas DROP COLUMN IF EXISTS _legacy_usuario_id;
+-- ALTER TABLE pessoas DROP COLUMN IF EXISTS _legacy_contato_id;
+
+-- ============================================================
+-- VALIDAÇÃO PRÉ-CLEANUP
+-- ============================================================
+-- Antes de executar os comandos acima, validar:
+--
+-- 1. Nenhuma FK quebrada:
+--    SELECT count(*) FROM pessoas_relacionamentos r
+--    LEFT JOIN pessoas p ON p.id = r.pessoa_a_id
+--    WHERE p.id IS NULL;  -- deve ser 0
+--
+-- 2. Nenhuma politica RLS quebrada:
+--    Testar login como usuario X em staging
+--
+-- 3. Contagem de registros preservada:
+--    SELECT count(*) FROM pessoas;  -- >= usuarios + contatos (menos dedup)
+--    SELECT count(*) FROM pessoa_identificadores;  -- > 0
+
+-- ============================================================
+-- ROLLBACK (pós-cleanup)
+-- ============================================================
+-- Se precisar恢复 após dropar as tabelas legadas:
+--   ALTER TABLE IF EXISTS usuarios_legado RENAME TO usuarios;
+--   ALTER TABLE IF EXISTS contatos_legado RENAME TO contatos;
+--   ALTER TABLE pessoas ADD COLUMN IF NOT EXISTS _legacy_usuario_id BIGINT;
+--   ALTER TABLE pessoas ADD COLUMN IF NOT EXISTS _legacy_contato_id BIGINT;
+--   -- Re-popular usando migracao_pessoas_map (se ainda existir)

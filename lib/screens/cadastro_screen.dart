@@ -60,7 +60,7 @@ class _CadastroScreenState extends State<CadastroScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('is_logged_in', true);
       await prefs.setString('session_user_email', _emailCtrl.text.trim().toLowerCase());
-      await prefs.setInt('session_user_id', uid);
+      await prefs.setInt('session_pessoa_id', uid);
 
       if (mounted) widget.onCadastrado();
     } catch (_) {

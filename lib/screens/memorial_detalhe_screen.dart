@@ -27,7 +27,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
   List<Memoria> _memoriasOficiais = [];
   List<Contribuicao> _contribuicoes = [];
   List<Pessoa> _todasPessoas = [];
-  List<int> _contatosVinculados = [];
+  List<int> _pessoasVinculadas = [];
   List<Colaborador> _colaboradores = [];
   bool _carregandoLembrancas = false;
   late String _biografiaAtual = widget.memorial.biografia;
@@ -83,24 +83,23 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
       final todasMemorias = await _service.listarMemorias();
       final vinculos = await PessoaRepository.listarVinculos();
       
-      // Buscar contatos com mesmo nome para cruzamento resiliente
-      final contatos = await PessoaRepository.listar();
-      final contatosComMesmoNome = contatos
-          .where((c) => c.nome.trim().toLowerCase() == widget.memorial.nome.trim().toLowerCase())
-          .map((c) => c.id)
+      // Buscar pessoas com mesmo nome para cruzamento resiliente
+      final pessoas = await PessoaRepository.listar();
+      final pessoasComMesmoNome = pessoas
+          .where((p) => p.nome.trim().toLowerCase() == widget.memorial.nome.trim().toLowerCase())
+          .map((p) => p.id)
           .toSet();
 
-      final vinculados = await PessoaRepository.obterContatosDoMemorial(widget.memorial.id!);
+      final vinculados = await PessoaRepository.obterPessoasDoMemorial(widget.memorial.id!);
 
       final oficiais = todasMemorias.where((m) {
         if (m.id == null) return false;
-        final contatosIds = vinculos[m.id];
-        if (contatosIds == null) return false;
+        final pessoasIds = vinculos[m.id];
+        if (pessoasIds == null) return false;
         
-        final matchesContatoId = widget.memorial.contatoId != null && contatosIds.contains(widget.memorial.contatoId);
-        final matchesName = contatosIds.any((id) => contatosComMesmoNome.contains(id));
+        final matchesName = pessoasIds.any((id) => pessoasComMesmoNome.contains(id));
         
-        return matchesContatoId || matchesName;
+        return matchesName;
       }).toList();
 
       // Papel do usuário logado neste memorial (dono é inferido separadamente
@@ -121,8 +120,8 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         setState(() {
           _contribuicoes = contribs;
           _memoriasOficiais = oficiais;
-          _todasPessoas = contatos;
-          _contatosVinculados = vinculados;
+          _todasPessoas = pessoas;
+          _pessoasVinculadas = vinculados;
           _meuPapel = papel;
           _colaboradores = colaboradores;
           _carregandoLembrancas = false;
@@ -204,7 +203,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
       ),
       builder: (ctx) {
         return PessoaPickerSheet(
-          selecionadas: _contatosVinculados.toSet(),
+          selecionadas: _pessoasVinculadas.toSet(),
           titulo: 'Convidar Familiares',
         );
       },
@@ -215,7 +214,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         _carregandoLembrancas = true;
       });
       try {
-        await PessoaRepository.atualizarContatosDoMemorial(widget.memorial.id!, resultado);
+        await PessoaRepository.atualizarPessoasDoMemorial(widget.memorial.id!, resultado);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Compartilhamento do memorial atualizado com sucesso! Seus convidados agora podem ver e enviar lembranças.')),
@@ -411,7 +410,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
             IconButton(
               icon: const Icon(Icons.group_add_outlined, color: AppColors.roxo),
               onPressed: _abrirCompartilharMemorial,
-              tooltip: 'Vincular contatos locais',
+              tooltip: 'Vincular pessoas',
             ),
             IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
@@ -553,7 +552,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
 
   // ── ABA 1: BIOGRAFIA ──
   Widget _buildAbaBiografia() {
-    final sharedPessoas = _todasPessoas.where((p) => _contatosVinculados.contains(p.id)).toList();
+    final sharedPessoas = _todasPessoas.where((p) => _pessoasVinculadas.contains(p.id)).toList();
 
     return ListView(
       padding: const EdgeInsets.all(20),

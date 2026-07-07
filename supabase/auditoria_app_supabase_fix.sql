@@ -225,7 +225,7 @@ create table if not exists public.pessoas_relacionamentos (
 create table if not exists public.convites_familiares (
     id bigserial primary key,
     usuario_origem_id bigint not null references public.usuarios(id) on delete cascade,
-    contato_id bigint references public.contatos(id) on delete set null,
+    pessoa_id bigint references public.pessoas(id) on delete set null,
     email_destino text not null,
     usuario_destino_id bigint references public.usuarios(id) on delete set null,
     status text not null default 'pendente',
@@ -551,13 +551,13 @@ drop view if exists public.pessoa_linha_tempo;
 create view public.pessoa_linha_tempo
 with (security_invoker = true) as
 with memorias_da_pessoa as (
-    select distinct cp.contato_id, cp.conteudo_id as memoria_id
+    select distinct cp.pessoa_id, cp.conteudo_id as memoria_id
     from public.conteudo_permissoes cp
     where cp.tipo_conteudo = 'memoria'
 ),
 mem_eventos as (
     select
-        mdp.contato_id, 'memoria'::text as tipo, m.id as conteudo_id,
+        mdp.pessoa_id, 'memoria'::text as tipo, m.id as conteudo_id,
         m.titulo as titulo,
         coalesce(nullif(m.data_evento::text, ''), m.data_criacao::text) as data_ordem,
         m.id as memoria_origem_id, null::int as contribuicao_id, null::text as autor_contribuicao
@@ -565,7 +565,7 @@ mem_eventos as (
 ),
 foto_eventos as (
     select
-        mdp.contato_id, 'foto'::text as tipo, mf.foto_id as conteudo_id,
+        mdp.pessoa_id, 'foto'::text as tipo, mf.foto_id as conteudo_id,
         coalesce(f.titulo, 'Foto') as titulo, f.data_criacao::text as data_ordem,
         mf.memoria_id as memoria_origem_id, null::int as contribuicao_id, null::text as autor_contribuicao
     from memorias_da_pessoa mdp
@@ -574,7 +574,7 @@ foto_eventos as (
 ),
 contrib_eventos as (
     select
-        mdp.contato_id, 'contribuicao'::text as tipo, c.id as conteudo_id,
+        mdp.pessoa_id, 'contribuicao'::text as tipo, c.id as conteudo_id,
         coalesce(c.texto, c.arquivo_url, 'Contribuição') as titulo, c.criado_em::text as data_ordem,
         c.conteudo_id as memoria_origem_id, c.id as contribuicao_id,
         c.usuario_contribuidor_nome as autor_contribuicao
@@ -597,7 +597,7 @@ select
     m.data_evento, m.data_criacao as criada_em, m.ultima_atualizacao_em,
     greatest(m.data_criacao, m.ultima_atualizacao_em) as data_referencia,
     extract(epoch from (now() - greatest(m.data_criacao, m.ultima_atualizacao_em))) / 86400.0 as dias_desde_ultima_atualizacao,
-    (select count(distinct cp.contato_id) from public.conteudo_permissoes cp
+    (select count(distinct cp.pessoa_id) from public.conteudo_permissoes cp
      where cp.tipo_conteudo = 'memoria' and cp.conteudo_id = m.id) as total_pessoas,
     (select count(*) from public.contribuicoes c
      where c.tipo_conteudo = 'memoria' and c.conteudo_id = m.id and c.status = 'aprovado') as total_contribuicoes,
@@ -683,7 +683,7 @@ begin
     return query
     with memorias_ids as (
         select cp.conteudo_id as id from public.conteudo_permissoes cp
-        where cp.tipo_conteudo = 'memoria' and cp.contato_id = pessoa_id
+        where cp.tipo_conteudo = 'memoria' and cp.pessoa_id = pessoa_id
     ),
     contribs_ids as (
         select c.id from public.contribuicoes c
@@ -708,24 +708,24 @@ language plpgsql security definer set search_path = public as $$
 begin
     return query
     with ultimas as (
-        select c.id as contato_id,
+        select c.id as pessoa_id,
             greatest(
                 coalesce((select max(coalesce(m.data_evento::timestamp, m.data_criacao))
                           from public.conteudo_permissoes cp join public.memorias m on m.id = cp.conteudo_id
-                          where cp.tipo_conteudo = 'memoria' and cp.contato_id = c.id), '1970-01-01'::timestamp),
+                          where cp.tipo_conteudo = 'memoria' and cp.pessoa_id = c.id), '1970-01-01'::timestamp),
                 coalesce((select max(c2.criado_em)
                           from public.contribuicoes c2
                           where c2.tipo_conteudo = 'memoria' and c2.conteudo_id in (
                               select cp.conteudo_id from public.conteudo_permissoes cp
-                              where cp.tipo_conteudo = 'memoria' and cp.contato_id = c.id
+                              where cp.tipo_conteudo = 'memoria' and cp.pessoa_id = c.id
                           ) and c2.status = 'aprovado'), '1970-01-01'::timestamp)
             ) as ultima
         from public.contatos c where c.usuario_id = usuario
     )
     select c.id, c.nome, c.sobrenome, c.parentesco, c.email, c.foto_perfil,
            u.ultima,
-           (select count(*) from public.pessoa_linha_tempo plt where plt.contato_id = c.id)::bigint
-    from ultimas u join public.contatos c on c.id = u.contato_id
+           (select count(*) from public.pessoa_linha_tempo plt where plt.pessoa_id = c.id)::bigint
+    from ultimas u join public.contatos c on c.id = u.pessoa_id
     order by u.ultima desc nulls last limit limite;
 end;
 $$;
@@ -878,13 +878,13 @@ begin
 
     return query
     select m.id, m.titulo, m.categoria, m.data_evento, m.data_criacao,
-           coalesce((select count(distinct cp.contato_id)::int
-                     from public.conteudo_permissoes cp
-                     where cp.tipo_conteudo = 'memoria' and cp.conteudo_id = m.id
-                       and cp.contato_id in (
-                           select cp2.contato_id from public.conteudo_permissoes cp2
-                           where cp2.tipo_conteudo = 'memoria' and cp2.conteudo_id = p_memoria_id
-                       )), 0) as pessoas_em_comum,
+           coalesce((select count(distinct cp.pessoa_id)::int
+                      from public.conteudo_permissoes cp
+                      where cp.tipo_conteudo = 'memoria' and cp.conteudo_id = m.id
+                        and cp.pessoa_id in (
+                            select cp2.pessoa_id from public.conteudo_permissoes cp2
+                            where cp2.tipo_conteudo = 'memoria' and cp2.conteudo_id = p_memoria_id
+                        )), 0) as pessoas_em_comum,
            case when v_data_evento is null or m.data_evento is null then null
                 else abs((m.data_evento - v_data_evento)::int)
            end as dias_diferenca_evento,
@@ -967,7 +967,7 @@ begin
                  join public.memoria_videos mv on mv.video_id = v.id
                  where mv.memoria_id = m.id order by v.id asc limit 1)
             ) as foto_principal,
-            (select count(distinct cp.contato_id) from public.conteudo_permissoes cp
+            (select count(distinct cp.pessoa_id) from public.conteudo_permissoes cp
              where cp.tipo_conteudo = 'memoria' and cp.conteudo_id = m.id) as total_pessoas,
             (select count(*) from public.contribuicoes c
              where c.tipo_conteudo = 'memoria' and c.conteudo_id = m.id and c.status = 'aprovado') as total_contribuicoes,
@@ -995,7 +995,7 @@ begin
                  join public.memoria_videos mv on mv.video_id = v.id
                  where mv.memoria_id = m.id order by v.id asc limit 1)
             ) as foto_principal,
-            (select count(distinct cp.contato_id) from public.conteudo_permissoes cp
+            (select count(distinct cp.pessoa_id) from public.conteudo_permissoes cp
              where cp.tipo_conteudo = 'memoria' and cp.conteudo_id = m.id) as total_pessoas,
             (select count(*) from public.contribuicoes c
              where c.tipo_conteudo = 'memoria' and c.conteudo_id = m.id and c.status = 'aprovado') as total_contribuicoes,
@@ -1040,7 +1040,7 @@ create index if not exists idx_quem_sou_eu_usuario on public.quem_sou_eu(usuario
 create index if not exists idx_usuarios_auth_id on public.usuarios(auth_id);
 
 -- Sprint H
-create index if not exists idx_conteudo_permissoes_tipo_contato on public.conteudo_permissoes (tipo_conteudo, contato_id);
+create index if not exists idx_conteudo_permissoes_tipo_pessoa on public.conteudo_permissoes (tipo_conteudo, pessoa_id);
 create index if not exists idx_memorias_data_evento_desc on public.memorias (data_evento desc nulls last);
 create index if not exists idx_contribuicoes_tipo_conteudo_id_status on public.contribuicoes (tipo_conteudo, conteudo_id, status) where tipo_conteudo = 'memoria' and status = 'aprovado';
 create index if not exists idx_memoria_fotos_memoria on public.memoria_fotos (memoria_id);

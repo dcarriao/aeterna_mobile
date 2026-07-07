@@ -162,7 +162,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       return;
     }
 
-    final uid = prefs.getInt('session_user_id');
+    // Ler session_pessoa_id (novo nome) com fallback para session_user_id (legado)
+    final uid = prefs.getInt('session_pessoa_id') ?? prefs.getInt('session_user_id');
     final email = prefs.getString('session_user_email');
     if (uid != null && uid > 0) {
       PessoaRepository.usuarioId = uid;
@@ -184,7 +185,7 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
         PessoaRepository.usuarioId = uidByEmail;
         PessoaRepository.usuarioEmail = email;
         SupabaseService.usuarioId = uidByEmail;
-        await prefs.setInt('session_user_id', uidByEmail);
+        await prefs.setInt('session_pessoa_id', uidByEmail);
         // Sprint R.4 — associa o token FCM ao usuário restaurado
         PushNotificationService.instance.salvarTokenParaUsuario();
         if (mounted) {
@@ -198,6 +199,7 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
     // Sessão expirou
     await prefs.setBool('is_logged_in', false);
     await prefs.remove('session_user_email');
+    await prefs.remove('session_pessoa_id');
     await prefs.remove('session_user_id');
     _carregarUsuario();
     _carregarMemorias();
@@ -414,7 +416,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('is_logged_in', false);
               await prefs.remove('session_user_email');
-              await prefs.remove('session_user_id');
+    await prefs.remove('session_pessoa_id');
+    await prefs.remove('session_user_id');
               if (mounted) {
                 setState(() {
                   _entrou = false;

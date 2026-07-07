@@ -34,7 +34,7 @@ class Memoria {
   final String? videoUrl;
 
   // Preenchidos apenas para memórias RECEBIDAS de outra conta (Bug 1):
-  // identifica o dono real da memória (usuarios.id) e seu nome, para exibir
+  // identifica o dono real da memória (pessoas.id) e seu nome, para exibir
   // "Compartilhado por Fulano" na tela Compartilhadas.
   final int? donoUsuarioId;
   final String? compartilhadaPorNome;

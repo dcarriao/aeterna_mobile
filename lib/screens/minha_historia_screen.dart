@@ -64,8 +64,8 @@ class _MinhaHistoriaScreenState extends State<MinhaHistoriaScreen> {
       final map = <int, List<String>>{};
       for (final v in vinculos.entries) {
         final memoriaId = v.key;
-        final contatoIds = v.value;
-        final nomes = contatoIds
+        final pessoaIds = v.value;
+        final nomes = pessoaIds
             .map((cid) => pessoas.where((p) => p.id == cid))
             .expand((p) => p)
             .map((p) => '${p.nome} ${p.apelido ?? ''}'.trim().toLowerCase())

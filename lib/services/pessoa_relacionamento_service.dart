@@ -152,7 +152,7 @@ class PessoaRelacionamentoService {
   /// Cria uma nova relação pessoa-pessoa. A constraint UNIQUE do
   /// schema garante idempotência (a<b normalizado, por tipo).
   /// `pessoaOrigem` é o usuário da conta; `pessoaAId`/`pessoaBId` são
-  /// os IDs dos contatos.
+  /// os IDs das pessoas.
   Future<int?> criar({
     required int pessoaAId,
     required int pessoaBId,

@@ -51,7 +51,7 @@ class PessoaRelacionamento {
   final DateTime? atualizadoEm;
 
   // Campos opcionais preenchidos quando o resultado vem do join com
-  // `contatos` (para a UI).
+  // `pessoas` (para a UI).
   final String? nomeA;
   final String? nomeB;
 

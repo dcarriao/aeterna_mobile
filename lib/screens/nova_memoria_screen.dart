@@ -362,7 +362,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       builder: (ctx) {
         return PessoaPickerSheet(
           selecionadas: selecionados,
-          titulo: 'Selecionar contatos',
+          titulo: 'Selecionar pessoas',
         );
       },
     );

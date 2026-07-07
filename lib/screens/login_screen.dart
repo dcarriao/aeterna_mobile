@@ -101,7 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final preferencias = await SharedPreferences.getInstance();
       await preferencias.setBool('is_logged_in', true);
       await preferencias.setString('session_user_email', email);
-      await preferencias.setInt('session_user_id', uid);
+          await preferencias.setInt('session_pessoa_id', uid);
       await preferencias.setBool(_lembrarKey, _lembrarDados);
 
       if (_lembrarDados) {
@@ -142,7 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
           final preferencias = await SharedPreferences.getInstance();
           await preferencias.setBool('is_logged_in', true);
           await preferencias.setString('session_user_email', email);
-          await preferencias.setInt('session_user_id', uid);
+      await preferencias.setInt('session_pessoa_id', uid);
         }
         widget.onEntrar();
       }

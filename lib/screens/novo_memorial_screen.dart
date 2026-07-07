@@ -11,8 +11,7 @@ class NovoMemorialScreen extends StatefulWidget {
 
   /// Sprint H — quando aberto a partir de "Criar memorial para esta
   /// pessoa" na PessoaDetalheScreen, pré-preenche o formulário com os
-  /// dados da pessoa (nome, parentesco, datas) e a vincula no
-  /// `contatos.memorial_id` após criar o memorial.
+  /// dados da pessoa (nome, parentesco, datas).
   final Pessoa? pessoaParaVincular;
 
   @override
@@ -158,7 +157,7 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
         dataFalecimento: _dataFalecimento!,
         biografia: _biografiaController.text.trim(),
         fotoBytes: _fotoBytes,
-        contatoId: _pessoaSelecionada?.id,
+        pessoaId: _pessoaSelecionada?.id,
         usuarioId: SupabaseService.usuarioId,
         createdAt: DateTime.now(),
       );

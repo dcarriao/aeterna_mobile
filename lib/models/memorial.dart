@@ -10,7 +10,7 @@ class Memorial {
     required this.biografia,
     this.fotoUrl,
     this.fotoBytes,
-    this.contatoId,
+    this.pessoaId,
     required this.usuarioId,
     required this.createdAt,
   });
@@ -23,7 +23,7 @@ class Memorial {
   final String biografia;
   final String? fotoUrl;
   final Uint8List? fotoBytes;
-  final int? contatoId;
+  final int? pessoaId;
   final int usuarioId;
   final DateTime createdAt;
 
@@ -36,7 +36,7 @@ class Memorial {
       dataFalecimento: DateTime.tryParse(map['data_falecimento'] as String? ?? '') ?? DateTime.now(),
       biografia: map['biografia'] as String? ?? '',
       fotoUrl: map['foto_perfil'] as String?,
-      contatoId: map['contato_id'] as int?,
+      pessoaId: (map['pessoa_id'] as num?)?.toInt(),
       usuarioId: (map['usuario_id'] as num? ?? 0).toInt(),
       createdAt: DateTime.tryParse(map['criado_em'] as String? ?? '') ?? DateTime.now(),
     );
@@ -50,7 +50,7 @@ class Memorial {
       'data_falecimento': '${dataFalecimento.year}-${dataFalecimento.month.toString().padLeft(2, '0')}-${dataFalecimento.day.toString().padLeft(2, '0')}',
       'biografia': biografia,
       if (fotoUrl != null) 'foto_perfil': fotoUrl,
-      if (contatoId != null) 'contato_id': contatoId,
+      if (pessoaId != null) 'pessoa_id': pessoaId,
       'usuario_id': usuarioId,
       'criado_em': createdAt.toIso8601String(),
     };
