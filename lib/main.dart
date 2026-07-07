@@ -163,8 +163,28 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
     }
 
     // Ler session_pessoa_id (novo nome) com fallback para session_user_id (legado)
-    final uid = prefs.getInt('session_pessoa_id') ?? prefs.getInt('session_user_id');
+    final sessionPessoaId = prefs.getInt('session_pessoa_id');
+    final sessionUserId = prefs.getInt('session_user_id');
     final email = prefs.getString('session_user_email');
+
+    // Se só temos o ID legado (session_user_id), mapear para o novo pessoas.id
+    int? uid = sessionPessoaId;
+    if (uid == null && sessionUserId != null && sessionUserId > 0) {
+      try {
+        final rows = await PessoaRepository.supabaseClient
+            .from('pessoas')
+            .select('id')
+            .eq('_legacy_usuario_id', sessionUserId)
+            .limit(1);
+        if (rows.isNotEmpty) {
+          uid = (rows.first['id'] as num).toInt();
+          await prefs.setInt('session_pessoa_id', uid);
+        }
+      } catch (_) {}
+      // Se não achou mapeamento, usar o legado como fallback
+      uid ??= sessionUserId;
+    }
+
     if (uid != null && uid > 0) {
       PessoaRepository.usuarioId = uid;
       SupabaseService.usuarioId = uid;

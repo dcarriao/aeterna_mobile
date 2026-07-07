@@ -1104,6 +1104,7 @@ create index if not exists idx_contribuicoes_status on public.contribuicoes (sta
 do $$ begin
 
 -- Tabelas core (MVP)
+alter table if exists public.pessoas enable row level security;
 alter table if exists public.memorias enable row level security;
 alter table if exists public.fotos enable row level security;
 alter table if exists public.memoria_fotos enable row level security;
@@ -1112,6 +1113,7 @@ alter table if exists public.usuarios enable row level security;
 alter table if exists public.conteudo_permissoes enable row level security;
 alter table if exists public.contribuicoes enable row level security;
 alter table if exists public.memoriais enable row level security;
+alter table if exists public.memorial_pessoas enable row level security;
 
 -- Sprint O
 alter table if exists public.mensagens_futuro enable row level security;
@@ -1223,6 +1225,36 @@ create policy "mvp anon update conteudo_permissoes" on public.conteudo_permissoe
 
 drop policy if exists "mvp anon delete conteudo_permissoes" on public.conteudo_permissoes;
 create policy "mvp anon delete conteudo_permissoes" on public.conteudo_permissoes for delete to anon using (true);
+
+-- ========================================================================
+-- POLICIES — pessoas
+-- ========================================================================
+drop policy if exists "mvp anon select pessoas" on public.pessoas;
+create policy "mvp anon select pessoas" on public.pessoas for select to anon using (true);
+
+drop policy if exists "mvp anon insert pessoas" on public.pessoas;
+create policy "mvp anon insert pessoas" on public.pessoas for insert to anon with check (true);
+
+drop policy if exists "mvp anon update pessoas" on public.pessoas;
+create policy "mvp anon update pessoas" on public.pessoas for update to anon using (true);
+
+drop policy if exists "mvp anon delete pessoas" on public.pessoas;
+create policy "mvp anon delete pessoas" on public.pessoas for delete to anon using (true);
+
+-- ========================================================================
+-- POLICIES — memorial_pessoas
+-- ========================================================================
+drop policy if exists "mvp anon select memorial_pessoas" on public.memorial_pessoas;
+create policy "mvp anon select memorial_pessoas" on public.memorial_pessoas for select to anon using (true);
+
+drop policy if exists "mvp anon insert memorial_pessoas" on public.memorial_pessoas;
+create policy "mvp anon insert memorial_pessoas" on public.memorial_pessoas for insert to anon with check (true);
+
+drop policy if exists "mvp anon update memorial_pessoas" on public.memorial_pessoas;
+create policy "mvp anon update memorial_pessoas" on public.memorial_pessoas for update to anon using (true);
+
+drop policy if exists "mvp anon delete memorial_pessoas" on public.memorial_pessoas;
+create policy "mvp anon delete memorial_pessoas" on public.memorial_pessoas for delete to anon using (true);
 
 -- ========================================================================
 -- POLICIES — contribuicoes
@@ -1444,6 +1476,7 @@ create policy "mvp anon delete fotos"
 grant usage on schema public to anon;
 
 -- Tabelas core
+grant select, insert, update, delete on public.pessoas to anon;
 grant select, insert, update, delete on public.memorias to anon;
 grant select, insert, update, delete on public.fotos to anon;
 grant select, insert, update, delete on public.memoria_fotos to anon;
@@ -1452,6 +1485,7 @@ grant select, update, insert on public.usuarios to anon;
 grant select, insert, update, delete on public.conteudo_permissoes to anon;
 grant select, insert, update, delete on public.contribuicoes to anon;
 grant select, insert, update, delete on public.memoriais to anon;
+grant select, insert, update, delete on public.memorial_pessoas to anon;
 
 -- Sprint O
 grant all on public.mensagens_futuro to anon;

@@ -868,7 +868,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Ãšltima memória ${p.ultimaInteracaoHumana}'
+                        'Última memória ${p.ultimaInteracaoHumana}'
                         '${p.totalEventos > 0 ? ' · ${p.totalEventos} ${p.totalEventos == 1 ? "registro" : "registros"}' : ''}',
                         style: const TextStyle(
                           color: Color(0xFF7A7280),
