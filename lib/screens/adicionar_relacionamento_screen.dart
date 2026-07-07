@@ -473,16 +473,18 @@ class _AdicionarRelacionamentoScreenState
     try {
       final t = _tipos.firstWhere((t) => t.id == _tipoId);
 
-      // O usuário respondeu "Quem {destino} é para {origem}?" com t.rotuloA.
-      // Isso significa que o DESTINO assume o papel de rotuloA.
-      // Como mantemos pessoaA=origem (convenção), trocamos os rótulos
-      // para tipos assimétricos.
+      // A relação é definida do ponto de vista da ORIGEM.
+      // O tipo escolhido (ex: 'AVO' com rotuloA='Avô(ó)') significa
+      // que a ORIGEM (pessoaA) tem esse papel em relação ao DESTINO.
+      // Os rótulos são passados sem troca: relacaoA = o que A é para B,
+      // relacaoB = o que B é para A. O método criar() já insere as
+      // duas linhas (direta + inversa) automaticamente.
       final id = await PessoaRelacionamentoService.instance.criar(
         pessoaAId: widget.pessoaOrigemId,
         pessoaBId: _outraPessoaId!,
         tipo: _tipoId!,
-        relacaoA: t.simetrico ? t.rotuloA : t.rotuloB,
-        relacaoB: t.simetrico ? t.rotuloB : t.rotuloA,
+        relacaoA: t.rotuloA,
+        relacaoB: t.rotuloB,
       );
 
       if (id != null) {

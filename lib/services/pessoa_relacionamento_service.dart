@@ -149,10 +149,9 @@ class PessoaRelacionamentoService {
     }
   }
 
-  /// Cria uma nova relação pessoa-pessoa. A constraint UNIQUE do
-  /// schema garante idempotência (a<b normalizado, por tipo).
-  /// `pessoaOrigem` é o usuário da conta; `pessoaAId`/`pessoaBId` são
-  /// os IDs das pessoas.
+  /// Cria uma nova relação pessoa-pessoa com ambas as direções.
+  /// Insere DUAS linhas: A→B (direta) e B→A (inversa).
+  /// Se a inversa já existir, apenas insere a direta.
   Future<int?> criar({
     required int pessoaAId,
     required int pessoaBId,
@@ -185,32 +184,95 @@ class PessoaRelacionamentoService {
         rotB ??= t.rotuloB;
       }
 
-      final insertData = {
-        'usuario_id': PessoaRepository.usuarioId,
-        'pessoa_a_id': pessoaAId,
-        'pessoa_b_id': pessoaBId,
-        'tipo': tipo,
-        'relacao_a_para_b': rotA,
-        'relacao_b_para_a': rotB,
-        'confirmado': confirmado,
-        if (observacoes != null) 'observacoes': observacoes,
-        if (dataInicio != null)
-          'data_inicio':
-              '${dataInicio.year}-${dataInicio.month.toString().padLeft(2, '0')}-${dataInicio.day.toString().padLeft(2, '0')}',
-        if (dataFim != null)
-          'data_fim':
-              '${dataFim.year}-${dataFim.month.toString().padLeft(2, '0')}-${dataFim.day.toString().padLeft(2, '0')}',
-      };
-
+      // Linha direta: A → B
       final rows = await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
-          .insert(insertData)
+          .insert({
+            'usuario_id': PessoaRepository.usuarioId,
+            'pessoa_a_id': pessoaAId,
+            'pessoa_b_id': pessoaBId,
+            'tipo': tipo,
+            'relacao_a_para_b': rotA,
+            'relacao_b_para_a': rotB,
+            'confirmado': confirmado,
+            if (observacoes != null) 'observacoes': observacoes,
+            if (dataInicio != null)
+              'data_inicio':
+                  '${dataInicio.year}-${dataInicio.month.toString().padLeft(2, '0')}-${dataInicio.day.toString().padLeft(2, '0')}',
+            if (dataFim != null)
+              'data_fim':
+                  '${dataFim.year}-${dataFim.month.toString().padLeft(2, '0')}-${dataFim.day.toString().padLeft(2, '0')}',
+          })
           .select('id')
           .single();
-      return (rows['id'] as num?)?.toInt();
+      final idDireta = (rows['id'] as num?)?.toInt();
+
+      // Linha inversa: B → A (labels trocados, tipo invertido)
+      final invTipo = _inverseTipo(tipo, rotB);
+      await PessoaRepository.supabaseClient
+          .from('pessoas_relacionamentos')
+          .insert({
+            'usuario_id': PessoaRepository.usuarioId,
+            'pessoa_a_id': pessoaBId,
+            'pessoa_b_id': pessoaAId,
+            'tipo': invTipo,
+            'relacao_a_para_b': rotB,
+            'relacao_b_para_a': rotA,
+            'confirmado': confirmado,
+            if (observacoes != null) 'observacoes': observacoes,
+            if (dataInicio != null)
+              'data_inicio':
+                  '${dataInicio.year}-${dataInicio.month.toString().padLeft(2, '0')}-${dataInicio.day.toString().padLeft(2, '0')}',
+            if (dataFim != null)
+              'data_fim':
+                  '${dataFim.year}-${dataFim.month.toString().padLeft(2, '0')}-${dataFim.day.toString().padLeft(2, '0')}',
+          })
+          .select('id')
+          .single();
+
+      return idDireta;
     } catch (e) {
       print('[PessoaRelacionamento] criar ERRO: $e');
       rethrow;
+    }
+  }
+
+  /// Mapeia o tipo para seu inverso bidirecional.
+  /// Usado para criar a linha inversa em `criar()`.
+  String _inverseTipo(String tipo, String rotuloB) {
+    switch (tipo) {
+      case 'PAI':
+      case 'MAE':
+        return 'FILHO';
+      case 'FILHO':
+        return rotuloB == 'Mãe' ? 'MAE' : 'PAI';
+      case 'FILHA':
+        return 'PAI';
+      case 'AVO':
+        return 'NETO';
+      case 'NETO':
+        return 'AVO';
+      case 'BISAVO':
+        return 'BISNETO';
+      case 'BISNETO':
+        return 'BISAVO';
+      case 'TIO':
+        return 'SOBRINHO';
+      case 'SOBRINHO':
+        return 'TIO';
+      case 'PADRINHO':
+      case 'MADRINHA':
+        return 'AFILHADO';
+      case 'AFILHADO':
+        return rotuloB == 'Madrinha' ? 'MADRINHA' : 'PADRINHO';
+      case 'GENRO':
+      case 'NORA':
+        return 'SOGRO';
+      case 'SOGRO':
+        return rotuloB == 'Genro' ? 'GENRO' : 'NORA';
+      // Simétricos: mesmo tipo nos dois lados
+      default:
+        return tipo; // IRMAO, CONJUGE, PRIMO, CUNHADO, AMIGO, OUTRO, COMPANHEIRO
     }
   }
 
@@ -248,28 +310,49 @@ class PessoaRelacionamentoService {
     }
   }
 
-  /// Marca a relação como inativa (soft-delete — preserva o histórico
-  /// para que o "Mapa da Vida" da família nunca perca o fio de quem
-  /// foi o quê no passado).
+  /// Marca a relação como inativa (ambas as direções).
   Future<void> inativar(int relacionamentoId) async {
     if (!PessoaRepository.isConfigured) return;
     try {
+      final row = await PessoaRepository.supabaseClient
+          .from('pessoas_relacionamentos')
+          .select('pessoa_a_id, pessoa_b_id, usuario_id')
+          .eq('id', relacionamentoId)
+          .single();
+      final aId = (row['pessoa_a_id'] as num).toInt();
+      final bId = (row['pessoa_b_id'] as num).toInt();
+      final uId = (row['usuario_id'] as num?)?.toInt() ?? PessoaRepository.usuarioId;
+
       await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
           .update({'confirmado': false})
-          .eq('id', relacionamentoId);
+          .eq('usuario_id', uId)
+          .or('and(pessoa_a_id.eq.$aId,pessoa_b_id.eq.$bId),and(pessoa_a_id.eq.$bId,pessoa_b_id.eq.$aId)');
     } catch (e) {
       print('[PessoaRelacionamento] inativar ERRO: $e');
     }
   }
 
+  /// Deleta a relação E sua inversa (ambas as direções).
   Future<void> deletar(int relacionamentoId) async {
     if (!PessoaRepository.isConfigured) return;
     try {
+      // Busca os dados da relação para encontrar a inversa
+      final row = await PessoaRepository.supabaseClient
+          .from('pessoas_relacionamentos')
+          .select('pessoa_a_id, pessoa_b_id, usuario_id')
+          .eq('id', relacionamentoId)
+          .single();
+      final aId = (row['pessoa_a_id'] as num).toInt();
+      final bId = (row['pessoa_b_id'] as num).toInt();
+      final uId = (row['usuario_id'] as num?)?.toInt() ?? PessoaRepository.usuarioId;
+
+      // Deleta ambas as direções
       await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
           .delete()
-          .eq('id', relacionamentoId);
+          .eq('usuario_id', uId)
+          .or('and(pessoa_a_id.eq.$aId,pessoa_b_id.eq.$bId),and(pessoa_a_id.eq.$bId,pessoa_b_id.eq.$aId)');
     } catch (e) {
       print('[PessoaRelacionamento] deletar ERRO: $e');
     }
