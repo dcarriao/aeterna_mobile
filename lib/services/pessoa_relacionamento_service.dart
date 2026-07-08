@@ -27,8 +27,8 @@ class PessoaRelacionamentoService {
         ? (row['rotulo_a'] as String? ?? 'Conhecido(a)')
         : (row['rotulo_b'] as String? ?? 'Conhecido(a)');
     final nomeB = a == pessoaId
-        ? (row['nome_a'] as String?)
-        : (row['nome_b'] as String?);
+        ? (row['nome_b'] as String?)
+        : (row['nome_a'] as String?);
     return OutraPessoaNaFamilia(
       relacionamentoId: (row['relacionamento_id'] as num?)?.toInt() ?? 0,
       outraPessoaId: outraId,
@@ -81,10 +81,14 @@ class PessoaRelacionamentoService {
         'listar_relacionamentos_pessoa',
         params: {'p_pessoa_id': pessoaId},
       );
-      return rows
+      final lista = rows
           .cast<Map<String, dynamic>>()
-          .map(OutraPessoaNaFamilia.fromMap)
-          .toList();
+          .map(OutraPessoaNaFamilia.fromMap);
+      final unique = <int, OutraPessoaNaFamilia>{};
+      for (final f in lista) {
+        unique.putIfAbsent(f.outraPessoaId, () => f);
+      }
+      return unique.values.toList();
     } catch (e) {
       print('[PessoaRelacionamento] listarRelacionamentos RPC ERRO: $e');
     }
@@ -95,12 +99,16 @@ class PessoaRelacionamentoService {
           .select('*')
           .eq('usuario_id', PessoaRepository.usuarioId);
       final lista = rows.cast<Map<String, dynamic>>();
-      return lista
+      final filtrados = lista
           .where((r) =>
               (r['pessoa_mais_antiga_id'] as num?)?.toInt() == pessoaId ||
               (r['pessoa_mais_nova_id'] as num?)?.toInt() == pessoaId)
-          .map((r) => _linhaParaOutraPessoa(r, pessoaId))
-          .toList();
+          .map((r) => _linhaParaOutraPessoa(r, pessoaId));
+      final unique = <int, OutraPessoaNaFamilia>{};
+      for (final f in filtrados) {
+        unique.putIfAbsent(f.outraPessoaId, () => f);
+      }
+      return unique.values.toList();
     } catch (e2) {
       print('[PessoaRelacionamento] listarRelacionamentos fallback ERRO: $e2');
       return const [];
@@ -117,12 +125,18 @@ class PessoaRelacionamentoService {
           .select('*')
           .eq('usuario_id', PessoaRepository.usuarioId)
           .order('criado_em', ascending: false);
-      return rows.cast<Map<String, dynamic>>().toList();
+      final data = rows.cast<Map<String, dynamic>>();
+      if (data.isEmpty) {
+        print('[PessoaRelacionamento] carregarGrafo: 0 linhas (view vazia ou usuario_id=$usuarioId sem dados)');
+      }
+      return data;
     } catch (e) {
       print('[PessoaRelacionamento] carregarGrafo ERRO: $e');
       return const [];
     }
   }
+
+  int get usuarioId => PessoaRepository.usuarioId;
 
   /// "Quem é minha esposa/irmão/pai?" — consulta direta do grafo
   /// para um tipo. Útil para a Home ("Hoje faz X anos que você
