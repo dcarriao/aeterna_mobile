@@ -18,6 +18,7 @@ import '../services/curador_sessao_service.dart';
 import '../services/memory_growth_invitation_service.dart';
 import '../services/memory_growth_scoring_service.dart';
 import '../services/memory_relationship_service.dart';
+import '../services/pessoa_relacionamento_service.dart';
 import '../services/memorias_do_dia_service.dart';
 import '../services/moment_detection_service.dart';
 import '../services/pessoa_timeline_service.dart';
@@ -72,6 +73,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Sprint H â€” Pessoas Vivas Recentemente
   List<PessoaVivaResumo> _pessoasVivas = const [];
+  Map<int, String> _parentescoMap = {};
 
   // Sprint I â€” Memórias que podem crescer
   List<MemoriaComScore> _memoriasQuePodemCrescer = const [];
@@ -249,8 +251,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _carregarPessoasVivas() async {
     final pessoas = await PessoaTimelineService.instance.obterPessoasRecentes(limite: 6);
+    final rels = await PessoaRelacionamentoService.instance
+        .listarRelacionamentos(PessoaRepository.usuarioId);
+    final parentescoMap = <int, String>{};
+    for (final r in rels) {
+      parentescoMap[r.outraPessoaId] = r.rotuloDeMimParaAOutra;
+    }
     if (mounted) {
-      setState(() => _pessoasVivas = pessoas);
+      setState(() {
+        _pessoasVivas = pessoas;
+        _parentescoMap = parentescoMap;
+      });
     }
     // Sprint L — heurística temporal: para cada pessoa viva, calcula
     // se HOJE é aniversário de uma memória (tempo juntos).
@@ -859,7 +870,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        p.parentesco,
+                        _parentescoMap[p.id] ?? p.parentesco,
                         style: const TextStyle(
                           color: AppColors.dourado,
                           fontSize: 11,
@@ -1031,7 +1042,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${p.totalEventos} memórias e contribuições juntos · ${p.parentesco}',
+                  '${p.totalEventos} memórias e contribuições juntos · ${_parentescoMap[p.id] ?? p.parentesco}',
                   style: const TextStyle(
                     color: Color(0xFF7A7280),
                     fontSize: 12,

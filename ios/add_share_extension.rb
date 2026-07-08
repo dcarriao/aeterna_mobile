@@ -37,6 +37,9 @@ extension_target.build_configurations.each do |config|
   config.build_settings['CODE_SIGN_IDENTITY'] = 'Apple Distribution'
   config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
   config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'ShareExtension/ShareExtension.entitlements'
+  config.build_settings['PRODUCT_BUNDLE_PACKAGE_TYPE'] = 'XPC!'
+  config.build_settings['SKIP_INSTALL'] = 'YES'
+  config.build_settings['APPLICATION_EXTENSION_API_ONLY'] = 'YES'
 end
 
 # 4. Embed in main app's build phase
@@ -47,10 +50,10 @@ if main_target
     embed_extensions_phase = main_target.new_copy_files_build_phase('Embed App Extensions')
     embed_extensions_phase.symbol_dst_subfolder_spec = :plug_ins
   end
-  
+
   # Link target build dependency
   main_target.add_dependency(extension_target)
-  
+
   # Embed the compiled appex binary
   build_file = embed_extensions_phase.add_file_reference(extension_target.product_reference)
   build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
@@ -67,4 +70,25 @@ if main_target
 end
 
 project.save
+
+# 6. Validate injection
+project2 = Xcodeproj::Project.open(project_path)
+unless project2.targets.any? { |t| t.name == 'ShareExtension' }
+  puts 'ERROR: ShareExtension target was not saved to project.pbxproj!'
+  exit 1
+end
+ext = project2.targets.find { |t| t.name == 'ShareExtension' }
+cfg = ext.build_configurations.first
+%w[SKIP_INSTALL PRODUCT_BUNDLE_PACKAGE_TYPE APPLICATION_EXTENSION_API_ONLY].each do |key|
+  unless cfg.build_settings[key]
+    puts "ERROR: Build setting #{key} is missing! Injection incomplete."
+    exit 1
+  end
+end
+
 puts 'ShareExtension target successfully configured and embedded!'
+puts "  Bundle ID: #{cfg.build_settings['PRODUCT_BUNDLE_IDENTIFIER']}"
+puts "  Deployment: #{cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET']}"
+puts "  SKIP_INSTALL: #{cfg.build_settings['SKIP_INSTALL']}"
+puts "  PACKAGE_TYPE: #{cfg.build_settings['PRODUCT_BUNDLE_PACKAGE_TYPE']}"
+puts "  API_ONLY: #{cfg.build_settings['APPLICATION_EXTENSION_API_ONLY']}"

@@ -79,6 +79,60 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
     super.dispose();
   }
 
+  Future<Pessoa?> _buscarDuplicata() async {
+    final nome = _nomeController.text.trim();
+    final sobrenome = _apelidoController.text.trim();
+    final email = _emailController.text.trim().toLowerCase();
+    final telefone = _telefoneController.text.trim();
+    if (nome.isEmpty) return null;
+
+    try {
+      final todas = await PessoaRepository.listar();
+      for (final p in todas) {
+        if (p.nome.toLowerCase() == nome.toLowerCase() &&
+            (sobrenome.isEmpty ||
+                (p.apelido?.toLowerCase() == sobrenome.toLowerCase()))) {
+          if (email.isNotEmpty &&
+              p.email?.toLowerCase() == email) return p;
+          if (telefone.isNotEmpty && p.telefone == telefone) return p;
+          if (_dataNascimento != null &&
+              p.dataNascimento != null &&
+              p.dataNascimento == _dataNascimento) return p;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<bool?> _mostrarDialogDuplicata(Pessoa existente) async {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Esta pessoa parece já existir'),
+        content: Text(
+          'Já existe um cadastro com nome semelhante:\n\n'
+          '${existente.nome}${existente.apelido != null ? ' ${existente.apelido}' : ''}'
+          '${existente.email != null ? '\n${existente.email}' : ''}'
+          '\n\nDeseja usar o cadastro existente ou criar um novo?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Criar novo mesmo assim'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Usar existente'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _capturarFoto(ImageSource origem) async {
     try {
       final imagem = await _picker.pickImage(
@@ -117,6 +171,18 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
 
   Future<void> _salvar() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (!_editando) {
+      final duplicata = await _buscarDuplicata();
+      if (duplicata != null) {
+        final usarExistente = await _mostrarDialogDuplicata(duplicata);
+        if (usarExistente == true) {
+          if (mounted) Navigator.of(context).pop(duplicata.id);
+          return;
+        }
+        if (usarExistente == null) return;
+      }
+    }
 
     setState(() => _salvando = true);
     try {
@@ -389,7 +455,7 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
                     controller: _apelidoController,
                     textCapitalization: TextCapitalization.words,
                     decoration: const InputDecoration(
-                      labelText: 'Apelido',
+                      labelText: 'Sobrenome',
                       hintText: 'Como você chama essa pessoa?',
                       prefixIcon: Icon(Icons.favorite_outline),
                     ),

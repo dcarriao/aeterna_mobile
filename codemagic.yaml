@@ -30,11 +30,14 @@ workflows:
           gem install xcodeproj
           ruby ios/add_share_extension.rb
 
-      - name: Set up iOS signing
+      - name: Validate Share Extension target in pbxproj
         script: |
-          keychain initialize
-          keychain add-certificates
-          xcode-project use-profiles --project ios/Runner.xcodeproj
+          echo "Validating ShareExtension target in project.pbxproj..."
+          grep -q 'ShareExtension' ios/Runner.xcodeproj/project.pbxproj || {
+            echo "FATAL: ShareExtension target not found in project.pbxproj after injection!"
+            exit 1
+          }
+          echo "OK: ShareExtension target is present in project.pbxproj"
 
       - name: Fix iOS pods
         script: |
@@ -49,7 +52,42 @@ workflows:
             --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY \
             --dart-define=OPENAI_API_KEY=$OPENAI_API_KEY
           xcode-project use-profiles --project ios/Runner.xcodeproj
-          xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner
+          xcode-project build-ipa --workspace ios/Runner.xcworkspace \
+            --scheme Runner
+
+      - name: Validate IPA contains Share Extension .appex
+        script: |
+          IPA=$(ls build/ios/ipa/*.ipa 2>/dev/null | head -1)
+          if [ -z "$IPA" ]; then
+            echo "FATAL: No IPA found in build/ios/ipa/"
+            exit 1
+          fi
+          echo "Validating IPA: $IPA"
+          # Extract and inspect
+          unzip -l "$IPA" | grep -q '\.appex/' && {
+            echo "OK: .appex found in IPA"
+            echo "Extension bundles:"
+            unzip -l "$IPA" | grep '\.appex/' | head -5
+          } || {
+            echo "FATAL: No .appex bundle found in IPA — Share Extension will not appear in share sheet!"
+            exit 1
+          }
+          # Verify Info.plist in extension has NSExtension
+          unzip -p "$IPA" 'Payload/*.app/PlugIns/*.appex/Info.plist' 2>/dev/null | \
+            grep -q 'NSExtension' && {
+            echo "OK: NSExtension entry found in extension Info.plist"
+          } || {
+            echo "FATAL: NSExtension key missing from extension Info.plist"
+            exit 1
+          }
+          # Verify bundle identifier
+          echo "Main app bundle IDs in IPA:"
+          unzip -p "$IPA" 'Payload/*.app/Info.plist' 2>/dev/null | \
+            grep -A1 'CFBundleIdentifier' | grep -o '<string>.*</string>' || true
+          echo "Extension bundle IDs in IPA:"
+          unzip -p "$IPA" 'Payload/*.app/PlugIns/*.appex/Info.plist' 2>/dev/null | \
+            grep -A1 'CFBundleIdentifier' | grep -o '<string>.*</string>' || true
+          echo "IPA validation complete."
 
     artifacts:
       - build/ios/ipa/*.ipa

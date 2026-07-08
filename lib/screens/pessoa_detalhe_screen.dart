@@ -655,12 +655,18 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     );
   }
 
+  static const _femininos = {
+    'Mãe', 'Avó', 'Avozinha', 'Bisavó', 'Tia', 'Madrinha',
+    'Irmã', 'Prima', 'Sobrinha', 'Neta', 'Bisneta', 'Nora',
+    'Filha', 'Esposa', 'Companheira', 'Cunhada', 'Sogra',
+  };
+
   String _relacaoTexto(OutraPessoaNaFamilia f) {
-    final artigo = f.rotuloDeMimParaAOutra.endsWith('a') &&
-            !f.rotuloDeMimParaAOutra.toLowerCase().endsWith('a)')
-        ? 'sua'
-        : 'seu';
-    return 'É $artigo ${f.rotuloDeMimParaAOutra}';
+    final rot = f.rotuloDeMimParaAOutra;
+    final base = rot.replaceAll(RegExp(r'\(.*\)$'), '').trim();
+    final feminino = _femininos.contains(base);
+    final artigo = feminino ? 'sua' : 'seu';
+    return 'É $artigo $rot';
   }
 
   Widget _buildCardRelacionamento(OutraPessoaNaFamilia f) {

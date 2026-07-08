@@ -16,6 +16,39 @@ class PessoaRelacionamentoService {
   static int get _dbUsuarioId =>
       PessoaRepository.legadoUsuarioId ?? PessoaRepository.usuarioId;
 
+  /// Rótulos do lado "senior" da relação (quem é pai/mãe/avô/tio etc.).
+  static const _seniorLabels = {
+    'Pai', 'Mãe', 'Avô', 'Avó', 'Bisavô', 'Bisavó',
+    'Tio', 'Tia', 'Padrinho', 'Madrinha', 'Genro', 'Nora',
+    'Sogro(a)', 'Esposo(a)', 'Companheiro',
+  };
+
+  /// Rótulos do lado "junior" da relação (quem é filho/neto/sobrinho etc.).
+  static const _juniorLabels = {
+    'Filho(a)', 'Neto(a)', 'Bisneto(a)', 'Sobrinho(a)',
+    'Afilhado(a)', 'Genro/Nora',
+  };
+
+  /// Corrige rótulos de dados legados que usam convenção antiga.
+  ///
+  /// Convenção nova (app): `rel_a_to_b` = o que A chama B (subjetivo).
+  /// Convenção antiga (site): `rel_a_to_b` = o que A É para B (objetivo).
+  ///
+  /// Detectamos pela direção: se `rot_a` (rótulo da pessoa de ID menor
+  /// para a de ID maior) é um rótulo sênior, os dados estão na convenção
+  /// antiga e os campos `rotuloDaOutraParaMim`/`rotuloDeMimParaAOutra`
+  /// precisam ser trocados.
+  static (String, String) _corrigirSeOldConvention(
+    String rotDaOutra,
+    String rotDeMim,
+    String rotA,
+  ) {
+    if (_seniorLabels.contains(rotA)) {
+      return (rotDeMim, rotDaOutra);
+    }
+    return (rotDaOutra, rotDeMim);
+  }
+
   /// Converte uma linha da view `grafo_pessoas_relacionamentos` em
   /// `OutraPessoaNaFamilia` para a pessoa `pessoaId`.
   static OutraPessoaNaFamilia _linhaParaOutraPessoa(
@@ -34,13 +67,16 @@ class PessoaRelacionamentoService {
     final nomeB = a == pessoaId
         ? (row['nome_b'] as String?)
         : (row['nome_a'] as String?);
+    final rotA = row['rotulo_a'] as String? ?? '';
+    final (corrigidoOutra, corrigidoMim) =
+        _corrigirSeOldConvention(rotuloDaOutra, rotuloDeMim, rotA);
     return OutraPessoaNaFamilia(
       relacionamentoId: (row['relacionamento_id'] as num?)?.toInt() ?? 0,
       outraPessoaId: outraId,
       outraPessoaNome: nomeB ?? 'Pessoa #$outraId',
       tipo: row['tipo'] as String? ?? 'OUTRO',
-      rotuloDaOutraParaMim: rotuloDaOutra,
-      rotuloDeMimParaAOutra: rotuloDeMim,
+      rotuloDaOutraParaMim: corrigidoOutra,
+      rotuloDeMimParaAOutra: corrigidoMim,
       observacoes: row['observacoes'] as String?,
       dataInicio: row['data_inicio'] != null
           ? DateTime.tryParse('${row['data_inicio']}')
@@ -86,9 +122,17 @@ class PessoaRelacionamentoService {
         'listar_relacionamentos_pessoa',
         params: {'p_pessoa_id': pessoaId},
       );
-      final lista = rows
-          .cast<Map<String, dynamic>>()
-          .map(OutraPessoaNaFamilia.fromMap);
+      final lista = rows.cast<Map<String, dynamic>>().map((map) {
+        final rotDaOutra = map['rotulo_da_outra_para_mim'] as String? ?? '';
+        final rotDeMim = map['rotulo_de_mim_para_outra'] as String? ?? '';
+        final outraId = (map['outra_pessoa_id'] as num?)?.toInt() ?? 0;
+        final rotA = outraId < pessoaId ? rotDaOutra : rotDeMim;
+        final (cOutra, cMim) =
+            _corrigirSeOldConvention(rotDaOutra, rotDeMim, rotA);
+        map['rotulo_da_outra_para_mim'] = cOutra;
+        map['rotulo_de_mim_para_outra'] = cMim;
+        return OutraPessoaNaFamilia.fromMap(map);
+      });
       final unique = <int, OutraPessoaNaFamilia>{};
       for (final f in lista) {
         unique.putIfAbsent(f.outraPessoaId, () => f);
