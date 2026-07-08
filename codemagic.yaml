@@ -43,13 +43,24 @@ workflows:
           pod install
           cd ..
 
+      - name: Debug - Build ShareExtension target
+        script: |
+          set -x
+          xcodebuild -project ios/Runner.xcodeproj \
+            -target ShareExtension \
+            -configuration Release \
+            -sdk iphoneos \
+            build 2>&1
+          echo "ShareExtension build exit code: $?"
+
       - name: Build IPA
         script: |
           flutter build ios --release --no-codesign \
             --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY \
             --dart-define=OPENAI_API_KEY=$OPENAI_API_KEY
           xcode-project use-profiles --project ios/Runner.xcodeproj
-          xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner
+          xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner 2>&1
+          echo "xcode-project build-ipa exit code: $?"
 
     artifacts:
       - build/ios/ipa/*.ipa
