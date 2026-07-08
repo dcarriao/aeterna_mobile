@@ -108,12 +108,12 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
       final antigaId = (r['pessoa_mais_antiga_id'] as num).toInt();
       final novaId = (r['pessoa_mais_nova_id'] as num).toInt();
       if (childTerms.contains(rotuloA)) {
-        // antiga é filho(a) de nova
-        filhos.add(antigaId);
+        // antiga chama nova de filho → nova é o filho
+        filhos.add(novaId);
       }
       if (childTerms.contains(rotuloB)) {
-        // nova é filho(a) de antiga
-        filhos.add(novaId);
+        // nova chama antiga de filho → antiga é o filho
+        filhos.add(antigaId);
       }
     }
     return filhos;

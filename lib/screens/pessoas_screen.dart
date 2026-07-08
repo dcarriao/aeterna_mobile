@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/pessoa.dart';
 import '../models/pessoa_linha_tempo.dart';
+import '../services/pessoa_relacionamento_service.dart';
 import '../services/pessoa_timeline_service.dart';
 import '../theme/app_theme.dart';
 import 'convites_screen.dart';
@@ -28,6 +29,7 @@ class _PessoasScreenState extends State<PessoasScreen> {
   Map<int, List<int>> _vinculos = {};
   bool _carregando = true;
   List<PessoaSugerida> _sugestoes = const [];
+  Map<int, String> _parentescoMap = {};
   List<PessoaVivaResumo> _pessoasVivas = const [];
   bool _carregandoSugestoes = true;
 
@@ -71,12 +73,19 @@ class _PessoasScreenState extends State<PessoasScreen> {
     try {
       final pessoas = await PessoaRepository.listar();
       final vinculos = await PessoaRepository.listarVinculos();
+      final rels = await PessoaRelacionamentoService.instance
+          .listarRelacionamentos(PessoaRepository.usuarioId);
+      final parentescoMap = <int, String>{};
+      for (final r in rels) {
+        parentescoMap[r.outraPessoaId] = r.rotuloDeMimParaAOutra;
+      }
       print(
           '[PessoasScreen] _carregar() recebeu ${pessoas.length} pessoas. mounted=$mounted');
       if (mounted) {
         setState(() {
           _pessoas = pessoas;
           _vinculos = vinculos;
+          _parentescoMap = parentescoMap;
           _carregando = false;
         });
       }
@@ -117,13 +126,13 @@ class _PessoasScreenState extends State<PessoasScreen> {
     ).then((_) => _carregar());
   }
 
-  @override
   void _abrirGrafoFamilia() {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const GrafoFamiliaScreen()),
     );
   }
 
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.fundo,
@@ -240,6 +249,7 @@ class _PessoasScreenState extends State<PessoasScreen> {
                                   final pessoa = _pessoas[i];
                                   return _PessoaCard(
                                     pessoa: pessoa,
+                                    relacaoLabel: _parentescoMap[pessoa.id] ?? pessoa.parentesco,
                                     totalMemorias: _contarMemorias(pessoa.id),
                                     onTap: () => _abrirDetalhe(pessoa),
                                   );
@@ -313,11 +323,13 @@ class _PessoasScreenState extends State<PessoasScreen> {
 class _PessoaCard extends StatelessWidget {
   const _PessoaCard({
     required this.pessoa,
+    required this.relacaoLabel,
     required this.totalMemorias,
     required this.onTap,
   });
 
   final Pessoa pessoa;
+  final String relacaoLabel;
   final int totalMemorias;
   final VoidCallback onTap;
 
@@ -374,7 +386,7 @@ class _PessoaCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          _ParentescoChip(parentesco: pessoa.parentesco),
+                          _ParentescoChip(parentesco: relacaoLabel),
                           const SizedBox(width: 10),
                           Icon(Icons.auto_stories_outlined,
                               size: 13, color: Colors.grey.shade400),

@@ -120,6 +120,9 @@ class PessoaRepository {
   // ID de usuário dinâmico para isolamento de dados
   static int usuarioId = 2;
 
+  // ID legado (usuarios.id) para queries que ainda usam a FK antiga
+  static int? legadoUsuarioId;
+
   // E-mail do usuário logado, usado para localizar memórias que outras
   // contas compartilharam com este usuário (vínculo por e-mail do contato).
   static String? usuarioEmail;
@@ -187,7 +190,7 @@ class PessoaRepository {
       final emailLimpo = email.trim().toLowerCase();
       final rows = await _supabase
           .from('pessoas')
-          .select('id, senha_hash, salt')
+          .select('id, senha_hash, salt, _legacy_usuario_id')
           .eq('email', emailLimpo)
           .limit(1);
       if (rows.isNotEmpty) {
@@ -196,7 +199,9 @@ class PessoaRepository {
         if (hashEsperado != null && salt != null) {
           final hashCalculado = sha256.convert(utf8.encode(senha + salt)).toString();
           if (hashCalculado == hashEsperado) {
-            return (rows.first['id'] as num).toInt();
+            final pid = (rows.first['id'] as num).toInt();
+            legadoUsuarioId = (rows.first['_legacy_usuario_id'] as num?)?.toInt();
+            return pid;
           }
         }
       }
@@ -213,10 +218,12 @@ class PessoaRepository {
       if (response.user == null) return null;
       final rows = await _supabase
           .from('pessoas')
-          .select('id')
+          .select('id, _legacy_usuario_id')
           .eq('auth_user_id', response.user!.id);
       if (rows.isEmpty) return null;
-      return (rows.first['id'] as num).toInt();
+      final pid = (rows.first['id'] as num).toInt();
+      legadoUsuarioId = (rows.first['_legacy_usuario_id'] as num?)?.toInt();
+      return pid;
     } catch (e) {
       print('[PessoaRepo] autenticarUsuario Supabase ERRO: $e');
       return null;

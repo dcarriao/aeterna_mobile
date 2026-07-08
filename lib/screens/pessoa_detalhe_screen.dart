@@ -655,6 +655,14 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     );
   }
 
+  String _relacaoTexto(OutraPessoaNaFamilia f) {
+    final artigo = f.rotuloDeMimParaAOutra.endsWith('a') &&
+            !f.rotuloDeMimParaAOutra.toLowerCase().endsWith('a)')
+        ? 'sua'
+        : 'seu';
+    return 'É $artigo ${f.rotuloDeMimParaAOutra}';
+  }
+
   Widget _buildCardRelacionamento(OutraPessoaNaFamilia f) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -688,7 +696,7 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${f.rotuloDaOutraParaMim} de você · você é ${f.rotuloDeMimParaAOutra} desta pessoa',
+                  _relacaoTexto(f),
                   style: const TextStyle(
                     color: Color(0xFF7A7280),
                     fontSize: 12,

@@ -11,6 +11,11 @@ class PessoaRelacionamentoService {
   PessoaRelacionamentoService._();
   static final instance = PessoaRelacionamentoService._();
 
+  /// ID para queries no banco: usa o `legadoUsuarioId` (usuarios.id)
+  /// se disponível, fallback para `usuarioId` (pessoas.id).
+  static int get _dbUsuarioId =>
+      PessoaRepository.legadoUsuarioId ?? PessoaRepository.usuarioId;
+
   /// Converte uma linha da view `grafo_pessoas_relacionamentos` em
   /// `OutraPessoaNaFamilia` para a pessoa `pessoaId`.
   static OutraPessoaNaFamilia _linhaParaOutraPessoa(
@@ -97,7 +102,7 @@ class PessoaRelacionamentoService {
       final rows = await PessoaRepository.supabaseClient
           .from('grafo_pessoas_relacionamentos')
           .select('*')
-          .eq('usuario_id', PessoaRepository.usuarioId);
+          .eq('usuario_id', _dbUsuarioId);
       final lista = rows.cast<Map<String, dynamic>>();
       final filtrados = lista
           .where((r) =>
@@ -123,7 +128,7 @@ class PessoaRelacionamentoService {
       final rows = await PessoaRepository.supabaseClient
           .from('grafo_pessoas_relacionamentos')
           .select('*')
-          .eq('usuario_id', PessoaRepository.usuarioId)
+          .eq('usuario_id', _dbUsuarioId)
           .order('criado_em', ascending: false);
       final data = rows.cast<Map<String, dynamic>>();
       if (data.isEmpty) {
@@ -136,7 +141,7 @@ class PessoaRelacionamentoService {
     }
   }
 
-  int get usuarioId => PessoaRepository.usuarioId;
+  int get usuarioId => _dbUsuarioId;
 
   /// "Quem é minha esposa/irmão/pai?" — consulta direta do grafo
   /// para um tipo. Útil para a Home ("Hoje faz X anos que você
@@ -151,7 +156,7 @@ class PessoaRelacionamentoService {
       final rows = await PessoaRepository.supabaseClient.rpc(
         'listar_pessoas_com_mesma_relacao',
         params: {
-          'p_usuario_id': PessoaRepository.usuarioId,
+          'p_usuario_id': _dbUsuarioId,
           'p_pessoa_referencia_id': pessoaReferenciaId,
           'p_tipo': tipo,
         },
@@ -202,7 +207,7 @@ class PessoaRelacionamentoService {
       final rows = await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
           .insert({
-            'usuario_id': PessoaRepository.usuarioId,
+            'usuario_id': _dbUsuarioId,
             'pessoa_a_id': pessoaAId,
             'pessoa_b_id': pessoaBId,
             'tipo': tipo,
@@ -226,7 +231,7 @@ class PessoaRelacionamentoService {
       await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
           .insert({
-            'usuario_id': PessoaRepository.usuarioId,
+            'usuario_id': _dbUsuarioId,
             'pessoa_a_id': pessoaBId,
             'pessoa_b_id': pessoaAId,
             'tipo': invTipo,
