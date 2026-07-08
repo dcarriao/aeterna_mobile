@@ -123,6 +123,10 @@ class PessoaRepository {
   // ID legado (usuarios.id) para queries que ainda usam a FK antiga
   static int? legadoUsuarioId;
 
+  /// ID funcional para queries: prioriza o legado (usuarios.id),
+  /// fallback para o novo (pessoas.id).
+  static int get dbUsuarioId => legadoUsuarioId ?? usuarioId;
+
   // E-mail do usuário logado, usado para localizar memórias que outras
   // contas compartilharam com este usuário (vínculo por e-mail do contato).
   static String? usuarioEmail;
@@ -281,10 +285,13 @@ class PessoaRepository {
   static Future<List<Pessoa>> listar() async {
     if (!isConfigured) return [];
     try {
+      final ids = <int>{dbUsuarioId};
+      if (legadoUsuarioId != null) ids.add(legadoUsuarioId!);
+      if (usuarioId != dbUsuarioId) ids.add(usuarioId);
       final rows = await _supabase
           .from('pessoas')
           .select('id, nome, sobrenome, email, telefone, tipo, data_nascimento, foto_perfil, situacao, falecido, created_at')
-          .eq('criado_por_id', usuarioId)
+          .inFilter('criado_por_id', ids.toList())
           .order('nome');
       return rows.map((r) => Pessoa.fromMap(r)).toList();
     } catch (e) {

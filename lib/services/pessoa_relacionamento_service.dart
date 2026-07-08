@@ -11,10 +11,10 @@ class PessoaRelacionamentoService {
   PessoaRelacionamentoService._();
   static final instance = PessoaRelacionamentoService._();
 
-  /// ID para queries no banco: usa o `legadoUsuarioId` (usuarios.id)
-  /// se disponível, fallback para `usuarioId` (pessoas.id).
-  static int get _dbUsuarioId =>
-      PessoaRepository.legadoUsuarioId ?? PessoaRepository.usuarioId;
+  /// ID funcional para queries no banco.
+  /// Delega para `PessoaRepository.dbUsuarioId` que prioriza
+  /// legado (usuarios.id), fallback para novo (pessoas.id).
+  static int get _dbUsuarioId => PessoaRepository.dbUsuarioId;
 
   /// Rótulos do lado "senior" da relação (quem é pai/mãe/avô/tio etc.).
   static const _seniorLabels = {

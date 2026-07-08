@@ -32,9 +32,11 @@
                     $extensionItem.attachments,
                     $attachment,
                     ANY $attachment.registeredTypeIdentifiersConformsToTypeClass == "public.image" ||
+                    ANY $attachment.registeredTypeIdentifiersConformsToTypeClass == "public.jpeg" ||
+                    ANY $attachment.registeredTypeIdentifiersConformsToTypeClass == "public.png" ||
                     ANY $attachment.registeredTypeIdentifiersConformsToTypeClass == "public.movie"
                 ).@count > 0
-            ).@count &gt; 0</string>
+            ).@count > 0</string>
         </dict>
         <key>NSExtensionPrincipalClass</key>
         <string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
