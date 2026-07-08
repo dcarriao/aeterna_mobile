@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as dart_math;
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -181,30 +182,21 @@ class PessoaRepository {
   static Future<int?> autenticarUsuario(String email, String senha) async {
     if (!isConfigured) return null;
 
-    // ── 1. Tenta autenticação legada SHA-256 (usuarios.senha_hash + salt) ──
+    // ── 1. SHA-256 (senha_hash + salt na própria tabela pessoas) ──
     try {
       final emailLimpo = email.trim().toLowerCase();
-      final userRows = await _supabase
-          .from('usuarios')
+      final rows = await _supabase
+          .from('pessoas')
           .select('id, senha_hash, salt')
           .eq('email', emailLimpo)
           .limit(1);
-      if (userRows.isNotEmpty) {
-        final hashEsperado = userRows.first['senha_hash'] as String?;
-        final salt = userRows.first['salt'] as String?;
+      if (rows.isNotEmpty) {
+        final hashEsperado = rows.first['senha_hash'] as String?;
+        final salt = rows.first['salt'] as String?;
         if (hashEsperado != null && salt != null) {
-          final bytes = utf8.encode(senha + salt);
-          final hashCalculado = sha256.convert(bytes).toString();
+          final hashCalculado = sha256.convert(utf8.encode(senha + salt)).toString();
           if (hashCalculado == hashEsperado) {
-            final usuarioId = (userRows.first['id'] as num).toInt();
-            final pessoaRows = await _supabase
-                .from('pessoas')
-                .select('id')
-                .eq('_legacy_usuario_id', usuarioId)
-                .limit(1);
-            if (pessoaRows.isNotEmpty) {
-              return (pessoaRows.first['id'] as num).toInt();
-            }
+            return (rows.first['id'] as num).toInt();
           }
         }
       }
@@ -252,11 +244,16 @@ class PessoaRepository {
       );
       if (response.user == null) return null;
 
+      final salt = _gerarSalt();
+      final hash = sha256.convert(utf8.encode(senha + salt)).toString();
+
       final resp = await _supabase.from('pessoas').insert({
         'nome': nome.trim(),
         'sobrenome': sobrenome.trim(),
         'email': emailLimpo,
         'auth_user_id': response.user!.id,
+        'senha_hash': hash,
+        'salt': salt,
         'situacao': 'ativo',
       }).select('id').single();
       return resp['id'] as int?;
@@ -264,6 +261,12 @@ class PessoaRepository {
       print('[PessoaRepo] criarUsuario ERRO: $e');
       return null;
     }
+  }
+
+  static String _gerarSalt() {
+    final random = dart_math.Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
   // ── CONTATOS (Supabase) ──
