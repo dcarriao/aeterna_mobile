@@ -194,7 +194,7 @@ class PessoaRepository {
       final emailLimpo = email.trim().toLowerCase();
       final rows = await _supabase
           .from('pessoas')
-          .select('id, senha_hash, salt, _legacy_usuario_id')
+          .select('id, senha_hash, salt')
           .eq('email', emailLimpo)
           .limit(1);
       if (rows.isNotEmpty) {
@@ -203,9 +203,7 @@ class PessoaRepository {
         if (hashEsperado != null && salt != null) {
           final hashCalculado = sha256.convert(utf8.encode(senha + salt)).toString();
           if (hashCalculado == hashEsperado) {
-            final pid = (rows.first['id'] as num).toInt();
-            legadoUsuarioId = (rows.first['_legacy_usuario_id'] as num?)?.toInt();
-            return pid;
+            return (rows.first['id'] as num).toInt();
           }
         }
       }
@@ -222,12 +220,10 @@ class PessoaRepository {
       if (response.user == null) return null;
       final rows = await _supabase
           .from('pessoas')
-          .select('id, _legacy_usuario_id')
+          .select('id')
           .eq('auth_user_id', response.user!.id);
       if (rows.isEmpty) return null;
-      final pid = (rows.first['id'] as num).toInt();
-      legadoUsuarioId = (rows.first['_legacy_usuario_id'] as num?)?.toInt();
-      return pid;
+      return (rows.first['id'] as num).toInt();
     } catch (e) {
       print('[PessoaRepo] autenticarUsuario Supabase ERRO: $e');
       return null;
@@ -282,16 +278,42 @@ class PessoaRepository {
 
   // ── CONTATOS (Supabase) ──
 
+  /// Retorna pessoas relacionadas a [pessoaId] via `pessoas_relacionamentos`.
+  /// Mapa: `outraPessoaId → rotulo` (ex: "Pai", "Esposo(a)", "Filho(a)").
+  static Future<Map<int, String>> listarRelacionados(int pessoaId) async {
+    if (!isConfigured) return {};
+    try {
+      final rows = await _supabase
+          .from('pessoas_relacionamentos')
+          .select('pessoa_b_id, relacao_b_para_a')
+          .eq('pessoa_a_id', pessoaId);
+      return {
+        for (final r in rows)
+          (r['pessoa_b_id'] as num).toInt():
+              (r['relacao_b_para_a'] as String?) ?? 'Conhecido(a)',
+      };
+    } catch (e) {
+      print('[PessoaRepo] listarRelacionados() ERRO: $e');
+      return {};
+    }
+  }
+
   static Future<List<Pessoa>> listar() async {
     if (!isConfigured) return [];
     try {
-      final ids = <int>{dbUsuarioId};
-      if (legadoUsuarioId != null) ids.add(legadoUsuarioId!);
-      if (usuarioId != dbUsuarioId) ids.add(usuarioId);
+      final relRows = await _supabase
+          .from('pessoas_relacionamentos')
+          .select('pessoa_a_id, pessoa_b_id');
+      final ids = <int>{usuarioId};
+      for (final r in relRows) {
+        ids.add((r['pessoa_a_id'] as num).toInt());
+        ids.add((r['pessoa_b_id'] as num).toInt());
+      }
+      if (ids.isEmpty) return [];
       final rows = await _supabase
           .from('pessoas')
           .select('id, nome, sobrenome, email, telefone, tipo, data_nascimento, foto_perfil, situacao, falecido, created_at')
-          .inFilter('criado_por_id', ids.toList())
+          .inFilter('id', ids.toList())
           .order('nome');
       return rows.map((r) => Pessoa.fromMap(r)).toList();
     } catch (e) {
