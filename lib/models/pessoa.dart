@@ -539,7 +539,10 @@ class PessoaRepository {
     if (!isConfigured) {
       throw Exception('SUPABASE_ANON_KEY não configurada.');
     }
-    await _supabase.auth.resetPasswordForEmail(emailLimpo.toLowerCase());
+    await _supabase.auth.resetPasswordForEmail(
+      emailLimpo.toLowerCase(),
+      redirectTo: 'aeterna://login',
+    );
   }
 
   static Future<String?> obterVideoDaMemoria(int? memoriaId) async {
