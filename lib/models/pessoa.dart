@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:supabase/supabase.dart';
 
 import 'convite_familiar.dart';
@@ -166,8 +167,10 @@ class PessoaRepository {
     try {
       final rows = await _supabase
           .from('pessoas')
-          .select('id')
-          .eq('email', email.trim().toLowerCase());
+          .select('id, situacao')
+          .eq('email', email.trim().toLowerCase())
+          .order('situacao', ascending: true)
+          .limit(1);
       if (rows.isEmpty) return null;
       return (rows.first['id'] as num).toInt();
     } catch (_) {
@@ -177,6 +180,39 @@ class PessoaRepository {
 
   static Future<int?> autenticarUsuario(String email, String senha) async {
     if (!isConfigured) return null;
+
+    // ── 1. Tenta autenticação legada SHA-256 (usuarios.senha_hash + salt) ──
+    try {
+      final emailLimpo = email.trim().toLowerCase();
+      final userRows = await _supabase
+          .from('usuarios')
+          .select('id, senha_hash, salt')
+          .eq('email', emailLimpo)
+          .limit(1);
+      if (userRows.isNotEmpty) {
+        final hashEsperado = userRows.first['senha_hash'] as String?;
+        final salt = userRows.first['salt'] as String?;
+        if (hashEsperado != null && salt != null) {
+          final bytes = utf8.encode(senha + salt);
+          final hashCalculado = sha256.convert(bytes).toString();
+          if (hashCalculado == hashEsperado) {
+            final usuarioId = (userRows.first['id'] as num).toInt();
+            final pessoaRows = await _supabase
+                .from('pessoas')
+                .select('id')
+                .eq('_legacy_usuario_id', usuarioId)
+                .limit(1);
+            if (pessoaRows.isNotEmpty) {
+              return (pessoaRows.first['id'] as num).toInt();
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('[PessoaRepo] autenticarUsuario SHA-256 ERRO: $e');
+    }
+
+    // ── 2. Fallback: Supabase Auth (para usuários criados via signUp) ──
     try {
       final response = await _supabase.auth.signInWithPassword(
         email: email.trim().toLowerCase(),
@@ -190,7 +226,7 @@ class PessoaRepository {
       if (rows.isEmpty) return null;
       return (rows.first['id'] as num).toInt();
     } catch (e) {
-      print('[PessoaRepo] autenticarUsuario ERRO: $e');
+      print('[PessoaRepo] autenticarUsuario Supabase ERRO: $e');
       return null;
     }
   }
@@ -203,14 +239,15 @@ class PessoaRepository {
   }) async {
     if (!isConfigured) return null;
     try {
+      final emailLimpo = email.trim().toLowerCase();
       final existentes = await _supabase
           .from('pessoas')
           .select('id')
-          .eq('email', email.trim().toLowerCase());
+          .eq('email', emailLimpo);
       if (existentes.isNotEmpty) return -1;
 
       final response = await _supabase.auth.signUp(
-        email: email.trim().toLowerCase(),
+        email: emailLimpo,
         password: senha,
       );
       if (response.user == null) return null;
@@ -218,7 +255,7 @@ class PessoaRepository {
       final resp = await _supabase.from('pessoas').insert({
         'nome': nome.trim(),
         'sobrenome': sobrenome.trim(),
-        'email': email.trim().toLowerCase(),
+        'email': emailLimpo,
         'auth_user_id': response.user!.id,
         'situacao': 'ativo',
       }).select('id').single();
