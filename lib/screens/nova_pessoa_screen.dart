@@ -79,25 +79,70 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
     super.dispose();
   }
 
-  Future<Pessoa?> _buscarDuplicata() async {
+  Future<({Pessoa pessoa, bool ehRelacionada})?> _buscarDuplicata() async {
     final nome = _nomeController.text.trim();
-    final sobrenome = _apelidoController.text.trim();
+    final nomeTokens = nome.toLowerCase().split(RegExp(r'\s+'));
     final email = _emailController.text.trim().toLowerCase();
     final telefone = _telefoneController.text.trim();
     if (nome.isEmpty) return null;
 
     try {
+      final db = PessoaRepository.supabaseClient;
+
+      // 1. Token match + data_nascimento nas pessoas RELACIONADAS
       final todas = await PessoaRepository.listar();
       for (final p in todas) {
-        if (p.nome.toLowerCase() == nome.toLowerCase() &&
-            (sobrenome.isEmpty ||
-                (p.apelido?.toLowerCase() == sobrenome.toLowerCase()))) {
-          if (email.isNotEmpty &&
-              p.email?.toLowerCase() == email) return p;
-          if (telefone.isNotEmpty && p.telefone == telefone) return p;
-          if (_dataNascimento != null &&
-              p.dataNascimento != null &&
-              p.dataNascimento == _dataNascimento) return p;
+        final pTokens = p.nome.toLowerCase().split(RegExp(r'\s+'));
+        final todosTokensIguais = nomeTokens.every((t) => pTokens.contains(t));
+        if (!todosTokensIguais) continue;
+        if (_dataNascimento == null ||
+            p.dataNascimento == null ||
+            p.dataNascimento != _dataNascimento) continue;
+        return (pessoa: p, ehRelacionada: true);
+      }
+
+      final idsRelacionados = todas.map((p) => p.id).toSet();
+
+      // 2. Email ou telefone iguais em QUALQUER cadastro
+      //    Se a pessoa já for relacionada, trata como duplicata relacionada
+      if (email.isNotEmpty) {
+        final porEmail = await db
+            .from('pessoas')
+            .select('id, nome, sobrenome, email, telefone, data_nascimento')
+            .eq('email', email)
+            .maybeSingle();
+        if (porEmail != null) {
+          final p = Pessoa.fromMap(porEmail);
+          return (pessoa: p, ehRelacionada: idsRelacionados.contains(p.id));
+        }
+      }
+      if (telefone.isNotEmpty) {
+        final porTelefone = await db
+            .from('pessoas')
+            .select('id, nome, sobrenome, email, telefone, data_nascimento')
+            .eq('telefone', telefone)
+            .maybeSingle();
+        if (porTelefone != null) {
+          final p = Pessoa.fromMap(porTelefone);
+          return (pessoa: p, ehRelacionada: idsRelacionados.contains(p.id));
+        }
+      }
+
+      // 3. Nome + data_nascimento + (email ou telefone) EXATOS
+      if (_dataNascimento != null && (email.isNotEmpty || telefone.isNotEmpty)) {
+        final dataStr =
+            '${_dataNascimento!.year}-${_dataNascimento!.month.toString().padLeft(2, '0')}-${_dataNascimento!.day.toString().padLeft(2, '0')}';
+        var query = db
+            .from('pessoas')
+            .select('id, nome, sobrenome, email, telefone, data_nascimento')
+            .eq('nome', nome)
+            .eq('data_nascimento', dataStr);
+        if (email.isNotEmpty) query = query.eq('email', email);
+        if (telefone.isNotEmpty) query = query.eq('telefone', telefone);
+        final global = await query.maybeSingle();
+        if (global != null) {
+          final p = Pessoa.fromMap(global);
+          return (pessoa: p, ehRelacionada: idsRelacionados.contains(p.id));
         }
       }
     } catch (_) {}
@@ -108,12 +153,12 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Esta pessoa parece já existir'),
+        title: const Text('Esta pessoa já existe'),
         content: Text(
-          'Já existe um cadastro com nome semelhante:\n\n'
+          'Já existe um cadastro com este nome:\n\n'
           '${existente.nome}${existente.apelido != null ? ' ${existente.apelido}' : ''}'
           '${existente.email != null ? '\n${existente.email}' : ''}'
-          '\n\nDeseja usar o cadastro existente?',
+          '\n\nO que deseja fazer?',
         ),
         actions: [
           TextButton(
@@ -123,6 +168,58 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Usar existente'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<TipoRelacionamento?> _mostrarDialogGlobal(Pessoa existente) async {
+    final selecionado = ValueNotifier<TipoRelacionamento?>(null);
+    return showDialog<TipoRelacionamento?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Pessoa já cadastrada'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${existente.nome}${existente.apelido != null ? ' ${existente.apelido}' : ''}'
+              '${existente.email != null ? '\n${existente.email}' : ''}'
+              '\n\nJá existe na base. Qual seu parentesco?',
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: _tipoId,
+              decoration: const InputDecoration(
+                labelText: 'Parentesco',
+                border: OutlineInputBorder(),
+              ),
+              items: _tipos
+                  .map((t) => DropdownMenuItem(
+                        value: t.id,
+                        child: Text(t.rotuloA),
+                      ))
+                  .toList(),
+              onChanged: (v) {
+                selecionado.value = _tipos.firstWhere((t) => t.id == v);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final t = selecionado.value;
+              if (t == null) return;
+              Navigator.of(ctx).pop(t);
+            },
+            child: const Text('Adicionar como contato'),
           ),
         ],
       ),
@@ -169,14 +266,31 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     if (!_editando) {
-      final duplicata = await _buscarDuplicata();
-      if (duplicata != null) {
-        final usarExistente = await _mostrarDialogDuplicata(duplicata);
-        if (usarExistente == true) {
-          if (mounted) Navigator.of(context).pop(duplicata.id);
+      final result = await _buscarDuplicata();
+      if (result != null) {
+        if (result.ehRelacionada) {
+          final usarExistente = await _mostrarDialogDuplicata(result.pessoa);
+          if (usarExistente == true) {
+            if (mounted) Navigator.of(context).pop(result.pessoa.id);
+            return;
+          }
+          if (usarExistente == null) return;
+        } else {
+          final tipo = await _mostrarDialogGlobal(result.pessoa);
+          if (tipo != null) {
+            setState(() => _salvando = true);
+            await PessoaRelacionamentoService.instance.criar(
+              pessoaAId: PessoaRepository.usuarioId,
+              pessoaBId: result.pessoa.id,
+              tipo: tipo.id,
+              relacaoA: tipo.rotuloA,
+              relacaoB: tipo.rotuloB,
+            );
+            if (mounted) Navigator.of(context).pop(true);
+            return;
+          }
           return;
         }
-        if (usarExistente == null) return;
       }
     }
 

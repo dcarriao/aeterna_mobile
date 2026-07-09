@@ -47,12 +47,12 @@ class PessoaRelacionamentoService {
       // A→B: quem B é para A
       final rowsA = await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
-          .select('pessoa_b_id, relacao_b_para_a, tipo, id, observacoes, data_inicio, data_fim')
+          .select('pessoa_b_id, relacao_a_para_b, relacao_b_para_a, tipo, id')
           .eq('pessoa_a_id', pessoaId);
       // B→A: quem A é para B
       final rowsB = await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
-          .select('pessoa_a_id, relacao_a_para_b, tipo, id, observacoes, data_inicio, data_fim')
+          .select('pessoa_a_id, relacao_a_para_b, relacao_b_para_a, tipo, id')
           .eq('pessoa_b_id', pessoaId);
 
       // Busca nomes de todas as pessoas envolvidas
@@ -82,13 +82,6 @@ class PessoaRelacionamentoService {
           tipo: r['tipo'] as String? ?? 'OUTRO',
           rotuloDaOutraParaMim: r['relacao_b_para_a'] as String? ?? 'Conhecido(a)',
           rotuloDeMimParaAOutra: r['relacao_a_para_b'] as String? ?? 'Conhecido(a)',
-          observacoes: r['observacoes'] as String?,
-          dataInicio: r['data_inicio'] != null
-              ? DateTime.tryParse('${r['data_inicio']}')
-              : null,
-          dataFim: r['data_fim'] != null
-              ? DateTime.tryParse('${r['data_fim']}')
-              : null,
         ));
       }
       for (final r in rowsB) {
@@ -100,13 +93,6 @@ class PessoaRelacionamentoService {
           tipo: r['tipo'] as String? ?? 'OUTRO',
           rotuloDaOutraParaMim: r['relacao_a_para_b'] as String? ?? 'Conhecido(a)',
           rotuloDeMimParaAOutra: r['relacao_b_para_a'] as String? ?? 'Conhecido(a)',
-          observacoes: r['observacoes'] as String?,
-          dataInicio: r['data_inicio'] != null
-              ? DateTime.tryParse('${r['data_inicio']}')
-              : null,
-          dataFim: r['data_fim'] != null
-              ? DateTime.tryParse('${r['data_fim']}')
-              : null,
         ));
       }
       // Remove duplicatas
@@ -194,6 +180,7 @@ class PessoaRelacionamentoService {
           .from('pessoas_relacionamentos')
           .select('pessoa_b_id, relacao_b_para_a, tipo, relacao_a_para_b')
           .eq('pessoa_a_id', pessoaId)
+          .neq('tipo', 'AMIGO')
           .order('pessoa_b_id');
 
       if (rows.isEmpty) return [];
@@ -284,6 +271,17 @@ class PessoaRelacionamentoService {
   }) async {
     if (!PessoaRepository.isConfigured) return null;
     if (pessoaAId == pessoaBId) return null;
+
+    // Verifica se já existe relação entre as duas pessoas
+    final existentes = await PessoaRepository.supabaseClient
+        .from('pessoas_relacionamentos')
+        .select('id')
+        .or('and(pessoa_a_id.eq.$pessoaAId,pessoa_b_id.eq.$pessoaBId),and(pessoa_a_id.eq.$pessoaBId,pessoa_b_id.eq.$pessoaAId)')
+        .limit(1);
+    if (existentes.isNotEmpty) {
+      throw Exception('duplicate: relação já existe entre as pessoas');
+    }
+
     try {
       // Resolve rótulos do catálogo (se não vierem explícitos).
       String? rotA = relacaoA;

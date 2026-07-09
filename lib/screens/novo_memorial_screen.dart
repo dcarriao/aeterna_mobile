@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/memorial.dart';
 import '../models/pessoa.dart';
+import '../services/pessoa_relacionamento_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 
@@ -33,6 +34,7 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
   List<Pessoa> _pessoasDisponiveis = [];
   Pessoa? _pessoaSelecionada;
   bool _carregandoPessoas = false;
+  Map<int, String> _parentescoPorPessoaId = {};
 
   @override
   void initState() {
@@ -64,11 +66,22 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
     setState(() => _carregandoPessoas = true);
     try {
       final lista = await PessoaRepository.listar();
+      final rels = await PessoaRelacionamentoService.instance
+          .listarRelacionamentos(PessoaRepository.usuarioId);
+      final parentescoMap = <int, String>{
+        for (final r in rels) r.outraPessoaId: r.rotuloDaOutraParaMim,
+      };
       if (mounted) {
         setState(() {
           _pessoasDisponiveis = lista;
+          _parentescoPorPessoaId = parentescoMap;
           _carregandoPessoas = false;
         });
+        // Se abriu com pessoaParaVincular, atualiza o parentesco
+        final p = widget.pessoaParaVincular;
+        if (p != null && parentescoMap.containsKey(p.id)) {
+          _parentescoController.text = parentescoMap[p.id]!;
+        }
       }
     } catch (_) {
       if (mounted) setState(() => _carregandoPessoas = false);
@@ -250,17 +263,19 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
                                       border: InputBorder.none,
                                     ),
                                     items: _pessoasDisponiveis.map((p) {
+                                      final rel = _parentescoPorPessoaId[p.id] ?? p.parentesco;
                                       return DropdownMenuItem<Pessoa>(
                                         value: p,
-                                        child: Text('${p.nome} (${p.parentesco})', style: const TextStyle(fontSize: 14)),
+                                        child: Text('${p.nome} ($rel)', style: const TextStyle(fontSize: 14)),
                                       );
                                     }).toList(),
                                     onChanged: (pessoa) {
                                       if (pessoa != null) {
+                                        final rel = _parentescoPorPessoaId[pessoa.id] ?? pessoa.parentesco;
                                         setState(() {
                                           _pessoaSelecionada = pessoa;
                                           _nomeController.text = pessoa.nome;
-                                          _parentescoController.text = pessoa.parentesco;
+                                          _parentescoController.text = rel;
                                           _dataNascimento = pessoa.dataNascimento;
                                         });
                                       }

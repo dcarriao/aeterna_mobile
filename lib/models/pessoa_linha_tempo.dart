@@ -115,7 +115,7 @@ class PessoaVivaResumo {
     required this.parentesco,
     this.email,
     this.fotoUrl,
-    required this.ultimaInteracao,
+    this.ultimaInteracao,
     required this.totalEventos,
   });
 
@@ -124,7 +124,7 @@ class PessoaVivaResumo {
   final String parentesco;
   final String? email;
   final String? fotoUrl;
-  final DateTime ultimaInteracao;
+  final DateTime? ultimaInteracao;
   final int totalEventos;
 
   String get nomeCompleto {
@@ -133,6 +133,7 @@ class PessoaVivaResumo {
   }
 
   String get ultimaInteracaoHumana {
+    if (ultimaInteracao == null) return 'Nenhuma memória';
     final diff = DateTime.now().difference(ultimaInteracao);
     if (diff.inMinutes < 1) return 'agora';
     if (diff.inHours < 1) return 'há ${diff.inMinutes} min';
@@ -155,8 +156,7 @@ class PessoaVivaResumo {
       parentesco: map['parentesco'] as String? ?? 'Outro',
       email: map['email'] as String?,
       fotoUrl: map['foto_perfil'] as String?,
-      ultimaInteracao: DateTime.tryParse('${map['ultima_interacao']}') ??
-          DateTime.fromMillisecondsSinceEpoch(0),
+      ultimaInteracao: DateTime.tryParse('${map['ultima_interacao']}'),
       totalEventos: (map['total_eventos'] as num?)?.toInt() ?? 0,
     );
   }
