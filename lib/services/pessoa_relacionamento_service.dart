@@ -121,51 +121,64 @@ class PessoaRelacionamentoService {
     }
   }
 
-  /// Carrega o grafo COMPLETO do usuário (projeção com rótulos
-  /// resolvidos por direção). Usado pelo `GrafoFamiliaScreen`.
-  /// Query direta em `pessoas_relacionamentos` — sem view.
+  /// Carrega o grafo familiar da pessoa logada.
+  /// Query oficial: `pessoas_relacionamentos` + `tipos_relacionamento.nivel`,
+  /// sem view/RPC. Ordenado por nível hierárquico.
   Future<List<Map<String, dynamic>>> carregarGrafo() async {
     if (!PessoaRepository.isConfigured) return const [];
+    final pessoaId = PessoaRepository.usuarioId;
     try {
       final rows = await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
-          .select('id, pessoa_a_id, pessoa_b_id, relacao_a_para_b, relacao_b_para_a, tipo')
-          .or('pessoa_a_id.eq.${PessoaRepository.usuarioId},pessoa_b_id.eq.${PessoaRepository.usuarioId}');
+          .select('pessoa_b_id, relacao_b_para_a, tipo, relacao_a_para_b, id')
+          .eq('pessoa_a_id', pessoaId);
 
-      // Busca nomes de todas as pessoas envolvidas
-      final todosIds = <int>{
-        for (final r in rows)
-          (r['pessoa_a_id'] as num).toInt(),
-        for (final r in rows)
-          (r['pessoa_b_id'] as num).toInt(),
-      };
+      if (rows.isEmpty) return [];
+
+      // Busca nomes + níveis
+      final idsParaBuscar = rows
+          .map<int>((r) => (r['pessoa_b_id'] as num).toInt())
+          .toList()
+        ..add(pessoaId);
       final nomes = <int, String>{};
-      if (todosIds.isNotEmpty) {
-        final pRows = await PessoaRepository.supabaseClient
+      final niveis = <String, int>{};
+
+      final futuros = await Future.wait([
+        PessoaRepository.supabaseClient
             .from('pessoas')
             .select('id, nome, sobrenome')
-            .inFilter('id', todosIds.toList());
-        for (final r in pRows) {
-          nomes[(r['id'] as num).toInt()] =
-              '${r['nome'] ?? ''} ${r['sobrenome'] ?? ''}'.trim();
-        }
+            .inFilter('id', idsParaBuscar),
+        PessoaRepository.supabaseClient
+            .from('tipos_relacionamento')
+            .select('id, nivel'),
+      ]);
+      for (final r in futuros[0]) {
+        nomes[(r['id'] as num).toInt()] =
+            '${r['nome'] ?? ''} ${r['sobrenome'] ?? ''}'.trim();
       }
+      for (final r in futuros[1]) {
+        niveis[r['id'] as String] = (r['nivel'] as num?)?.toInt() ?? 99;
+      }
+      final meuNome = nomes[pessoaId] ?? 'Pessoa #$pessoaId';
 
-      // Converte para o formato esperado pelo GrafoFamiliaScreen
-      return rows.map<Map<String, dynamic>>((r) {
-        final aId = (r['pessoa_a_id'] as num).toInt();
+      final data = rows.map<Map<String, dynamic>>((r) {
         final bId = (r['pessoa_b_id'] as num).toInt();
+        final tipo = r['tipo'] as String? ?? 'OUTRO';
         return {
-          'relacionamento_id': r['id'],
-          'pessoa_mais_antiga_id': aId < bId ? aId : bId,
-          'pessoa_mais_nova_id': aId < bId ? bId : aId,
+          'pessoa_mais_antiga_id': pessoaId < bId ? pessoaId : bId,
+          'pessoa_mais_nova_id': pessoaId < bId ? bId : pessoaId,
           'rotulo_a': r['relacao_a_para_b'] as String? ?? '',
           'rotulo_b': r['relacao_b_para_a'] as String? ?? '',
-          'nome_a': nomes[aId] ?? 'Pessoa #$aId',
+          'nome_a': meuNome,
           'nome_b': nomes[bId] ?? 'Pessoa #$bId',
-          'tipo': r['tipo'] as String? ?? 'OUTRO',
+          'tipo': tipo,
+          'nivel': niveis[tipo] ?? 99,
+          'relacionamento_id': r['id'],
         };
       }).toList();
+
+      data.sort((a, b) => (a['nivel'] as int).compareTo(b['nivel'] as int));
+      return data;
     } catch (e) {
       print('[PessoaRelacionamento] carregarGrafo ERRO: $e');
       return const [];
