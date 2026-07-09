@@ -384,6 +384,12 @@ class PessoaRelacionamentoService {
         return 'AFILHADO';
       case 'AFILHADO':
         return rotuloB == 'Madrinha' ? 'MADRINHA' : 'PADRINHO';
+      case 'ENTEADO':
+      case 'ENTEADA':
+        return rotuloB == 'Madrasta' ? 'MADRASTA' : 'PADRASTO';
+      case 'PADRASTO':
+      case 'MADRASTA':
+        return rotuloB == 'Enteada' ? 'ENTEADA' : 'ENTEADO';
       case 'GENRO':
       case 'NORA':
         return 'SOGRO';

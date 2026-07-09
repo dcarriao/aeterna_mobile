@@ -6,6 +6,7 @@ import '../models/memorial.dart';
 import '../models/pessoa.dart';
 import '../models/pessoa_linha_tempo.dart';
 import '../models/pessoa_relacionamento.dart';
+import '../models/tipo_relacionamento.dart';
 import '../services/pessoa_relacionamento_service.dart';
 import '../services/pessoa_timeline_service.dart';
 import '../services/supabase_service.dart';
@@ -669,6 +670,119 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     return 'É $artigo $rot';
   }
 
+  Future<void> _alterarRelacao(OutraPessoaNaFamilia f) async {
+    final tipos = await PessoaRelacionamentoService.instance.listarTipos();
+    if (!mounted || tipos.isEmpty) return;
+
+    final selecionado = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final agrupados = <String, List<TipoRelacionamento>>{};
+        for (final t in tipos) {
+          agrupados.putIfAbsent(t.categoria, () => []).add(t);
+        }
+        final ordem = ['familia', 'afinidade', 'conjugue', 'amizade', 'outro'];
+        final rotulos = {
+          'familia': 'Família',
+          'afinidade': 'Afinidade',
+          'conjugue': 'Conjugal',
+          'amizade': 'Amizade',
+          'outro': 'Outro',
+        };
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.borda,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Alterar relação',
+                style: TextStyle(
+                  color: AppColors.roxo, fontSize: 18, fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final cat in ordem)
+                      if (agrupados.containsKey(cat) && agrupados[cat]!.isNotEmpty) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4, top: 8),
+                          child: Text(
+                            rotulos[cat] ?? cat,
+                            style: const TextStyle(
+                              color: Color(0xFF7A7280), fontSize: 12,
+                              fontWeight: FontWeight.w700, letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                        for (final t in agrupados[cat]!)
+                          ListTile(
+                            title: Text(t.rotuloA,
+                              style: const TextStyle(
+                                color: AppColors.roxo, fontWeight: FontWeight.w600, fontSize: 14,
+                              ),
+                            ),
+                            onTap: () => Navigator.of(ctx).pop(t.id),
+                          ),
+                      ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selecionado == null || !mounted) return;
+    final t = tipos.firstWhere((t) => t.id == selecionado);
+    await PessoaRelacionamentoService.instance.atualizarRotulos(
+      relacionamentoId: f.relacionamentoId,
+      tipo: t.id,
+      relacaoA: t.rotuloA,
+      relacaoB: t.rotuloB,
+    );
+    if (mounted) {
+      setState(() {
+        _familia = _familia.map((x) {
+          if (x.relacionamentoId == f.relacionamentoId) {
+            return OutraPessoaNaFamilia(
+              relacionamentoId: x.relacionamentoId,
+              outraPessoaId: x.outraPessoaId,
+              outraPessoaNome: x.outraPessoaNome,
+              tipo: t.id,
+              rotuloDaOutraParaMim: t.rotuloB,
+              rotuloDeMimParaAOutra: t.rotuloA,
+              observacoes: x.observacoes,
+              dataInicio: x.dataInicio,
+              dataFim: x.dataFim,
+            );
+          }
+          return x;
+        }).toList();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Relação alterada com sucesso!')),
+      );
+    }
+  }
+
   Widget _buildCardRelacionamento(OutraPessoaNaFamilia f) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -728,14 +842,20 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                     _familia = _familia.where((x) => x.relacionamentoId != f.relacionamentoId).toList();
                   });
                 }
+              } else if (acao == 'alterar') {
+                await _alterarRelacao(f);
               }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
+            itemBuilder: (_) => [
+              const PopupMenuItem(
                 value: 'inativar',
                 child: Text('Marcar como inativo'),
               ),
-              PopupMenuItem(
+              const PopupMenuItem(
+                value: 'alterar',
+                child: Text('Alterar relação'),
+              ),
+              const PopupMenuItem(
                 value: 'remover',
                 child: Text('Remover', style: TextStyle(color: Colors.red)),
               ),
