@@ -679,7 +679,18 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
         (erro.statusCode == '400' || erro.statusCode == '403')) {
       return 'O Supabase bloqueou o envio da foto. Configure a política do bucket fotos.';
     }
-    return 'Não foi possível salvar agora. Verifique a conexão e tente novamente.';
+    // Mostra erro real para diagnóstico
+    final msg = erro.toString();
+    if (msg.contains('unique') || msg.contains('duplicate')) {
+      return 'Registro duplicado. Verifique se já existe.';
+    }
+    if (msg.contains('permission') || msg.contains('policy')) {
+      return 'Permissão negada. Verifique as políticas RLS.';
+    }
+    if (msg.contains('foreign key') || msg.contains('violates')) {
+      return 'Erro de referência. Verifique os dados vinculados.';
+    }
+    return 'Erro: $msg';
   }
 
   Widget _buildFieldLabel(String label) {

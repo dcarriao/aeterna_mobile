@@ -152,6 +152,7 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
   Future<bool?> _mostrarDialogDuplicata(Pessoa existente) async {
     return showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Esta pessoa já existe'),
         content: Text(
@@ -162,7 +163,7 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(null),
+            onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancelar'),
           ),
           FilledButton(
@@ -274,19 +275,29 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
             if (mounted) Navigator.of(context).pop(result.pessoa.id);
             return;
           }
-          if (usarExistente == null) return;
+          // false ou null = cancelar, não criar nada
+          return;
         } else {
           final tipo = await _mostrarDialogGlobal(result.pessoa);
           if (tipo != null) {
             setState(() => _salvando = true);
-            await PessoaRelacionamentoService.instance.criar(
-              pessoaAId: PessoaRepository.usuarioId,
-              pessoaBId: result.pessoa.id,
-              tipo: tipo.id,
-              relacaoA: tipo.rotuloA,
-              relacaoB: tipo.rotuloB,
-            );
-            if (mounted) Navigator.of(context).pop(true);
+            try {
+              await PessoaRelacionamentoService.instance.criar(
+                pessoaAId: PessoaRepository.usuarioId,
+                pessoaBId: result.pessoa.id,
+                tipo: tipo.id,
+                relacaoA: tipo.rotuloA,
+                relacaoB: tipo.rotuloB,
+              );
+              if (mounted) Navigator.of(context).pop(true);
+            } catch (e) {
+              if (mounted) {
+                setState(() => _salvando = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Erro ao criar relação: $e')),
+                );
+              }
+            }
             return;
           }
           return;
@@ -325,15 +336,12 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
           (x) => x.id == _tipoId,
           orElse: () => _tipos.last,
         );
-        // A pergunta é "Relação com você": o usuário selecionou o que a
-        // NOVA pessoa é para ELE (rotuloA). Mantemos pessoaA = usuário,
-        // e trocamos os rótulos para tipos assimétricos.
         await PessoaRelacionamentoService.instance.criar(
           pessoaAId: PessoaRepository.usuarioId,
           pessoaBId: novoId,
           tipo: _tipoId!,
-          relacaoA: t.simetrico ? t.rotuloA : t.rotuloB,
-          relacaoB: t.simetrico ? t.rotuloB : t.rotuloA,
+          relacaoA: t.rotuloA,
+          relacaoB: t.rotuloB,
         );
       }
 
