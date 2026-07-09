@@ -366,7 +366,7 @@ class PessoaRelacionamentoService {
       case 'FILHO':
         return rotuloB == 'Mãe' ? 'MAE' : 'PAI';
       case 'FILHA':
-        return rotuloB == 'Mãe' ? 'MAE' : 'PAI';
+        return 'PAI';
       case 'AVO':
         return 'NETO';
       case 'NETO':
