@@ -755,8 +755,8 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     await PessoaRelacionamentoService.instance.atualizarRotulos(
       relacionamentoId: f.relacionamentoId,
       tipo: t.id,
-      relacaoA: t.rotuloA,
-      relacaoB: t.rotuloB,
+      relacaoA: t.rotuloB,
+      relacaoB: t.rotuloA,
     );
     if (mounted) {
       setState(() {
@@ -767,8 +767,8 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
               outraPessoaId: x.outraPessoaId,
               outraPessoaNome: x.outraPessoaNome,
               tipo: t.id,
-              rotuloDaOutraParaMim: t.rotuloB,
-              rotuloDeMimParaAOutra: t.rotuloA,
+              rotuloDaOutraParaMim: t.rotuloA,
+              rotuloDeMimParaAOutra: t.rotuloB,
               observacoes: x.observacoes,
               dataInicio: x.dataInicio,
               dataFim: x.dataFim,
