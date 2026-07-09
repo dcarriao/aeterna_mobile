@@ -121,64 +121,119 @@ class PessoaRelacionamentoService {
     }
   }
 
-  /// Carrega o grafo familiar da pessoa logada.
-  /// Query oficial: `pessoas_relacionamentos` + `tipos_relacionamento.nivel`,
-  /// sem view/RPC. Ordenado por nível hierárquico.
+  /// Lista de contatos — query oficial.
+  /// select a.pessoa_b_id, a.relacao_b_para_a, b.nome
+  /// from pessoas_relacionamentos a
+  /// inner join pessoas b on a.pessoa_b_id = b.id
+  /// where a.pessoa_a_id = ?
+  /// order by pessoa_b_id;
+  ///
+  /// [excludeId] opcional: exclui uma pessoa específica do resultado
+  /// (usado no Perfil da Pessoa para não mostrar a si mesma).
+  Future<List<Map<String, dynamic>>> listarContatos({
+    int? excludeId,
+  }) async {
+    if (!PessoaRepository.isConfigured) return const [];
+    final pessoaId = PessoaRepository.usuarioId;
+    try {
+      final rows = await PessoaRepository.supabaseClient
+          .from('pessoas_relacionamentos')
+          .select('pessoa_b_id, relacao_b_para_a')
+          .eq('pessoa_a_id', pessoaId)
+          .order('pessoa_b_id');
+
+      if (rows.isEmpty) return [];
+
+      final bIds = rows
+          .map<int>((r) => (r['pessoa_b_id'] as num).toInt())
+          .toList();
+
+      final nomes = await PessoaRepository.supabaseClient
+          .from('pessoas')
+          .select('id, nome, sobrenome')
+          .inFilter('id', bIds);
+
+      final nomePorId = <int, String>{
+        for (final r in nomes)
+          (r['id'] as num).toInt():
+              '${r['nome'] ?? ''} ${r['sobrenome'] ?? ''}'.trim(),
+      };
+
+      return rows
+          .map<Map<String, dynamic>>((r) {
+            final bid = (r['pessoa_b_id'] as num).toInt();
+            return {
+              'pessoa_b_id': bid,
+              'relacao_b_para_a': r['relacao_b_para_a'] as String? ?? '',
+              'nome': nomePorId[bid] ?? 'Pessoa #$bid',
+            };
+          })
+          .where((m) =>
+              excludeId == null || (m['pessoa_b_id'] as int) != excludeId)
+          .toList();
+    } catch (e) {
+      print('[PessoaRelacionamento] listarContatos ERRO: $e');
+      return const [];
+    }
+  }
+
+  /// Mapa da Família — query oficial.
+  /// select a.pessoa_b_id, a.relacao_b_para_a, a.tipo, a.relacao_a_para_b,
+  ///        b.nome, c.nivel
+  /// from pessoas_relacionamentos a
+  /// inner join pessoas b on a.pessoa_b_id = b.id
+  /// inner join tipos_relacionamento c on c.id = a.tipo
+  /// where a.pessoa_a_id = ?
+  /// order by c.nivel;
   Future<List<Map<String, dynamic>>> carregarGrafo() async {
     if (!PessoaRepository.isConfigured) return const [];
     final pessoaId = PessoaRepository.usuarioId;
     try {
       final rows = await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
-          .select('pessoa_b_id, relacao_b_para_a, tipo, relacao_a_para_b, id')
-          .eq('pessoa_a_id', pessoaId);
+          .select('pessoa_b_id, relacao_b_para_a, tipo, relacao_a_para_b')
+          .eq('pessoa_a_id', pessoaId)
+          .order('pessoa_b_id');
 
       if (rows.isEmpty) return [];
 
-      // Busca nomes + níveis
-      final idsParaBuscar = rows
+      final bIds = rows
           .map<int>((r) => (r['pessoa_b_id'] as num).toInt())
-          .toList()
-        ..add(pessoaId);
-      final nomes = <int, String>{};
-      final niveis = <String, int>{};
+          .toList();
 
-      final futuros = await Future.wait([
-        PessoaRepository.supabaseClient
-            .from('pessoas')
-            .select('id, nome, sobrenome')
-            .inFilter('id', idsParaBuscar),
-        PessoaRepository.supabaseClient
-            .from('tipos_relacionamento')
-            .select('id, nivel'),
-      ]);
-      for (final r in futuros[0]) {
-        nomes[(r['id'] as num).toInt()] =
-            '${r['nome'] ?? ''} ${r['sobrenome'] ?? ''}'.trim();
-      }
-      for (final r in futuros[1]) {
-        niveis[r['id'] as String] = (r['nivel'] as num?)?.toInt() ?? 99;
-      }
-      final meuNome = nomes[pessoaId] ?? 'Pessoa #$pessoaId';
+      final nomes = await PessoaRepository.supabaseClient
+          .from('pessoas')
+          .select('id, nome, sobrenome')
+          .inFilter('id', bIds);
 
-      final data = rows.map<Map<String, dynamic>>((r) {
-        final bId = (r['pessoa_b_id'] as num).toInt();
+      final nv = await PessoaRepository.supabaseClient
+          .from('tipos_relacionamento')
+          .select('id, nivel');
+
+      final nomePorId = <int, String>{
+        for (final r in nomes)
+          (r['id'] as num).toInt():
+              '${r['nome'] ?? ''} ${r['sobrenome'] ?? ''}'.trim(),
+      };
+      final nivelPorTipo = <String, int>{
+        for (final r in nv) (r['id'] as String): (r['nivel'] as num?)?.toInt() ?? 99,
+      };
+
+      final out = rows.map<Map<String, dynamic>>((r) {
+        final bid = (r['pessoa_b_id'] as num).toInt();
         final tipo = r['tipo'] as String? ?? 'OUTRO';
         return {
-          'pessoa_mais_antiga_id': pessoaId < bId ? pessoaId : bId,
-          'pessoa_mais_nova_id': pessoaId < bId ? bId : pessoaId,
-          'rotulo_a': r['relacao_a_para_b'] as String? ?? '',
-          'rotulo_b': r['relacao_b_para_a'] as String? ?? '',
-          'nome_a': meuNome,
-          'nome_b': nomes[bId] ?? 'Pessoa #$bId',
+          'pessoa_b_id': bid,
+          'relacao_b_para_a': r['relacao_b_para_a'] as String? ?? '',
           'tipo': tipo,
-          'nivel': niveis[tipo] ?? 99,
-          'relacionamento_id': r['id'],
+          'relacao_a_para_b': r['relacao_a_para_b'] as String? ?? '',
+          'nome': nomePorId[bid] ?? 'Pessoa #$bid',
+          'nivel': nivelPorTipo[tipo] ?? 99,
         };
       }).toList();
 
-      data.sort((a, b) => (a['nivel'] as int).compareTo(b['nivel'] as int));
-      return data;
+      out.sort((a, b) => (a['nivel'] as int).compareTo(b['nivel'] as int));
+      return out;
     } catch (e) {
       print('[PessoaRelacionamento] carregarGrafo ERRO: $e');
       return const [];
@@ -310,7 +365,7 @@ class PessoaRelacionamentoService {
       case 'FILHO':
         return rotuloB == 'Mãe' ? 'MAE' : 'PAI';
       case 'FILHA':
-        return 'PAI';
+        return rotuloB == 'Mãe' ? 'MAE' : 'PAI';
       case 'AVO':
         return 'NETO';
       case 'NETO':
@@ -339,10 +394,11 @@ class PessoaRelacionamentoService {
     }
   }
 
-  /// Atualiza o rótulo (ou rótulos) de uma relação. Útil para
-  /// "Mudei de ideia — agora é genro/nora em vez de filho/filha".
+  /// Atualiza os dados de uma relação (ambas as direções).
+  /// Usado para alterar tipo, rótulos, observações, etc.
   Future<void> atualizarRotulos({
     required int relacionamentoId,
+    String? tipo,
     String? relacaoA,
     String? relacaoB,
     String? observacoes,
@@ -351,9 +407,20 @@ class PessoaRelacionamentoService {
   }) async {
     if (!PessoaRepository.isConfigured) return;
     try {
+      // Busca dados atuais para encontrar a linha inversa
+      final row = await PessoaRepository.supabaseClient
+          .from('pessoas_relacionamentos')
+          .select('pessoa_a_id, pessoa_b_id, usuario_id')
+          .eq('id', relacionamentoId)
+          .single();
+      final aId = (row['pessoa_a_id'] as num).toInt();
+      final bId = (row['pessoa_b_id'] as num).toInt();
+      final uId = (row['usuario_id'] as num?)?.toInt() ?? PessoaRepository.usuarioId;
+
       final data = <String, dynamic>{};
       if (relacaoA != null) data['relacao_a_para_b'] = relacaoA;
       if (relacaoB != null) data['relacao_b_para_a'] = relacaoB;
+      if (tipo != null) data['tipo'] = tipo;
       if (observacoes != null) data['observacoes'] = observacoes;
       if (dataInicio != null) {
         data['data_inicio'] =
@@ -364,10 +431,37 @@ class PessoaRelacionamentoService {
             '${dataFim.year}-${dataFim.month.toString().padLeft(2, '0')}-${dataFim.day.toString().padLeft(2, '0')}';
       }
       if (data.isEmpty) return;
+
+      // Atualiza a linha direta
       await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
           .update(data)
           .eq('id', relacionamentoId);
+
+      // Atualiza a linha inversa com labels trocados
+      final invData = <String, dynamic>{};
+      if (relacaoB != null) invData['relacao_a_para_b'] = relacaoB;
+      if (relacaoA != null) invData['relacao_b_para_a'] = relacaoA;
+      if (tipo != null) {
+        invData['tipo'] = _inverseTipo(tipo, relacaoB ?? relacaoA ?? '');
+      }
+      if (observacoes != null) invData['observacoes'] = observacoes;
+      if (dataInicio != null) {
+        invData['data_inicio'] =
+            '${dataInicio.year}-${dataInicio.month.toString().padLeft(2, '0')}-${dataInicio.day.toString().padLeft(2, '0')}';
+      }
+      if (dataFim != null) {
+        invData['data_fim'] =
+            '${dataFim.year}-${dataFim.month.toString().padLeft(2, '0')}-${dataFim.day.toString().padLeft(2, '0')}';
+      }
+
+      if (invData.isNotEmpty) {
+        await PessoaRepository.supabaseClient
+            .from('pessoas_relacionamentos')
+            .update(invData)
+            .eq('usuario_id', uId)
+            .or('and(pessoa_a_id.eq.$bId,pessoa_b_id.eq.$aId)');
+      }
     } catch (e) {
       print('[PessoaRelacionamento] atualizarRotulos ERRO: $e');
     }

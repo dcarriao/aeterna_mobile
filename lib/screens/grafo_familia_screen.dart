@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../models/pessoa.dart';
-import '../models/pessoa_relacionamento.dart';
-import '../models/tipo_relacionamento.dart';
 import '../services/pessoa_relacionamento_service.dart';
 import '../theme/app_theme.dart';
 import 'pessoa_detalhe_screen.dart';
@@ -25,7 +23,6 @@ class GrafoFamiliaScreen extends StatefulWidget {
 class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   List<Pessoa> _pessoas = const [];
   List<Map<String, dynamic>> _grafo = const [];
-  Map<int, String> _nomePorId = const {};
   bool _carregando = true;
   String? _erro;
 
@@ -48,7 +45,6 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
         setState(() {
           _pessoas = pessoas;
           _grafo = grafo;
-          _nomePorId = {for (final p in pessoas) p.id: p.nome};
           _carregando = false;
         });
       }
@@ -61,62 +57,6 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
         });
       }
     }
-  }
-
-  /// Agrupa as relações POR PESSOA central, e retorna a árvore.
-  /// Critério: cada pessoa é "raiz" se não tem pai/mãe (heurística:
-  /// aparece como `filho(a)` em alguma relação). Pessoas sem
-  /// relações ficam no nível "Outros".
-  Map<int, List<Map<String, dynamic>>> _agruparPorPessoa() {
-    final porPessoa = <int, List<Map<String, dynamic>>>{};
-    for (final r in _grafo) {
-      final aId = (r['pessoa_mais_antiga_id'] as num?)?.toInt();
-      final bId = (r['pessoa_mais_nova_id'] as num?)?.toInt();
-      if (aId == null || bId == null) continue;
-      porPessoa.putIfAbsent(aId, () => []).add({
-        'relacionamento_id': r['relacionamento_id'],
-        'outra_id': bId,
-        'rotulo_a': (r['rotulo_a'] as String?) ?? 'Conhecido(a)',
-        'rotulo_b': (r['rotulo_b'] as String?) ?? 'Conhecido(a)',
-        'nome_b': r['nome_b'],
-        'tipo': (r['tipo'] as String?) ?? 'OUTRO',
-      });
-      porPessoa.putIfAbsent(bId, () => []).add({
-        'relacionamento_id': r['relacionamento_id'],
-        'outra_id': aId,
-        'rotulo_a': (r['rotulo_b'] as String?) ?? 'Conhecido(a)',
-        'rotulo_b': (r['rotulo_a'] as String?) ?? 'Conhecido(a)',
-        'nome_b': r['nome_a'],
-        'tipo': (r['tipo'] as String?) ?? 'OUTRO',
-      });
-    }
-    return porPessoa;
-  }
-
-  /// Retorna a lista de pessoas que são "filho(a)" em alguma
-  /// relação (não devem ser raízes).
-  /// Usa os rótulos para determinar a direção da hierarquia em vez
-  /// de assumir que `pessoa_mais_nova_id` (greatest ID) é o filho.
-  Set<int> _idsQueSaoFilhos() {
-    const childTerms = {
-      'Filho(a)', 'Neto(a)', 'Bisneto(a)', 'Sobrinho(a)', 'Afilhado(a)',
-    };
-    final filhos = <int>{};
-    for (final r in _grafo) {
-      final rotuloA = r['rotulo_a'] as String? ?? '';
-      final rotuloB = r['rotulo_b'] as String? ?? '';
-      final antigaId = (r['pessoa_mais_antiga_id'] as num).toInt();
-      final novaId = (r['pessoa_mais_nova_id'] as num).toInt();
-      if (childTerms.contains(rotuloA)) {
-        // antiga chama nova de filho → nova é o filho
-        filhos.add(novaId);
-      }
-      if (childTerms.contains(rotuloB)) {
-        // nova chama antiga de filho → antiga é o filho
-        filhos.add(antigaId);
-      }
-    }
-    return filhos;
   }
 
   @override
@@ -220,34 +160,53 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   }
 
   List<Widget> _buildTree() {
-    final grupos = _agruparPorPessoa();
-    final filhos = _idsQueSaoFilhos();
-    final todasIds = grupos.keys.toList();
-    final pessoasPorId = {for (final p in _pessoas) p.id: p};
-
-    final raizes = todasIds.where((id) => !filhos.contains(id)).toList();
-    final visitados = <int>{};
+    // Agrupa por nível hierárquico
+    final porNivel = <int, List<Map<String, dynamic>>>{};
+    for (final r in _grafo) {
+      final nivel = (r['nivel'] as num?)?.toInt() ?? 99;
+      porNivel.putIfAbsent(nivel, () => []).add(r);
+    }
+    final niveisOrdenados = porNivel.keys.toList()..sort();
     final widgets = <Widget>[];
 
-    if (raizes.length == 1) {
-      widgets.add(_buildNo(raizes.first, grupos, pessoasPorId, 0, visitados));
-    } else {
-      for (final id in raizes) {
-        widgets.add(_buildNo(id, grupos, pessoasPorId, 0, visitados));
+    final pessoasNoGrafo = _grafo
+        .map<int>((r) => (r['pessoa_b_id'] as num).toInt())
+        .toSet();
+    final pessoasPorId = {for (final p in _pessoas) p.id: p};
+
+    for (final nivel in niveisOrdenados) {
+      final titulo = _rotuloNivel(nivel);
+      widgets.add(Padding(
+        padding: const EdgeInsets.only(left: 4, bottom: 8, top: 16),
+        child: Text(
+          titulo,
+          style: const TextStyle(
+            color: AppColors.dourado,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.6,
+          ),
+        ),
+      ));
+      for (final r in porNivel[nivel]!) {
+        final bId = (r['pessoa_b_id'] as num).toInt();
+        final nome = r['nome'] as String? ?? 'Pessoa #$bId';
+        final rotulo = r['relacao_b_para_a'] as String? ?? '';
+        final pessoa = pessoasPorId[bId];
+        widgets.add(_buildCardPessoa(bId, nome, rotulo, pessoa));
       }
     }
 
-    // Pessoas sem nenhuma relação (não aparecem nos grupos).
-    final nosGrupos = todasIds.toSet();
+    // Pessoas sem relação
     final semRelacao = _pessoas
-        .where((p) => p.id != null && !nosGrupos.contains(p.id))
+        .where((p) => p.id != null && !pessoasNoGrafo.contains(p.id))
         .toList();
     if (semRelacao.isNotEmpty) {
       widgets.add(const SizedBox(height: 16));
       widgets.add(const Padding(
         padding: EdgeInsets.only(left: 4, bottom: 8),
         child: Text(
-          'Outros',
+          'Sem relação definida',
           style: TextStyle(
             color: AppColors.dourado,
             fontSize: 12,
@@ -257,225 +216,138 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
         ),
       ));
       for (final p in semRelacao) {
-        widgets.add(_buildNoSemRelacao(p));
+        widgets.add(_buildCardSemRelacao(p));
       }
     }
 
     return widgets;
   }
 
-  Widget _buildNo(
-    int pessoaId,
-    Map<int, List<Map<String, dynamic>>> grupos,
-    Map<int, Pessoa> pessoasPorId,
-    int profundidade,
-    Set<int> visitados,
-  ) {
-    if (visitados.contains(pessoaId)) {
-      // Ciclo detectado — mostra apenas o nome, sem recursão
-      final nome = pessoasPorId[pessoaId]?.nome ??
-          (_nomePorId[pessoaId] ?? 'Pessoa #$pessoaId');
-      return Padding(
-        padding: EdgeInsets.only(left: profundidade * 16.0, top: 2, bottom: 2),
-        child: Text(
-          '$nome (já listado)',
-          style: const TextStyle(
-            color: Color(0xFF7A7280),
-            fontSize: 12,
-            fontStyle: FontStyle.italic,
-          ),
-        ),
-      );
+  String _rotuloNivel(int nivel) {
+    switch (nivel) {
+      case 1: return 'Geração +3';
+      case 2: return 'Geração +2';
+      case 3: return 'Geração +1 (Pais)';
+      case 4: return 'Minha Geração';
+      case 5: return 'Geração -1 (Filhos)';
+      case 6: return 'Geração -2';
+      default: return 'Nível $nivel';
     }
-    visitados.add(pessoaId);
-
-    final pessoa = pessoasPorId[pessoaId];
-    final nome = pessoa?.nome ??
-        (_nomePorId[pessoaId] ?? 'Pessoa #$pessoaId');
-    final parentesco = pessoa?.parentesco ?? '';
-    final relacionados = grupos[pessoaId] ?? const <Map<String, dynamic>>[];
-
-    return Padding(
-      padding: EdgeInsets.only(left: profundidade * 16.0, top: 4, bottom: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Material(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: pessoa == null
-                  ? null
-                  : () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => PessoaDetalheScreen(
-                            pessoa: pessoa,
-                            onAbrirMemoria: (_) {},
-                            titulosMemorias: const {},
-                          ),
-                        ),
-                      ),
-              child: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.borda),
-                ),
-                child: Row(
-                  children: [
-                    const CircleAvatar(
-                      radius: 16,
-                      backgroundColor: Color(0xFFF0EAF5),
-                      child: Icon(Icons.person,
-                          size: 16, color: AppColors.roxo),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            nome,
-                            style: const TextStyle(
-                              color: AppColors.roxo,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          if (parentesco.isNotEmpty)
-                            Text(
-                              parentesco,
-                              style: const TextStyle(
-                                color: Color(0xFF7A7280),
-                                fontSize: 11,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          for (final r in relacionados)
-            _buildRelacionamento(r, pessoaId, grupos, pessoasPorId, profundidade + 1, visitados),
-        ],
-      ),
-    );
   }
 
-  Widget _buildRelacionamento(
-    Map<String, dynamic> rel,
-    int pessoaOrigemId,
-    Map<int, List<Map<String, dynamic>>> grupos,
-    Map<int, Pessoa> pessoasPorId,
-    int profundidade,
-    Set<int> visitados,
-  ) {
-    final rotulo = rel['rotulo_a'] as String? ?? 'Conhecido(a)';
-    final outraIdNum = rel['outra_id'];
-    if (outraIdNum == null) return const SizedBox.shrink();
-    final outraId = (outraIdNum as num).toInt();
+  Widget _buildCardPessoa(int id, String nome, String rotulo, Pessoa? pessoa) {
     return Padding(
-      padding: EdgeInsets.only(
-        left: 20.0,
-        top: 2,
-        bottom: 2,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.subdirectory_arrow_right,
-                  size: 16, color: AppColors.dourado),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0x1AD4A84F),
-                  borderRadius: BorderRadius.circular(6),
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: pessoa == null
+              ? null
+              : () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PessoaDetalheScreen(
+                        pessoa: pessoa,
+                        onAbrirMemoria: (_) {},
+                        titulosMemorias: const {},
+                      ),
+                    ),
+                  ),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.borda),
+            ),
+            child: Row(
+              children: [
+                const CircleAvatar(
+                  radius: 16,
+                  backgroundColor: Color(0xFFF0EAF5),
+                  child: Icon(Icons.person, size: 16, color: AppColors.roxo),
                 ),
-                child: Text(
-                  rotulo,
-                  style: const TextStyle(
-                    color: AppColors.dourado,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.4,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        nome,
+                        style: const TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (rotulo.isNotEmpty)
+                        Text(
+                          rotulo,
+                          style: const TextStyle(
+                            color: Color(0xFF7A7280),
+                            fontSize: 11,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-              ),
-            ],
-          ),
-          _buildNo(outraId, grupos, pessoasPorId, profundidade, visitados),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNoSemRelacao(Pessoa p) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => PessoaDetalheScreen(
-              pessoa: p,
-              onAbrirMemoria: (_) {},
-              titulosMemorias: const {},
+                const Icon(Icons.chevron_right,
+                    color: Color(0xFF9B949D), size: 18),
+              ],
             ),
           ),
         ),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 6),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.borda),
+      ),
+    );
+  }
+
+  Widget _buildCardSemRelacao(Pessoa p) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => PessoaDetalheScreen(
+                pessoa: p,
+                onAbrirMemoria: (_) {},
+                titulosMemorias: const {},
+              ),
+            ),
           ),
-          child: Row(
-            children: [
-              const CircleAvatar(
-                radius: 16,
-                backgroundColor: Color(0xFFF0EAF5),
-                child: Icon(Icons.person, size: 16, color: AppColors.roxo),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      p.nome,
-                      style: const TextStyle(
-                        color: AppColors.roxo,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    if (p.parentesco.isNotEmpty)
-                      Text(
-                        p.parentesco,
-                        style: const TextStyle(
-                          color: Color(0xFF7A7280),
-                          fontSize: 11,
-                        ),
-                      ),
-                  ],
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.borda),
+            ),
+            child: Row(
+              children: [
+                const CircleAvatar(
+                  radius: 16,
+                  backgroundColor: Color(0xFFF0EAF5),
+                  child: Icon(Icons.person, size: 16, color: AppColors.roxo),
                 ),
-              ),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    p.nome,
+                    style: const TextStyle(
+                      color: AppColors.roxo,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  // Lista de tipos client-side para mapear tipo -> categoria.
-  static final _tipos = TIPOS_RELACIONAMENTO_INICIAIS;
 }

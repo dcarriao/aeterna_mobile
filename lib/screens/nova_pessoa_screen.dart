@@ -113,16 +113,12 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
           'Já existe um cadastro com nome semelhante:\n\n'
           '${existente.nome}${existente.apelido != null ? ' ${existente.apelido}' : ''}'
           '${existente.email != null ? '\n${existente.email}' : ''}'
-          '\n\nDeseja usar o cadastro existente ou criar um novo?',
+          '\n\nDeseja usar o cadastro existente?',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(null),
             child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Criar novo mesmo assim'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
