@@ -133,17 +133,18 @@ class PessoaVivaResumo {
   }
 
   String get ultimaInteracaoHumana {
-    if (ultimaInteracao == null) return 'Nenhuma memória';
-    final diff = DateTime.now().difference(ultimaInteracao);
+    final data = ultimaInteracao;
+    if (data == null) return 'Nenhuma memória';
+    final diff = DateTime.now().difference(data);
     if (diff.inMinutes < 1) return 'agora';
     if (diff.inHours < 1) return 'há ${diff.inMinutes} min';
     if (diff.inDays < 1) return 'há ${diff.inHours} h';
     if (diff.inDays == 1) return 'ontem';
     if (diff.inDays < 7) return 'há ${diff.inDays} dias';
     if (diff.inDays < 30) return 'há ${(diff.inDays / 7).floor()} sem';
-    return '${ultimaInteracao.day.toString().padLeft(2, '0')}/'
-        '${ultimaInteracao.month.toString().padLeft(2, '0')}/'
-        '${ultimaInteracao.year}';
+    return '${data.day.toString().padLeft(2, '0')}/'
+        '${data.month.toString().padLeft(2, '0')}/'
+        '${data.year}';
   }
 
   factory PessoaVivaResumo.fromMap(Map<String, dynamic> map) {
