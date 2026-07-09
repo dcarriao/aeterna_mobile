@@ -6,6 +6,7 @@ import '../models/contribuicao.dart';
 import '../models/convite_familiar.dart';
 import '../models/memoria.dart';
 import '../models/pessoa.dart';
+import '../services/pessoa_relacionamento_service.dart';
 import '../services/supabase_service.dart';
 import '../services/legacy_curator_service.dart';
 import '../theme/app_theme.dart';
@@ -28,6 +29,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
   List<Contribuicao> _contribuicoes = [];
   List<Pessoa> _todasPessoas = [];
   List<int> _pessoasVinculadas = [];
+  Map<int, String> _relacaoPorPessoaId = {};
   List<Colaborador> _colaboradores = [];
   bool _carregandoLembrancas = false;
   late String _biografiaAtual = widget.memorial.biografia;
@@ -117,11 +119,18 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
           : <Colaborador>[];
 
       if (mounted) {
+        // Carrega rótulos de relacionamento para exibir no chip
+        final rels = await PessoaRelacionamentoService.instance
+            .listarRelacionamentos(PessoaRepository.usuarioId);
+        final relMap = <int, String>{
+          for (final r in rels) r.outraPessoaId: r.rotuloDaOutraParaMim,
+        };
         setState(() {
           _contribuicoes = contribs;
           _memoriasOficiais = oficiais;
           _todasPessoas = pessoas;
           _pessoasVinculadas = vinculados;
+          _relacaoPorPessoaId = relMap;
           _meuPapel = papel;
           _colaboradores = colaboradores;
           _carregandoLembrancas = false;
@@ -689,7 +698,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                             : null,
                       ),
                       label: Text(
-                        '${p.nome} (${p.parentesco})',
+                        '${p.nome} (${_relacaoPorPessoaId[p.id] ?? p.parentesco})',
                         style: const TextStyle(fontSize: 12, color: AppColors.roxo, fontWeight: FontWeight.bold),
                       ),
                       backgroundColor: Colors.white,

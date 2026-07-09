@@ -180,7 +180,9 @@ class PessoaRelacionamentoService {
           .from('pessoas_relacionamentos')
           .select('pessoa_b_id, relacao_b_para_a, tipo, relacao_a_para_b')
           .eq('pessoa_a_id', pessoaId)
+          .neq('pessoa_b_id', pessoaId)
           .neq('tipo', 'AMIGO')
+          .neq('tipo', 'CONHECIDO')
           .order('pessoa_b_id');
 
       if (rows.isEmpty) return [];

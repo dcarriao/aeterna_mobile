@@ -77,7 +77,7 @@ class _PessoasScreenState extends State<PessoasScreen> {
           .listarRelacionamentos(PessoaRepository.usuarioId);
       final parentescoMap = <int, String>{};
       for (final r in rels) {
-        parentescoMap[r.outraPessoaId] = r.rotuloDeMimParaAOutra;
+        parentescoMap[r.outraPessoaId] = r.rotuloDaOutraParaMim;
       }
       print(
           '[PessoasScreen] _carregar() recebeu ${pessoas.length} pessoas. mounted=$mounted');

@@ -663,7 +663,7 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
   };
 
   String _relacaoTexto(OutraPessoaNaFamilia f) {
-    final rot = f.rotuloDeMimParaAOutra;
+    final rot = f.rotuloDaOutraParaMim;
     final base = rot.replaceAll(RegExp(r'\(.*\)$'), '').trim();
     final feminino = _femininos.contains(base);
     final artigo = feminino ? 'sua' : 'seu';

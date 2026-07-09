@@ -197,9 +197,9 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
       }
     }
 
-    // Pessoas sem relação
+    // Pessoas sem relação (exclui o próprio usuário)
     final semRelacao = _pessoas
-        .where((p) => p.id != null && !pessoasNoGrafo.contains(p.id))
+        .where((p) => p.id != null && p.id != PessoaRepository.usuarioId && !pessoasNoGrafo.contains(p.id))
         .toList();
     if (semRelacao.isNotEmpty) {
       widgets.add(const SizedBox(height: 16));
