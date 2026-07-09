@@ -83,7 +83,7 @@ class _PessoasScreenState extends State<PessoasScreen> {
           '[PessoasScreen] _carregar() recebeu ${pessoas.length} pessoas. mounted=$mounted');
       if (mounted) {
         setState(() {
-          _pessoas = pessoas;
+          _pessoas = pessoas.where((p) => p.id != PessoaRepository.usuarioId).toList();
           _vinculos = vinculos;
           _parentescoMap = parentescoMap;
           _carregando = false;

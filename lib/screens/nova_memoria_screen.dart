@@ -13,6 +13,7 @@ import '../models/detected_moment.dart';
 import '../models/media_group.dart';
 import '../models/pending_memory.dart';
 import '../services/curador_sessao_service.dart';
+import '../services/pessoa_relacionamento_service.dart';
 import '../services/media_suggestion_service.dart';
 import '../services/memory_relationship_service.dart';
 import 'package:photo_manager/photo_manager.dart';
@@ -1213,7 +1214,7 @@ class PessoaPickerSheet extends StatefulWidget {
 
 class _PessoaPickerSheetState extends State<PessoaPickerSheet> {
   late final Set<int> _sel = Set<int>.from(widget.selecionadas);
-  List<Pessoa> _pessoas = [];
+  List<Map<String, dynamic>> _pessoas = [];
   bool _carregando = true;
 
   @override
@@ -1224,7 +1225,7 @@ class _PessoaPickerSheetState extends State<PessoaPickerSheet> {
 
   Future<void> _carregar() async {
     print('[PessoaPickerSheet] _carregar() iniciando');
-    final pessoas = await PessoaRepository.listar();
+    final pessoas = await PessoaRelacionamentoService.instance.listarContatos();
     print('[PessoaPickerSheet] _carregar() -> ${pessoas.length} pessoas');
     if (mounted) {
       setState(() {
@@ -1289,14 +1290,15 @@ class _PessoaPickerSheetState extends State<PessoaPickerSheet> {
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                       onPressed: () {
-                        setState(() {
-                          if (_sel.length == _pessoas.length) {
-                            _sel.clear();
-                          } else {
-                            _sel.clear();
-                            _sel.addAll(_pessoas.map((p) => p.id));
-                          }
-                        });
+                            setState(() {
+                                if (_sel.length == _pessoas.length) {
+                                  _sel.clear();
+                                } else {
+                                  _sel.clear();
+                                  _sel.addAll(_pessoas
+                                      .map((m) => m['pessoa_b_id'] as int));
+                                }
+                              });
                       },
                       child: Text(
                         _sel.length == _pessoas.length ? 'Limpar Seleção' : 'Selecionar Todos',
@@ -1324,36 +1326,34 @@ class _PessoaPickerSheetState extends State<PessoaPickerSheet> {
                         itemCount: _pessoas.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 4),
                         itemBuilder: (ctx, index) {
-                          final p = _pessoas[index];
-                          final sel = _sel.contains(p.id);
+                          final r = _pessoas[index];
+                          final pId = r['pessoa_b_id'] as int;
+                          final nome = r['nome'] as String? ?? '';
+                          final label = r['relacao_b_para_a'] as String? ?? '';
+                          final sel = _sel.contains(pId);
                           return CheckboxListTile(
                             value: sel,
                             onChanged: (checked) {
                               setState(() {
                                 if (checked == true) {
-                                  _sel.add(p.id);
+                                  _sel.add(pId);
                                 } else {
-                                  _sel.remove(p.id);
+                                  _sel.remove(pId);
                                 }
                               });
                             },
                             title: Text(
-                              p.nome,
+                              nome,
                               style: const TextStyle(
                                 color: AppColors.roxo,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                            subtitle: Text(p.parentesco),
+                            subtitle: label.isNotEmpty ? Text(label) : null,
                             secondary: CircleAvatar(
                               backgroundColor: const Color(0xFFF0EAF5),
-                              backgroundImage: p.fotoBytes != null
-                                  ? MemoryImage(p.fotoBytes!)
-                                  : null,
-                              child: p.fotoBytes == null
-                                  ? const Icon(Icons.person,
-                                      color: AppColors.roxo)
-                                  : null,
+                              child: const Icon(Icons.person,
+                                  color: AppColors.roxo),
                             ),
                           );
                         },

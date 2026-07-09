@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../models/pessoa.dart';
 import '../models/tipo_relacionamento.dart';
 import '../services/pessoa_relacionamento_service.dart';
 import '../theme/app_theme.dart';
@@ -29,8 +28,8 @@ class AdicionarRelacionamentoScreen extends StatefulWidget {
 class _AdicionarRelacionamentoScreenState
     extends State<AdicionarRelacionamentoScreen> {
   List<TipoRelacionamento> _tipos = TIPOS_RELACIONAMENTO_INICIAIS;
-  List<Pessoa> _pessoas = const [];
-  List<Pessoa> _pessoasFiltradas = const [];
+  List<Map<String, dynamic>> _pessoas = [];
+  List<Map<String, dynamic>> _pessoasFiltradas = [];
   bool _carregando = true;
   bool _salvando = false;
 
@@ -50,12 +49,14 @@ class _AdicionarRelacionamentoScreenState
 
   Future<void> _carregar() async {
     final tipos = await PessoaRelacionamentoService.instance.listarTipos();
-    final pessoas = await PessoaRepository.listar();
+    final pessoas = await PessoaRelacionamentoService.instance.listarContatos(
+      pessoaId: widget.pessoaOrigemId,
+    );
     if (mounted) {
       setState(() {
         _tipos = tipos;
         _pessoas = pessoas
-            .where((p) => p.id != widget.pessoaOrigemId)
+            .where((m) => (m['pessoa_b_id'] as int) != widget.pessoaOrigemId)
             .toList();
         _aplicarFiltro();
         _carregando = false;
@@ -69,18 +70,18 @@ class _AdicionarRelacionamentoScreenState
     } else {
       final q = _filtroBusca.toLowerCase();
       _pessoasFiltradas = _pessoas
-          .where((p) =>
-              p.nome.toLowerCase().contains(q) ||
-              (p.apelido?.toLowerCase().contains(q) ?? false))
+          .where((m) =>
+              (m['nome'] as String? ?? '').toLowerCase().contains(q))
           .toList();
     }
-    _pessoasFiltradas.sort((a, b) => a.nome.compareTo(b.nome));
+    _pessoasFiltradas.sort((a, b) =>
+        ((a['nome'] as String? ?? '').compareTo(b['nome'] as String? ?? '')));
   }
 
-  void _selecionarPessoa(Pessoa p) {
+  void _selecionarPessoa(Map<String, dynamic> m) {
     setState(() {
-      _outraPessoaId = p.id;
-      _outraPessoaNome = p.nome;
+      _outraPessoaId = m['pessoa_b_id'] as int;
+      _outraPessoaNome = m['nome'] as String? ?? '';
       _escolhendoPessoa = false;
       _tipoId = null;
     });
@@ -182,12 +183,14 @@ class _AdicionarRelacionamentoScreenState
                   itemCount: _pessoasFiltradas.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 4),
                   itemBuilder: (_, i) {
-                    final p = _pessoasFiltradas[i];
+                    final m = _pessoasFiltradas[i];
+                    final nome = m['nome'] as String? ?? '';
+                    final label = m['relacao_b_para_a'] as String? ?? '';
                     return Material(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(10),
                       child: InkWell(
-                        onTap: () => _selecionarPessoa(p),
+                        onTap: () => _selecionarPessoa(m),
                         borderRadius: BorderRadius.circular(10),
                         child: Container(
                           padding: const EdgeInsets.all(14),
@@ -201,8 +204,8 @@ class _AdicionarRelacionamentoScreenState
                                 radius: 18,
                                 backgroundColor: const Color(0xFFE8E2D8),
                                 child: Text(
-                                  p.nome.isNotEmpty
-                                      ? p.nome[0].toUpperCase()
+                                  nome.isNotEmpty
+                                      ? nome[0].toUpperCase()
                                       : '?',
                                   style: const TextStyle(
                                     color: AppColors.roxo,
@@ -217,16 +220,16 @@ class _AdicionarRelacionamentoScreenState
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      p.nome,
+                                      nome,
                                       style: const TextStyle(
                                         color: AppColors.roxo,
                                         fontSize: 14,
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
-                                    if (p.parentesco.isNotEmpty)
+                                    if (label.isNotEmpty)
                                       Text(
-                                        p.parentesco,
+                                        label,
                                         style: const TextStyle(
                                           color: Color(0xFF7A7280),
                                           fontSize: 12,

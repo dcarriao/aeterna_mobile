@@ -81,7 +81,7 @@ class PessoaRelacionamentoService {
           outraPessoaNome: nomes[outraId] ?? 'Pessoa #$outraId',
           tipo: r['tipo'] as String? ?? 'OUTRO',
           rotuloDaOutraParaMim: r['relacao_b_para_a'] as String? ?? 'Conhecido(a)',
-          rotuloDeMimParaAOutra: r['relacao_b_para_a'] as String? ?? 'Conhecido(a)',
+          rotuloDeMimParaAOutra: r['relacao_a_para_b'] as String? ?? 'Conhecido(a)',
           observacoes: r['observacoes'] as String?,
           dataInicio: r['data_inicio'] != null
               ? DateTime.tryParse('${r['data_inicio']}')
@@ -99,7 +99,7 @@ class PessoaRelacionamentoService {
           outraPessoaNome: nomes[outraId] ?? 'Pessoa #$outraId',
           tipo: r['tipo'] as String? ?? 'OUTRO',
           rotuloDaOutraParaMim: r['relacao_a_para_b'] as String? ?? 'Conhecido(a)',
-          rotuloDeMimParaAOutra: r['relacao_a_para_b'] as String? ?? 'Conhecido(a)',
+          rotuloDeMimParaAOutra: r['relacao_b_para_a'] as String? ?? 'Conhecido(a)',
           observacoes: r['observacoes'] as String?,
           dataInicio: r['data_inicio'] != null
               ? DateTime.tryParse('${r['data_inicio']}')
@@ -131,15 +131,16 @@ class PessoaRelacionamentoService {
   /// [excludeId] opcional: exclui uma pessoa específica do resultado
   /// (usado no Perfil da Pessoa para não mostrar a si mesma).
   Future<List<Map<String, dynamic>>> listarContatos({
+    int? pessoaId,
     int? excludeId,
   }) async {
     if (!PessoaRepository.isConfigured) return const [];
-    final pessoaId = PessoaRepository.usuarioId;
+    final pid = pessoaId ?? PessoaRepository.usuarioId;
     try {
       final rows = await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
           .select('pessoa_b_id, relacao_b_para_a')
-          .eq('pessoa_a_id', pessoaId)
+          .eq('pessoa_a_id', pid)
           .order('pessoa_b_id');
 
       if (rows.isEmpty) return [];
