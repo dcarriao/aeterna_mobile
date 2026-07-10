@@ -119,12 +119,15 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
           : <Colaborador>[];
 
       if (mounted) {
-        // Carrega rótulos de relacionamento para exibir no chip
-        final rels = await PessoaRelacionamentoService.instance
-            .listarRelacionamentos(PessoaRepository.usuarioId);
-        final relMap = <int, String>{
-          for (final r in rels) r.outraPessoaId: r.rotuloDaOutraParaMim,
-        };
+        // Carrega rótulos via query oficial: pessoa_a_id = usuarioId → relacao_b_para_a
+        final contatos = await PessoaRelacionamentoService.instance
+            .listarContatos(pessoaId: PessoaRepository.usuarioId);
+        final relMap = <int, String>{};
+        for (final c in contatos) {
+          final id = c['pessoa_b_id'] as int;
+          final rotulo = c['relacao_b_para_a'] as String? ?? '';
+          if (rotulo.isNotEmpty) relMap[id] = rotulo;
+        }
         setState(() {
           _contribuicoes = contribs;
           _memoriasOficiais = oficiais;
@@ -698,7 +701,12 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                             : null,
                       ),
                       label: Text(
-                        '${p.nome} (${_relacaoPorPessoaId[p.id] ?? p.parentesco})',
+                        () {
+                          final rotulo = _relacaoPorPessoaId[p.id] ?? '';
+                          return rotulo.isNotEmpty
+                              ? '${p.nome} ($rotulo)'
+                              : p.nome;
+                        }(),
                         style: const TextStyle(fontSize: 12, color: AppColors.roxo, fontWeight: FontWeight.bold),
                       ),
                       backgroundColor: Colors.white,

@@ -60,7 +60,7 @@ class _PessoasScreenState extends State<PessoasScreen> {
           pessoa: Pessoa(
             id: DateTime.now().millisecondsSinceEpoch,
             nome: s.nome,
-            parentesco: 'Outro',
+            parentesco: '',
           ),
         ),
       ),
@@ -73,11 +73,14 @@ class _PessoasScreenState extends State<PessoasScreen> {
     try {
       final pessoas = await PessoaRepository.listar();
       final vinculos = await PessoaRepository.listarVinculos();
-      final rels = await PessoaRelacionamentoService.instance
-          .listarRelacionamentos(PessoaRepository.usuarioId);
+      // Query oficial: pessoa_a_id = usuarioId → relacao_b_para_a
+      final contatos = await PessoaRelacionamentoService.instance
+          .listarContatos(pessoaId: PessoaRepository.usuarioId);
       final parentescoMap = <int, String>{};
-      for (final r in rels) {
-        parentescoMap[r.outraPessoaId] = r.rotuloDaOutraParaMim;
+      for (final c in contatos) {
+        final id = c['pessoa_b_id'] as int;
+        final rotulo = c['relacao_b_para_a'] as String? ?? '';
+        if (rotulo.isNotEmpty) parentescoMap[id] = rotulo;
       }
       print(
           '[PessoasScreen] _carregar() recebeu ${pessoas.length} pessoas. mounted=$mounted');
@@ -249,7 +252,7 @@ class _PessoasScreenState extends State<PessoasScreen> {
                                   final pessoa = _pessoas[i];
                                   return _PessoaCard(
                                     pessoa: pessoa,
-                                    relacaoLabel: _parentescoMap[pessoa.id] ?? pessoa.parentesco,
+                                    relacaoLabel: _parentescoMap[pessoa.id] ?? '',
                                     totalMemorias: _contarMemorias(pessoa.id),
                                     onTap: () => _abrirDetalhe(pessoa),
                                   );

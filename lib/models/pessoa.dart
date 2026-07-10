@@ -11,7 +11,7 @@ class Pessoa {
   Pessoa({
     required this.nome,
     this.apelido,
-    this.parentesco = 'Outro',
+    this.parentesco = '',
     this.tipo = 'humano',
     this.dataNascimento,
     this.fotoBase64,
@@ -90,7 +90,7 @@ class Pessoa {
       id: map['id'] is int ? map['id'] as int : int.tryParse('${map['id']}') ?? 0,
       nome: (map['nome'] as String?) ?? '',
       apelido: (map['sobrenome'] as String?) ?? (map['apelido'] as String?),
-      parentesco: (map['parentesco'] as String?) ?? 'Outro',
+      parentesco: (map['parentesco'] as String?) ?? '',
       tipo: (map['tipo'] as String?) ?? 'humano',
       dataNascimento: map['data_nascimento'] != null
           ? DateTime.tryParse('${map['data_nascimento']}')
@@ -290,7 +290,7 @@ class PessoaRepository {
       return {
         for (final r in rows)
           (r['pessoa_b_id'] as num).toInt():
-              (r['relacao_b_para_a'] as String?) ?? 'Conhecido(a)',
+              (r['relacao_b_para_a'] as String?) ?? '',
       };
     } catch (e) {
       print('[PessoaRepo] listarRelacionados() ERRO: $e');

@@ -85,6 +85,7 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
     final email = _emailController.text.trim().toLowerCase();
     final telefone = _telefoneController.text.trim();
     if (nome.isEmpty) return null;
+    print('[DUPLICIDADE] buscando candidato nome="$nome" email="$email" telefone="$telefone"');
 
     try {
       final db = PessoaRepository.supabaseClient;
@@ -146,10 +147,12 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         }
       }
     } catch (_) {}
+    print('[DUPLICIDADE] nenhum candidato encontrado');
     return null;
   }
 
   Future<bool?> _mostrarDialogDuplicata(Pessoa existente) async {
+    print('[DUPLICIDADE] candidato=${existente.id}/${existente.nome}');
     return showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -163,11 +166,17 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
+            onPressed: () {
+              print('[DUPLICIDADE] cancelar');
+              Navigator.of(ctx).pop(false);
+            },
             child: const Text('Cancelar'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
+            onPressed: () {
+              print('[DUPLICIDADE] usar_existente pessoa_id=${existente.id}');
+              Navigator.of(ctx).pop(true);
+            },
             child: const Text('Usar existente'),
           ),
         ],
@@ -272,10 +281,12 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         if (result.ehRelacionada) {
           final usarExistente = await _mostrarDialogDuplicata(result.pessoa);
           if (usarExistente == true) {
-            if (mounted) Navigator.of(context).pop(result.pessoa.id);
+            // Retorna true para que o caller saiba que a pessoa já existe
+            // e pode atualizar a lista sem criar duplicata.
+            if (mounted) Navigator.of(context).pop(true);
             return;
           }
-          // false ou null = cancelar, não criar nada
+          // false ou null = cancelar: manter a tela estável, sem criar pessoa
           return;
         } else {
           final tipo = await _mostrarDialogGlobal(result.pessoa);

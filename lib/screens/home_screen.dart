@@ -251,11 +251,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _carregarPessoasVivas() async {
     final pessoas = await PessoaTimelineService.instance.obterPessoasRecentes(limite: 6);
-    final rels = await PessoaRelacionamentoService.instance
-        .listarRelacionamentos(PessoaRepository.usuarioId);
+    // Query oficial: pessoa_a_id = usuarioId → relacao_b_para_a
+    final contatos = await PessoaRelacionamentoService.instance
+        .listarContatos(pessoaId: PessoaRepository.usuarioId);
     final parentescoMap = <int, String>{};
-    for (final r in rels) {
-      parentescoMap[r.outraPessoaId] = r.rotuloDaOutraParaMim;
+    for (final c in contatos) {
+      final id = c['pessoa_b_id'] as int;
+      final rotulo = c['relacao_b_para_a'] as String? ?? '';
+      if (rotulo.isNotEmpty) parentescoMap[id] = rotulo;
     }
     if (mounted) {
       setState(() {
@@ -869,14 +872,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        _parentescoMap[p.id] ?? p.parentesco,
-                        style: const TextStyle(
-                          color: AppColors.dourado,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                      if ((_parentescoMap[p.id] ?? '').isNotEmpty)
+                        Text(
+                          _parentescoMap[p.id]!,
+                          style: const TextStyle(
+                            color: AppColors.dourado,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 4),
                       Text(
                         p.ultimaInteracao == null
@@ -1043,7 +1047,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${p.totalEventos} memórias e contribuições juntos · ${_parentescoMap[p.id] ?? p.parentesco}',
+                  '${p.totalEventos} memórias e contribuições juntos${(_parentescoMap[p.id] ?? '').isNotEmpty ? ' · ${_parentescoMap[p.id]}' : ''}',
                   style: const TextStyle(
                     color: Color(0xFF7A7280),
                     fontSize: 12,

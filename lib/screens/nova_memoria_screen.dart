@@ -472,6 +472,11 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     try {
       if (widget._editando && widget.onEditar != null) {
         final m = widget.memoria!;
+        // Logs obrigatórios para diagnóstico do save
+        print('[EDITAR_MEMORIA_SAVE] memoria_id=${m.id}');
+        print('[EDITAR_MEMORIA_SAVE] pessoas_participantes=${_pessoasSelecionadas}');
+        print('[EDITAR_MEMORIA_SAVE] compartilhados=${_familiaresSelecionados}');
+
         final rascunho = MemoriaRascunho(
           titulo: _tituloController.text.trim(),
           contexto: _contextoController.text.trim(),
@@ -488,6 +493,16 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           dataMemoria: _dataMemoria,
         );
 
+        final payload = {
+          'titulo': rascunho.titulo,
+          'contexto': rascunho.contexto,
+          'categoria': rascunho.categoria,
+          'isCompartilhada': _isCompartilhada,
+          'pessoasIds': rascunho.pessoasIds,
+          'familiaresIds': rascunho.familiaresIds,
+        };
+        print('[EDITAR_MEMORIA_SAVE] payload=$payload');
+
         await PessoaRepository.atualizarMemoria(
           memoriaId: m.id!,
           titulo: rascunho.titulo,
@@ -497,13 +512,18 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           isCompartilhada: _isCompartilhada,
         );
 
+        // CORREÇÃO: salvarVinculo e salvarCompartilhamento operam na MESMA
+        // tabela (conteudo_permissoes). Chamar os dois em sequência faz o
+        // segundo DELETE apagar os dados do primeiro INSERT.
+        // Solução: unir os dois conjuntos e chamar salvarVinculo UMA VEZ.
+        final todasPessoasIds = <int>{
+          ..._pessoasSelecionadas,
+          ..._familiaresSelecionados,
+        }.toList();
+        print('[EDITAR_MEMORIA_SAVE] conteudo_permissoes ids=$todasPessoasIds');
         await PessoaRepository.salvarVinculo(
           m.id!,
-          _pessoasSelecionadas,
-        );
-        await PessoaRepository.salvarCompartilhamento(
-          m.id!,
-          _familiaresSelecionados,
+          todasPessoasIds,
         );
 
         String? novaFotoUrl = m.fotoUrl;
@@ -659,7 +679,9 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       // construção de finalMemoria não chegou a rodar, devolve só o
       // rascunho para que a navegação continue funcionando.
       Navigator.of(context).pop(memoria);
-    } catch (erro) {
+    } catch (erro, stack) {
+      print('[EDITAR_MEMORIA_SAVE] erro=$erro');
+      print('[EDITAR_MEMORIA_SAVE] stack=$stack');
       if (!mounted) return;
       setState(() => _salvando = false);
       ScaffoldMessenger.of(context).showSnackBar(

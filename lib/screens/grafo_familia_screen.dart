@@ -160,7 +160,8 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   }
 
   List<Widget> _buildTree() {
-    // Agrupa por nível hierárquico
+    // Agrupa por nível hierárquico.
+    // O grafo já vem filtrado: sem o próprio usuário, sem AMIGO/CONHECIDO/OUTRO.
     final porNivel = <int, List<Map<String, dynamic>>>{};
     for (final r in _grafo) {
       final nivel = (r['nivel'] as num?)?.toInt() ?? 99;
@@ -169,9 +170,6 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
     final niveisOrdenados = porNivel.keys.toList()..sort();
     final widgets = <Widget>[];
 
-    final pessoasNoGrafo = _grafo
-        .map<int>((r) => (r['pessoa_b_id'] as num).toInt())
-        .toSet();
     final pessoasPorId = {for (final p in _pessoas) p.id: p};
 
     for (final nivel in niveisOrdenados) {
@@ -197,29 +195,6 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
       }
     }
 
-    // Pessoas sem relação (exclui o próprio usuário)
-    final semRelacao = _pessoas
-        .where((p) => p.id != null && p.id != PessoaRepository.usuarioId && !pessoasNoGrafo.contains(p.id))
-        .toList();
-    if (semRelacao.isNotEmpty) {
-      widgets.add(const SizedBox(height: 16));
-      widgets.add(const Padding(
-        padding: EdgeInsets.only(left: 4, bottom: 8),
-        child: Text(
-          'Sem relação definida',
-          style: TextStyle(
-            color: AppColors.dourado,
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.6,
-          ),
-        ),
-      ));
-      for (final p in semRelacao) {
-        widgets.add(_buildCardSemRelacao(p));
-      }
-    }
-
     return widgets;
   }
 
@@ -227,11 +202,11 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
     switch (nivel) {
       case 1: return 'Geração +3';
       case 2: return 'Geração +2';
-      case 3: return 'Geração +1 (Pais)';
+      case 3: return 'Geração +1 (Pais / Padrastos)';
       case 4: return 'Minha Geração';
-      case 5: return 'Geração -1 (Filhos)';
+      case 5: return 'Geração -1 (Filhos / Enteados)';
       case 6: return 'Geração -2';
-      default: return 'Nível $nivel';
+      default: return 'Outros vínculos';
     }
   }
 
@@ -293,55 +268,6 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
                 ),
                 const Icon(Icons.chevron_right,
                     color: Color(0xFF9B949D), size: 18),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCardSemRelacao(Pessoa p) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => PessoaDetalheScreen(
-                pessoa: p,
-                onAbrirMemoria: (_) {},
-                titulosMemorias: const {},
-              ),
-            ),
-          ),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.borda),
-            ),
-            child: Row(
-              children: [
-                const CircleAvatar(
-                  radius: 16,
-                  backgroundColor: Color(0xFFF0EAF5),
-                  child: Icon(Icons.person, size: 16, color: AppColors.roxo),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    p.nome,
-                    style: const TextStyle(
-                      color: AppColors.roxo,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
               ],
             ),
           ),

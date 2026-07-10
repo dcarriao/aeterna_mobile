@@ -135,6 +135,8 @@ class PessoaVivaResumo {
   String get ultimaInteracaoHumana {
     final data = ultimaInteracao;
     if (data == null) return 'Nenhuma memória';
+    // Guard extra: datas epoch (anterior a 1971) são inválidas
+    if (data.year < 1971) return 'Nenhuma memória';
     final diff = DateTime.now().difference(data);
     if (diff.inMinutes < 1) return 'agora';
     if (diff.inHours < 1) return 'há ${diff.inMinutes} min';
@@ -147,6 +149,15 @@ class PessoaVivaResumo {
         '${data.year}';
   }
 
+  static DateTime? _parseUltimaInteracao(dynamic value) {
+    if (value == null) return null;
+    final dt = DateTime.tryParse('$value');
+    if (dt == null) return null;
+    // Datas antes de 1971 são consideradas inválidas (epoch, placeholder)
+    if (dt.year < 1971) return null;
+    return dt;
+  }
+
   factory PessoaVivaResumo.fromMap(Map<String, dynamic> map) {
     return PessoaVivaResumo(
       id: (map['id'] as num).toInt(),
@@ -154,10 +165,10 @@ class PessoaVivaResumo {
           (map['sobrenome'] != null && (map['sobrenome'] as String).isNotEmpty
               ? ' ${map['sobrenome']}'
               : ''),
-      parentesco: map['parentesco'] as String? ?? 'Outro',
+      parentesco: map['parentesco'] as String? ?? '',
       email: map['email'] as String?,
       fotoUrl: map['foto_perfil'] as String?,
-      ultimaInteracao: DateTime.tryParse('${map['ultima_interacao']}'),
+      ultimaInteracao: _parseUltimaInteracao(map['ultima_interacao']),
       totalEventos: (map['total_eventos'] as num?)?.toInt() ?? 0,
     );
   }
