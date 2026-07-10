@@ -28,6 +28,8 @@ class NovaMemoriaScreen extends StatefulWidget {
     this.sugestaoMomento,
     this.fotoBytes,
     this.fotoNome,
+    this.videoBytes,
+    this.videoNome,
     super.key,
   });
 
@@ -39,6 +41,9 @@ class NovaMemoriaScreen extends StatefulWidget {
   final DetectedMoment? sugestaoMomento;
   final Uint8List? fotoBytes;
   final String? fotoNome;
+  // Sprint S.9.1 — vídeo compartilhado via Share Extension iOS
+  final Uint8List? videoBytes;
+  final String? videoNome;
 
   bool get _editando => memoria != null;
 
@@ -103,6 +108,10 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       if (widget.fotoBytes != null) {
         _foto = widget.fotoBytes;
         _nomeArquivo = widget.fotoNome ?? 'foto.jpg';
+      } else if (widget.videoBytes != null) {
+        // Sprint S.9.1 — vídeo compartilhado via Share Extension iOS
+        _videoBytes = widget.videoBytes;
+        _nomeVideo = widget.videoNome ?? 'video.mp4';
       } else if (grupo != null) {
         _dataMemoria = grupo.data;
         _dataMemoriaFoiAlterada = true;
@@ -472,11 +481,6 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     try {
       if (widget._editando && widget.onEditar != null) {
         final m = widget.memoria!;
-        // Logs obrigatórios para diagnóstico do save
-        print('[EDITAR_MEMORIA_SAVE] memoria_id=${m.id}');
-        print('[EDITAR_MEMORIA_SAVE] pessoas_participantes=${_pessoasSelecionadas}');
-        print('[EDITAR_MEMORIA_SAVE] compartilhados=${_familiaresSelecionados}');
-
         final rascunho = MemoriaRascunho(
           titulo: _tituloController.text.trim(),
           contexto: _contextoController.text.trim(),
@@ -493,16 +497,6 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           dataMemoria: _dataMemoria,
         );
 
-        final payload = {
-          'titulo': rascunho.titulo,
-          'contexto': rascunho.contexto,
-          'categoria': rascunho.categoria,
-          'isCompartilhada': _isCompartilhada,
-          'pessoasIds': rascunho.pessoasIds,
-          'familiaresIds': rascunho.familiaresIds,
-        };
-        print('[EDITAR_MEMORIA_SAVE] payload=$payload');
-
         await PessoaRepository.atualizarMemoria(
           memoriaId: m.id!,
           titulo: rascunho.titulo,
@@ -512,18 +506,13 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           isCompartilhada: _isCompartilhada,
         );
 
-        // CORREÇÃO: salvarVinculo e salvarCompartilhamento operam na MESMA
-        // tabela (conteudo_permissoes). Chamar os dois em sequência faz o
-        // segundo DELETE apagar os dados do primeiro INSERT.
-        // Solução: unir os dois conjuntos e chamar salvarVinculo UMA VEZ.
-        final todasPessoasIds = <int>{
-          ..._pessoasSelecionadas,
-          ..._familiaresSelecionados,
-        }.toList();
-        print('[EDITAR_MEMORIA_SAVE] conteudo_permissoes ids=$todasPessoasIds');
         await PessoaRepository.salvarVinculo(
           m.id!,
-          todasPessoasIds,
+          _pessoasSelecionadas,
+        );
+        await PessoaRepository.salvarCompartilhamento(
+          m.id!,
+          _familiaresSelecionados,
         );
 
         String? novaFotoUrl = m.fotoUrl;
@@ -679,9 +668,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       // construção de finalMemoria não chegou a rodar, devolve só o
       // rascunho para que a navegação continue funcionando.
       Navigator.of(context).pop(memoria);
-    } catch (erro, stack) {
-      print('[EDITAR_MEMORIA_SAVE] erro=$erro');
-      print('[EDITAR_MEMORIA_SAVE] stack=$stack');
+    } catch (erro) {
       if (!mounted) return;
       setState(() => _salvando = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1409,3 +1396,4 @@ class _PessoaPickerSheetState extends State<PessoaPickerSheet> {
     );
   }
 }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              

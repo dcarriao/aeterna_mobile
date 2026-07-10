@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -40,6 +41,15 @@ Future<void> main() async {
   runApp(const AeternaApp());
 }
 
+/// Dados de um share pendente (foto ou vídeo da Share Extension iOS).
+/// Armazenado em estado enquanto o Navigator ainda não está disponível.
+class _PendingShare {
+  final Uint8List bytes;
+  final String filename;
+  final bool isVideo;
+  _PendingShare({required this.bytes, required this.filename, required this.isVideo});
+}
+
 class AeternaApp extends StatefulWidget {
   const AeternaApp({super.key});
 
@@ -58,6 +68,9 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
   String? _usuarioFotoUrl;
   late final AppLinks _appLinks;
   static const _androidShareChannel = MethodChannel('com.aeterna.app/share');
+
+  /// Share recebido antes do Navigator estar pronto (cold start).
+  _PendingShare? _pendingShare;
 
   @override
   void initState() {
@@ -127,30 +140,143 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
   }
 
   Future<void> _processarLinkCompartilhamento(Uri uri) async {
-    print('[DeepLink] Recebido deep link: $uri');
-    if (uri.scheme == 'aeterna' && uri.host == 'share') {
-      final imagePath = uri.queryParameters['image'];
-      if (imagePath != null && imagePath.isNotEmpty) {
-        try {
-          final file = File(imagePath);
-          if (await file.exists()) {
-            final bytes = await file.readAsBytes();
-            final filename = imagePath.split('/').last;
-            _navigatorKey.currentState?.push(
-              MaterialPageRoute(
-                builder: (_) => NovaMemoriaScreen(
-                  onSalvar: _service.salvarMemoriaComFoto,
-                  fotoBytes: bytes,
-                  fotoNome: filename,
-                ),
-              ),
-            );
-          }
-        } catch (e) {
-          print('[DeepLink] Erro ao processar imagem: $e');
+    print('[FLUTTER_SHARE] deep link recebido: $uri');
+
+    if (uri.scheme != 'aeterna' || uri.host != 'share') return;
+
+    // Formato novo (S.9.1): ?manifest=<caminho_absoluto>
+    final manifestPath = uri.queryParameters['manifest'];
+    if (manifestPath != null && manifestPath.isNotEmpty) {
+      await _processarManifest(manifestPath);
+      return;
+    }
+
+    // Formato legado (pré-S.9.1): ?image=<caminho_absoluto> — mantido para compatibilidade
+    final imagePath = uri.queryParameters['image'];
+    if (imagePath != null && imagePath.isNotEmpty) {
+      try {
+        final file = File(imagePath);
+        if (await file.exists()) {
+          final bytes = await file.readAsBytes();
+          final filename = imagePath.split('/').last;
+          print('[FLUTTER_SHARE] arquivo carregado (legado): ${bytes.length} bytes');
+          _agendarNavegacaoShare(_PendingShare(
+            bytes: bytes,
+            filename: filename,
+            isVideo: false,
+          ));
         }
+      } catch (e) {
+        print('[FLUTTER_SHARE] Erro ao processar imagem (legado): $e');
       }
     }
+  }
+
+  /// Lê o manifest.json escrito pela Share Extension, verifica deduplicação
+  /// e carrega os bytes do arquivo de mídia.
+  Future<void> _processarManifest(String manifestPath) async {
+    try {
+      final manifestFile = File(manifestPath);
+      if (!await manifestFile.exists()) {
+        print('[FLUTTER_SHARE] manifest não encontrado: $manifestPath');
+        return;
+      }
+
+      final raw = await manifestFile.readAsString();
+      final Map<String, dynamic> manifest = json.decode(raw) as Map<String, dynamic>;
+
+      final shareId = manifest['share_id'] as String?;
+      final filePath = manifest['file_path'] as String?;
+      final mediaType = manifest['media_type'] as String? ?? 'image';
+
+      if (shareId == null || filePath == null) {
+        print('[FLUTTER_SHARE] manifest inválido (campos ausentes): $raw');
+        return;
+      }
+
+      print('[FLUTTER_SHARE] manifest lido: $shareId tipo=$mediaType');
+
+      // Deduplicação: ignora share_id já processado
+      final prefs = await SharedPreferences.getInstance();
+      final lastShareId = prefs.getString('last_share_id');
+      if (lastShareId == shareId) {
+        print('[FLUTTER_SHARE] share_id já processado — ignorando');
+        return;
+      }
+      await prefs.setString('last_share_id', shareId);
+
+      final mediaFile = File(filePath);
+      if (!await mediaFile.exists()) {
+        print('[FLUTTER_SHARE] arquivo de mídia não encontrado: $filePath');
+        return;
+      }
+
+      final bytes = await mediaFile.readAsBytes();
+      final filename = filePath.split('/').last;
+      print('[FLUTTER_SHARE] arquivo carregado: ${bytes.length} bytes');
+
+      // Apaga manifest e arquivo de mídia após consumo bem-sucedido
+      try {
+        await manifestFile.delete();
+        await mediaFile.delete();
+      } catch (e) {
+        print('[FLUTTER_SHARE] aviso — falha ao apagar arquivos temporários: $e');
+      }
+
+      _agendarNavegacaoShare(_PendingShare(
+        bytes: bytes,
+        filename: filename,
+        isVideo: mediaType == 'video',
+      ));
+    } catch (e) {
+      print('[FLUTTER_SHARE] Erro ao processar manifest: $e');
+    }
+  }
+
+  /// Agenda a navegação para NovaMemoriaScreen frame-a-frame até o Navigator
+  /// estar disponível (resolve race condition de cold start).
+  void _agendarNavegacaoShare(_PendingShare share) {
+    if (_navigatorKey.currentState != null && _entrou) {
+      _navegarParaNovaMemoria(share);
+    } else {
+      // Guarda o share e tenta novamente no próximo frame
+      setState(() => _pendingShare = share);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _tentarNavegacaoPendente();
+      });
+    }
+  }
+
+  /// Chamada após cada frame. Se o Navigator estiver pronto e o usuário
+  /// estiver logado, navega; caso contrário, agenda mais um frame.
+  void _tentarNavegacaoPendente() {
+    final share = _pendingShare;
+    if (share == null) return;
+
+    if (_navigatorKey.currentState != null && _entrou) {
+      setState(() => _pendingShare = null);
+      _navegarParaNovaMemoria(share);
+    } else {
+      // Tenta no próximo frame
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _tentarNavegacaoPendente();
+      });
+    }
+  }
+
+  void _navegarParaNovaMemoria(_PendingShare share) {
+    print('[FLUTTER_SHARE] navegando para NovaMemoriaScreen');
+    _navigatorKey.currentState?.push(
+      MaterialPageRoute(
+        builder: (_) => NovaMemoriaScreen(
+          onSalvar: _service.salvarMemoriaComFoto,
+          fotoBytes: share.isVideo ? null : share.bytes,
+          fotoNome: share.isVideo ? null : share.filename,
+          videoBytes: share.isVideo ? share.bytes : null,
+          videoNome: share.isVideo ? share.filename : null,
+        ),
+      ),
+    );
   }
 
   Future<void> _carregarSessao() async {
@@ -195,6 +321,10 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
         setState(() => _entrou = true);
         _carregarUsuario();
         _carregarMemorias();
+        // Verifica se há share pendente aguardando login
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _tentarNavegacaoPendente();
+        });
       }
       return;
     }
@@ -212,6 +342,10 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
           setState(() => _entrou = true);
           _carregarUsuario();
           _carregarMemorias();
+          // Verifica se há share pendente aguardando login
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _tentarNavegacaoPendente();
+          });
         }
         return;
       }
@@ -378,137 +512,4 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
           memorias: _memorias,
           onCriarMemoria: () => _abrirNovaMemoria(context),
           onAbrirMemoria: (memoria) => _abrirDetalhe(context, memoria),
-        ),
-      ),
-    );
-  }
-
-  void _abrirCompartilhadas(BuildContext context) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => CompartilhadasScreen(
-          memorias: _memorias,
-          memoriasRecebidas: _memoriasRecebidas,
-          onAbrirMemoria: (memoria) => _abrirDetalhe(context, memoria),
-          onCompartilhar: () => _abrirNovaMemoria(context),
-        ),
-      ),
-    );
-  }
-
-  void _abrirMemoriais(BuildContext context) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => const MemoriaisScreen(),
-      ),
-    );
-  }
-
-  void _abrirPessoas(BuildContext context) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => PessoasScreen(
-          titulosMemorias: {
-            for (final m in _memorias.where((m) => m.id != null))
-              m.id!: m.titulo,
-          },
-          onAbrirMemoria: (memoriaId) {
-            final memoria = _memorias.firstWhere(
-              (m) => m.id == memoriaId,
-              orElse: () => _memorias.first,
-            );
-            _abrirDetalhe(context, memoria);
-          },
-        ),
-      ),
-    );
-  }
-
-  void _abrirPerfil(BuildContext context) async {
-    final totalPessoas = (await PessoaRepository.listar()).length;
-    if (context.mounted) {
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => PerfilScreen(
-            totalMemorias: _memorias.length,
-            totalPessoas: totalPessoas,
-            onLogout: () async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('is_logged_in', false);
-              await prefs.remove('session_user_email');
-    await prefs.remove('session_pessoa_id');
-    await prefs.remove('session_user_id');
-              if (mounted) {
-                setState(() {
-                  _entrou = false;
-                  _memorias.clear(); // Limpa cache local de memórias
-                  _memoriasRecebidas.clear(); // Limpa cache de recebidas
-                  _usuarioFotoUrl = null; // Limpa cache local da foto
-                });
-                Navigator.of(context).popUntil((route) => route.isFirst);
-              }
-            },
-          ),
-        ),
-      );
-      _carregarUsuario();
-    }
-  }
-
-  void _abrirMinhaHistoria(BuildContext context) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => MinhaHistoriaScreen(
-          memorias: _memorias,
-          carregando: _carregandoMemorias,
-          supabaseConfigurado: _service.isConfigured,
-          onRegistrar: () async {
-            await _abrirNovaMemoria(context);
-          },
-          onAbrirDetalhe: (memoria) => _abrirDetalhe(context, memoria),
-          onAtualizar: _carregarMemorias,
-        ),
-      ),
-    );
-  }
-
-  void _efetuarLogin() {
-    setState(() {
-      _entrou = true;
-    });
-    // Sprint R.4 — associa o token FCM ao usuário que acabou de logar
-    PushNotificationService.instance.salvarTokenParaUsuario();
-    _carregarUsuario();
-    _carregarMemorias();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: _navigatorKey,
-      title: 'aEterna',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      home: _mostrarOnboarding
-          ? OnboardingScreen(
-              onComecar: () => setState(() => _mostrarOnboarding = false),
-            )
-          : _entrou
-              ? Builder(
-                  builder: (context) => HomeScreen(
-                    memorias: _memorias,
-                    fotoUrl: _usuarioFotoUrl,
-                    onRegistrar: () => _abrirNovaMemoria(context),
-                    onMinhaHistoria: () => _abrirMinhaHistoria(context),
-                    onAbrirMemoria: (memoria) => _abrirDetalhe(context, memoria),
-                    onPessoas: () => _abrirPessoas(context),
-                    onTimeline: () => _abrirTimeline(context),
-                    onCompartilhadas: () => _abrirCompartilhadas(context),
-                    onPerfil: () => _abrirPerfil(context),
-                    onMemoriais: () => _abrirMemoriais(context),
-                  ),
-                )
-              : LoginScreen(onEntrar: _efetuarLogin),
-    );
-  }
-}
+    
