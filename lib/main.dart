@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -41,13 +42,17 @@ Future<void> main() async {
   runApp(const AeternaApp());
 }
 
-/// Dados de um share pendente (foto ou vídeo da Share Extension iOS).
-/// Armazenado em estado enquanto o Navigator ainda não está disponível.
+// Sprint S.9.1 — dados de mídia recebidos da Share Extension iOS.
+// Armazenados em memória durante o cold-start até o Navigator estar pronto.
 class _PendingShare {
   final Uint8List bytes;
   final String filename;
   final bool isVideo;
-  _PendingShare({required this.bytes, required this.filename, required this.isVideo});
+  _PendingShare({
+    required this.bytes,
+    required this.filename,
+    required this.isVideo,
+  });
 }
 
 class AeternaApp extends StatefulWidget {
@@ -68,8 +73,7 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
   String? _usuarioFotoUrl;
   late final AppLinks _appLinks;
   static const _androidShareChannel = MethodChannel('com.aeterna.app/share');
-
-  /// Share recebido antes do Navigator estar pronto (cold start).
+  // Sprint S.9.1 — mídia pendente da Share Extension (cold-start race condition)
   _PendingShare? _pendingShare;
 
   @override
@@ -80,6 +84,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
     _carregarSessao();
     _configurarDeepLinks();
     _verificarCompartilhamentoAndroid();
+    // Sprint S.9.2 — registra callback de navegação para pushes
+    PushNotificationService.instance.setNavigationCallback(_navegarViaPush);
   }
 
   @override
@@ -139,19 +145,21 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
     });
   }
 
+  // Sprint S.9.1 — processa deep link da Share Extension iOS.
+  // Suporta dois formatos:
+  //   aeterna://share?manifest=<encoded_path>  (novo — preferencial)
+  //   aeterna://share?image=<encoded_path>     (legado — mantido por compatibilidade)
   Future<void> _processarLinkCompartilhamento(Uri uri) async {
-    print('[FLUTTER_SHARE] deep link recebido: $uri');
-
+    print('[FLUTTER_SHARE] Deep link recebido: $uri');
     if (uri.scheme != 'aeterna' || uri.host != 'share') return;
 
-    // Formato novo (S.9.1): ?manifest=<caminho_absoluto>
     final manifestPath = uri.queryParameters['manifest'];
     if (manifestPath != null && manifestPath.isNotEmpty) {
       await _processarManifest(manifestPath);
       return;
     }
 
-    // Formato legado (pré-S.9.1): ?image=<caminho_absoluto> — mantido para compatibilidade
+    // Legado: ?image=<path>
     final imagePath = uri.queryParameters['image'];
     if (imagePath != null && imagePath.isNotEmpty) {
       try {
@@ -159,7 +167,6 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
         if (await file.exists()) {
           final bytes = await file.readAsBytes();
           final filename = imagePath.split('/').last;
-          print('[FLUTTER_SHARE] arquivo carregado (legado): ${bytes.length} bytes');
           _agendarNavegacaoShare(_PendingShare(
             bytes: bytes,
             filename: filename,
@@ -167,113 +174,97 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
           ));
         }
       } catch (e) {
-        print('[FLUTTER_SHARE] Erro ao processar imagem (legado): $e');
+        print('[FLUTTER_SHARE] Erro ao processar imagem legada: $e');
       }
     }
   }
 
-  /// Lê o manifest.json escrito pela Share Extension, verifica deduplicação
-  /// e carrega os bytes do arquivo de mídia.
+  // Lê o manifest.json escrito pela Share Extension, extrai mídia e agenda navegação.
   Future<void> _processarManifest(String manifestPath) async {
     try {
       final manifestFile = File(manifestPath);
       if (!await manifestFile.exists()) {
-        print('[FLUTTER_SHARE] manifest não encontrado: $manifestPath');
+        print('[FLUTTER_SHARE] manifest.json não encontrado: $manifestPath');
         return;
       }
 
-      final raw = await manifestFile.readAsString();
-      final Map<String, dynamic> manifest = json.decode(raw) as Map<String, dynamic>;
-
-      final shareId = manifest['share_id'] as String?;
-      final filePath = manifest['file_path'] as String?;
+      final content = await manifestFile.readAsString();
+      final Map<String, dynamic> manifest = jsonDecode(content) as Map<String, dynamic>;
+      final shareId   = manifest['share_id']   as String? ?? '';
+      final filePath  = manifest['file_path']  as String? ?? '';
       final mediaType = manifest['media_type'] as String? ?? 'image';
 
-      if (shareId == null || filePath == null) {
-        print('[FLUTTER_SHARE] manifest inválido (campos ausentes): $raw');
-        return;
-      }
+      print('[FLUTTER_SHARE] Manifest lido — share_id=$shareId media_type=$mediaType');
 
-      print('[FLUTTER_SHARE] manifest lido: $shareId tipo=$mediaType');
-
-      // Deduplicação: ignora share_id já processado
+      // Dedup: evita processar o mesmo compartilhamento duas vezes
       final prefs = await SharedPreferences.getInstance();
-      final lastShareId = prefs.getString('last_share_id');
-      if (lastShareId == shareId) {
-        print('[FLUTTER_SHARE] share_id já processado — ignorando');
+      final lastShareId = prefs.getString('last_share_id') ?? '';
+      if (shareId.isNotEmpty && shareId == lastShareId) {
+        print('[FLUTTER_SHARE] share_id duplicado — ignorando');
         return;
       }
-      await prefs.setString('last_share_id', shareId);
+      if (shareId.isNotEmpty) {
+        await prefs.setString('last_share_id', shareId);
+      }
 
       final mediaFile = File(filePath);
       if (!await mediaFile.exists()) {
-        print('[FLUTTER_SHARE] arquivo de mídia não encontrado: $filePath');
+        print('[FLUTTER_SHARE] Arquivo de mídia não encontrado: $filePath');
         return;
       }
 
-      final bytes = await mediaFile.readAsBytes();
+      final bytes    = await mediaFile.readAsBytes();
       final filename = filePath.split('/').last;
-      print('[FLUTTER_SHARE] arquivo carregado: ${bytes.length} bytes');
+      final isVideo  = mediaType == 'video';
 
-      // Apaga manifest e arquivo de mídia após consumo bem-sucedido
+      // Limpa arquivos temporários do container
       try {
         await manifestFile.delete();
         await mediaFile.delete();
-      } catch (e) {
-        print('[FLUTTER_SHARE] aviso — falha ao apagar arquivos temporários: $e');
-      }
+      } catch (_) {}
 
+      print('[FLUTTER_SHARE] Mídia carregada (${bytes.length} bytes) isVideo=$isVideo');
       _agendarNavegacaoShare(_PendingShare(
         bytes: bytes,
         filename: filename,
-        isVideo: mediaType == 'video',
+        isVideo: isVideo,
       ));
     } catch (e) {
       print('[FLUTTER_SHARE] Erro ao processar manifest: $e');
     }
   }
 
-  /// Agenda a navegação para NovaMemoriaScreen frame-a-frame até o Navigator
-  /// estar disponível (resolve race condition de cold start).
+  // Agenda navegação para NovaMemoriaScreen com retry por frame até o Navigator estar pronto.
   void _agendarNavegacaoShare(_PendingShare share) {
-    if (_navigatorKey.currentState != null && _entrou) {
-      _navegarParaNovaMemoria(share);
-    } else {
-      // Guarda o share e tenta novamente no próximo frame
-      setState(() => _pendingShare = share);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _tentarNavegacaoPendente();
-      });
-    }
+    _pendingShare = share;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _tentarNavegacaoPendente());
   }
 
-  /// Chamada após cada frame. Se o Navigator estiver pronto e o usuário
-  /// estiver logado, navega; caso contrário, agenda mais um frame.
+  // Chamado em cada frame até conseguir navegar (resolve race condition de cold-start).
   void _tentarNavegacaoPendente() {
     final share = _pendingShare;
     if (share == null) return;
 
-    if (_navigatorKey.currentState != null && _entrou) {
-      setState(() => _pendingShare = null);
-      _navegarParaNovaMemoria(share);
-    } else {
-      // Tenta no próximo frame
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _tentarNavegacaoPendente();
-      });
+    final nav = _navigatorKey.currentState;
+    if (nav == null || !_entrou) {
+      // Navigator ainda não está pronto ou usuário não está logado — tentar no próximo frame
+      WidgetsBinding.instance.addPostFrameCallback((_) => _tentarNavegacaoPendente());
+      return;
     }
+
+    _pendingShare = null;
+    _navegarParaNovaMemoria(share);
   }
 
   void _navegarParaNovaMemoria(_PendingShare share) {
-    print('[FLUTTER_SHARE] navegando para NovaMemoriaScreen');
     _navigatorKey.currentState?.push(
       MaterialPageRoute(
         builder: (_) => NovaMemoriaScreen(
           onSalvar: _service.salvarMemoriaComFoto,
           fotoBytes: share.isVideo ? null : share.bytes,
-          fotoNome: share.isVideo ? null : share.filename,
+          fotoNome:  share.isVideo ? null : share.filename,
           videoBytes: share.isVideo ? share.bytes : null,
-          videoNome: share.isVideo ? share.filename : null,
+          videoNome:  share.isVideo ? share.filename : null,
         ),
       ),
     );
@@ -321,10 +312,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
         setState(() => _entrou = true);
         _carregarUsuario();
         _carregarMemorias();
-        // Verifica se há share pendente aguardando login
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _tentarNavegacaoPendente();
-        });
+        // Sprint S.9.1 — tenta navegar para mídia pendente da Share Extension
+        WidgetsBinding.instance.addPostFrameCallback((_) => _tentarNavegacaoPendente());
       }
       return;
     }
@@ -342,10 +331,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
           setState(() => _entrou = true);
           _carregarUsuario();
           _carregarMemorias();
-          // Verifica se há share pendente aguardando login
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _tentarNavegacaoPendente();
-          });
+          // Sprint S.9.1 — tenta navegar para mídia pendente da Share Extension
+          WidgetsBinding.instance.addPostFrameCallback((_) => _tentarNavegacaoPendente());
         }
         return;
       }
@@ -505,11 +492,4 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
     }
   }
 
-  void _abrirTimeline(BuildContext context) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => TimelineScreen(
-          memorias: _memorias,
-          onCriarMemoria: () => _abrirNovaMemoria(context),
-          onAbrirMemoria: (memoria) => _abrirDetalhe(context, memoria),
-    
+  void _abri
