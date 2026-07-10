@@ -518,18 +518,4 @@ class _AdicionarRelacionamentoScreenState
         final msg = e.toString();
         if (msg.contains('unique') || msg.contains('duplicate')) {
           mensagem = 'Esta relação já existe entre as duas pessoas.';
-        } else if (msg.contains('violates foreign key')) {
-          mensagem = 'Pessoa não encontrada no banco de dados.';
-        } else if (msg.contains('permission denied') ||
-            msg.contains('policy')) {
-          mensagem = 'Permissão negada. Contate o suporte.';
-        } else if (msg.contains('retorno nulo')) {
-          mensagem = 'Não foi possível criar a relação.';
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(mensagem)),
-        );
-      }
-    }
-  }
-}
+        } el
