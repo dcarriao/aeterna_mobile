@@ -1,75 +1,24 @@
-// ============================================================================
 // supabase/functions/send-push/index.ts
 // Sprint S.9.2 — Push Notifications Transacionais
-// ============================================================================
-// Recebe evento do trigger PostgreSQL (via pg_net.http_post) ou chamada direta.
+//
+// Chamada via Database Webhook quando um registro é inserido em `notificacoes`.
+// Payload recebido: { type: "INSERT", table: "notificacoes", record: { ... }, schema: "public" }
+//
 // Fluxo:
-//   1. Valida payload
-//   2. Verifica idempotência em `notificacoes` (ON CONFLICT DO NOTHING)
-//   3. Busca tokens ativos em `push_dispositivos` para pessoa_id
-//   4. Obtém access_token via Google Service Account JWT (OAuth2 RS256)
-//   5. Chama FCM HTTP v1 API para cada token
-//   6. Atualiza `notificacoes` com resultado
-//   7. Desativa tokens inválidos (NOT_REGISTERED)
-//
-// Payload esperado (enviado pelos triggers):
-// {
-//   tipo          : string   — tipo do evento (convite_familiar_recebido | ...)
-//   pessoa_id     : number   — destinatário (pessoas.id)
-//   titulo        : string   — título da notificação
-//   corpo         : string   — corpo da notificação
-//   dados         : object   — payload de rota para o Flutter (sem dados sensíveis)
-//   conteudo_id   : number | null — para idempotência
-//   conteudo_tipo : string | null — para idempotência
-// }
-//
-// Secrets necessários (Supabase → Edge Functions → Secrets):
-//   FIREBASE_SERVICE_ACCOUNT_JSON — JSON da Service Account do Firebase
-//   SUPABASE_URL                  — injetado automaticamente pelo Supabase
-//   SUPABASE_SERVICE_ROLE_KEY     — injetado automaticamente pelo Supabase
-// ============================================================================
+//   1. Valida payload do webhook
+//   2. Busca tokens ativos em push_dispositivos para o pessoa_id
+//   3. Obtém access_token do FCM via OAuth2 JWT (RS256) com FIREBASE_SERVICE_ACCOUNT_JSON
+//   4. Envia mensagem FCM HTTP v1 para cada token
+//   5. Atualiza notificacoes (enviada, enviada_at, tentativas, erro_envio)
+//   6. Desativa tokens inválidos via RPC desativar_token_invalido
 
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// ---------------------------------------------------------------------------
-// Tipos
-// ---------------------------------------------------------------------------
-
-interface PushPayload {
-  tipo: string;
-  pessoa_id: number;
-  titulo: string;
-  corpo: string;
-  dados?: Record<string, unknown>;
-  conteudo_id?: number | null;
-  conteudo_tipo?: string | null;
-}
-
-interface ServiceAccountKey {
-  type: string;
-  project_id: string;
-  private_key_id: string;
-  private_key: string;
-  client_email: string;
-  token_uri: string;
-}
-
-interface FcmResult {
-  token: string;
-  success: boolean;
-  error?: string;
-  errorCode?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Constantes
-// ---------------------------------------------------------------------------
-
 const FCM_PROJECT_ID = 'aeterna-94450';
-const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
-const FCM_ENDPOINT = `https://fcm.googleapis.com/v1/projects/${FCM_PROJECT_ID}/messages:send`;
+const FCM_SCOPE      = 'https://www.googleapis.com/auth/firebase.messaging';
+const FCM_ENDPOINT   = `https://fcm.googleapis.com/v1/projects/${FCM_PROJECT_ID}/messages:send`;
 
-// Códigos FCM que indicam token inválido (deve desativar no banco)
 const INVALID_TOKEN_CODES = new Set([
   'NOT_REGISTERED',
   'INVALID_ARGUMENT',
@@ -77,402 +26,308 @@ const INVALID_TOKEN_CODES = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
-// Entry point
+// Tipos
 // ---------------------------------------------------------------------------
 
-Deno.serve(async (req: Request): Promise<Response> => {
-  // Só aceita POST
-  if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 });
-  }
+interface WebhookPayload {
+  type:   'INSERT' | 'UPDATE' | 'DELETE';
+  table:  string;
+  schema: string;
+  record: NotificacaoRecord;
+}
 
-  let payload: PushPayload;
+interface NotificacaoRecord {
+  id:            number;
+  pessoa_id:     number;
+  tipo:          string;
+  titulo:        string;
+  corpo:         string;
+  dados:         Record<string, unknown> | null;
+  conteudo_id:   number | null;
+  conteudo_tipo: string | null;
+  enviada:       boolean;
+  tentativas:    number;
+}
+
+interface PushDispositivo {
+  token:      string;
+  plataforma: string;
+}
+
+// ---------------------------------------------------------------------------
+// Handler principal
+// ---------------------------------------------------------------------------
+
+serve(async (req: Request) => {
   try {
-    payload = await req.json() as PushPayload;
-  } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+    if (req.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405 });
+    }
 
-  // Validação mínima
-  if (!payload.tipo || !payload.pessoa_id || !payload.titulo || !payload.corpo) {
-    console.error('[PUSH] Payload inválido:', JSON.stringify(payload));
-    return new Response(JSON.stringify({ error: 'Missing required fields' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+    const payload: WebhookPayload = await req.json();
 
-  console.log(`[PUSH_START] tipo=${payload.tipo} pessoa_id=${payload.pessoa_id}`);
+    // Só processa INSERT em notificacoes
+    if (payload.type !== 'INSERT' || payload.table !== 'notificacoes') {
+      return new Response('ignored', { status: 200 });
+    }
 
-  // Cliente Supabase com service role (acesso total, sem RLS)
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    { auth: { persistSession: false } }
-  );
+    const notif = payload.record;
 
-  // ---------------------------------------------------------------------------
-  // 1. Idempotência: tenta inserir em notificacoes
-  //    Se já existe (uq_notificacoes_evento_pessoa), retorna 200 sem reenviar
-  // ---------------------------------------------------------------------------
+    // Não reprocessar se já foi enviada
+    if (notif.enviada) {
+      return new Response('already sent', { status: 200 });
+    }
 
-  let notificacaoId: number | null = null;
+    const supabaseUrl        = Deno.env.get('SUPABASE_URL')!;
+    const serviceRoleKey     = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const serviceAccountJson = Deno.env.get('FIREBASE_SERVICE_ACCOUNT_JSON');
 
-  if (payload.conteudo_id != null && payload.conteudo_tipo != null) {
-    const { data: notif, error: notifErr } = await supabase
-      .from('notificacoes')
-      .insert({
-        pessoa_id:     payload.pessoa_id,
-        tipo:          payload.tipo,
-        titulo:        payload.titulo,
-        corpo:         payload.corpo,
-        dados:         payload.dados ?? {},
-        conteudo_id:   payload.conteudo_id,
-        conteudo_tipo: payload.conteudo_tipo,
-        lida:          false,
-        enviada:       false,
-        tentativas:    0,
-      })
-      .select('id')
-      .single();
+    if (!serviceAccountJson) {
+      console.error('[PUSH] FIREBASE_SERVICE_ACCOUNT_JSON não configurado');
+      return new Response('missing firebase config', { status: 500 });
+    }
 
-    if (notifErr) {
-      // Código 23505 = unique_violation → já enviado, idempotente
-      if (notifErr.code === '23505') {
-        console.log(`[PUSH_SKIP] Idempotência: tipo=${payload.tipo} conteudo_id=${payload.conteudo_id} pessoa_id=${payload.pessoa_id}`);
-        return new Response(JSON.stringify({ skipped: true, reason: 'already_sent' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    // 1. Busca tokens ativos para o destinatário
+    const { data: dispositivos, error: errTokens } = await supabase
+      .from('push_dispositivos')
+      .select('token, plataforma')
+      .eq('pessoa_id', notif.pessoa_id)
+      .eq('ativo', true);
+
+    if (errTokens) {
+      console.error('[PUSH] Erro ao buscar tokens:', errTokens.message);
+      await marcarErro(supabase, notif.id, errTokens.message, notif.tentativas);
+      return new Response('error fetching tokens', { status: 500 });
+    }
+
+    if (!dispositivos || dispositivos.length === 0) {
+      console.log(`[PUSH] Nenhum token ativo para pessoa_id=${notif.pessoa_id}`);
+      await marcarEnviada(supabase, notif.id, notif.tentativas);
+      return new Response('no active tokens', { status: 200 });
+    }
+
+    // 2. Obtém access_token do FCM
+    let accessToken: string;
+    try {
+      accessToken = await getFcmAccessToken(serviceAccountJson);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[PUSH] Erro ao obter token FCM:', msg);
+      await marcarErro(supabase, notif.id, `FCM auth: ${msg}`, notif.tentativas);
+      return new Response('fcm auth error', { status: 500 });
+    }
+
+    // 3. Envia para cada token
+    const erros: string[] = [];
+    let enviouPeloMenos = false;
+
+    for (const disp of dispositivos as PushDispositivo[]) {
+      const result = await enviarFcm(accessToken, disp.token, {
+        titulo:        notif.titulo,
+        corpo:         notif.corpo,
+        dados:         notif.dados ?? {},
+        notificacaoId: notif.id,
+      });
+
+      if (result.ok) {
+        enviouPeloMenos = true;
+        console.log(`[PUSH] Enviado para token ...${disp.token.slice(-8)}`);
+      } else {
+        console.warn(`[PUSH] Falha token ...${disp.token.slice(-8)}: ${result.error}`);
+        erros.push(result.error ?? 'unknown');
+
+        if (result.invalidToken) {
+          await supabase.rpc('desativar_token_invalido', { p_token: disp.token });
+          console.log(`[PUSH] Token inválido desativado: ...${disp.token.slice(-8)}`);
+        }
       }
-      console.error('[PUSH] Erro ao inserir notificacao:', notifErr);
-      // Prossegue mesmo sem registro de auditoria (melhor do que não enviar)
+    }
+
+    // 4. Atualiza notificacoes
+    if (enviouPeloMenos || erros.length === 0) {
+      await marcarEnviada(supabase, notif.id, notif.tentativas);
     } else {
-      notificacaoId = notif?.id ?? null;
+      await marcarErro(supabase, notif.id, erros.join('; '), notif.tentativas);
     }
-  } else {
-    // Sem conteudo_id: insere sem idempotência (eventos de atualização contínua)
-    const { data: notif } = await supabase
-      .from('notificacoes')
-      .insert({
-        pessoa_id:  payload.pessoa_id,
-        tipo:       payload.tipo,
-        titulo:     payload.titulo,
-        corpo:      payload.corpo,
-        dados:      payload.dados ?? {},
-        lida:       false,
-        enviada:    false,
-        tentativas: 0,
-      })
-      .select('id')
-      .single();
-    notificacaoId = notif?.id ?? null;
-  }
 
-  // ---------------------------------------------------------------------------
-  // 2. Busca tokens ativos para esta pessoa
-  // ---------------------------------------------------------------------------
-
-  const { data: dispositivos, error: dispErr } = await supabase
-    .from('push_dispositivos')
-    .select('id, token, plataforma')
-    .eq('pessoa_id', payload.pessoa_id)
-    .eq('ativo', true);
-
-  if (dispErr || !dispositivos || dispositivos.length === 0) {
-    console.log(`[PUSH_SKIP] Nenhum dispositivo ativo para pessoa_id=${payload.pessoa_id}`);
-    if (notificacaoId) {
-      await supabase
-        .from('notificacoes')
-        .update({ erro_envio: 'Nenhum dispositivo ativo', tentativas: 1 })
-        .eq('id', notificacaoId);
-    }
-    return new Response(JSON.stringify({ sent: 0, reason: 'no_active_devices' }), {
+    return new Response(JSON.stringify({ enviou: enviouPeloMenos, erros }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
+
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[PUSH] Erro inesperado:', msg);
+    return new Response(`unexpected error: ${msg}`, { status: 500 });
   }
-
-  console.log(`[PUSH_DEVICES] ${dispositivos.length} dispositivo(s) ativo(s) para pessoa_id=${payload.pessoa_id}`);
-
-  // ---------------------------------------------------------------------------
-  // 3. Obtém access_token do Google OAuth2 via Service Account JWT
-  // ---------------------------------------------------------------------------
-
-  let accessToken: string;
-  try {
-    accessToken = await getGoogleAccessToken();
-  } catch (err) {
-    console.error('[PUSH] Falha ao obter access_token Google:', err);
-    if (notificacaoId) {
-      await supabase
-        .from('notificacoes')
-        .update({
-          erro_envio: `OAuth2 falhou: ${String(err)}`,
-          tentativas: 1,
-        })
-        .eq('id', notificacaoId);
-    }
-    return new Response(JSON.stringify({ error: 'OAuth2 failure', details: String(err) }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // 4. Envia para cada token via FCM HTTP v1 API
-  // ---------------------------------------------------------------------------
-
-  // Dados de rota para o Flutter (sem dados sensíveis)
-  const dadosFlutter: Record<string, string> = {
-    tipo: payload.tipo,
-    ...(payload.dados
-      ? Object.fromEntries(
-          Object.entries(payload.dados).map(([k, v]) => [k, String(v)])
-        )
-      : {}),
-  };
-  if (notificacaoId) {
-    dadosFlutter['notificacao_id'] = String(notificacaoId);
-  }
-
-  const resultados: FcmResult[] = await Promise.all(
-    dispositivos.map((d) =>
-      enviarFcm(accessToken, d.token, payload.titulo, payload.corpo, dadosFlutter)
-    )
-  );
-
-  // ---------------------------------------------------------------------------
-  // 5. Atualiza notificacoes com resultado agregado
-  // ---------------------------------------------------------------------------
-
-  const sucessos = resultados.filter((r) => r.success).length;
-  const erros    = resultados.filter((r) => !r.success);
-
-  if (notificacaoId) {
-    if (sucessos > 0) {
-      await supabase
-        .from('notificacoes')
-        .update({
-          enviada:    true,
-          enviada_at: new Date().toISOString(),
-          tentativas: 1,
-          erro_envio: erros.length > 0
-            ? `${erros.length} token(s) falharam: ${erros.map((e) => e.errorCode).join(', ')}`
-            : null,
-        })
-        .eq('id', notificacaoId);
-    } else {
-      await supabase
-        .from('notificacoes')
-        .update({
-          enviada:    false,
-          tentativas: 1,
-          erro_envio: erros.map((e) => `${e.token.slice(-8)}: ${e.errorCode}`).join('; '),
-        })
-        .eq('id', notificacaoId);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // 6. Desativa tokens inválidos
-  // ---------------------------------------------------------------------------
-
-  const tokensInvalidos = resultados
-    .filter((r) => !r.success && r.errorCode && INVALID_TOKEN_CODES.has(r.errorCode))
-    .map((r) => r.token);
-
-  if (tokensInvalidos.length > 0) {
-    console.log(`[PUSH_INVALID] Desativando ${tokensInvalidos.length} token(s) inválido(s)`);
-    await supabase.rpc('desativar_token_invalido', { p_token: tokensInvalidos[0] });
-    // Para múltiplos tokens inválidos, chama individualmente
-    for (const token of tokensInvalidos.slice(1)) {
-      await supabase.rpc('desativar_token_invalido', { p_token: token });
-    }
-  }
-
-  console.log(`[PUSH_DONE] tipo=${payload.tipo} pessoa_id=${payload.pessoa_id} enviados=${sucessos}/${dispositivos.length}`);
-
-  return new Response(
-    JSON.stringify({
-      sent:    sucessos,
-      total:   dispositivos.length,
-      failed:  erros.length,
-    }),
-    {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }
-  );
 });
 
 // ---------------------------------------------------------------------------
-// Google OAuth2: gera access_token a partir do Service Account JSON
-// Usa RS256 JWT assinado com a private_key da Service Account.
-// ---------------------------------------------------------------------------
-
-async function getGoogleAccessToken(): Promise<string> {
-  const saJson = Deno.env.get('FIREBASE_SERVICE_ACCOUNT_JSON');
-  if (!saJson) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON não configurado');
-  }
-
-  const sa: ServiceAccountKey = JSON.parse(saJson);
-
-  const now     = Math.floor(Date.now() / 1000);
-  const expires = now + 3600; // 1 hora
-
-  // Monta JWT header + payload
-  const header  = { alg: 'RS256', typ: 'JWT' };
-  const jwtBody = {
-    iss  : sa.client_email,
-    scope: FCM_SCOPE,
-    aud  : sa.token_uri || 'https://oauth2.googleapis.com/token',
-    iat  : now,
-    exp  : expires,
-  };
-
-  const encode = (obj: object) =>
-    btoa(JSON.stringify(obj))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-
-  const headerB64  = encode(header);
-  const payloadB64 = encode(jwtBody);
-  const toSign     = `${headerB64}.${payloadB64}`;
-
-  // Importa a chave RSA privada no formato PEM
-  const pemKey = sa.private_key;
-  const binaryKey = pemToBinary(pemKey);
-  const cryptoKey = await crypto.subtle.importKey(
-    'pkcs8',
-    binaryKey,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-
-  // Assina
-  const encoder   = new TextEncoder();
-  const signature = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5',
-    cryptoKey,
-    encoder.encode(toSign)
-  );
-
-  const signatureB64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-
-  const jwt = `${toSign}.${signatureB64}`;
-
-  // Troca JWT por access_token
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion:  jwt,
-    }),
-  });
-
-  if (!tokenRes.ok) {
-    const errText = await tokenRes.text();
-    throw new Error(`Google token exchange falhou (${tokenRes.status}): ${errText}`);
-  }
-
-  const tokenData = await tokenRes.json();
-  return tokenData.access_token as string;
-}
-
-// Converte PEM RSA privada → ArrayBuffer (PKCS#8 DER)
-function pemToBinary(pem: string): ArrayBuffer {
-  const b64 = pem
-    .replace(/-----BEGIN PRIVATE KEY-----/, '')
-    .replace(/-----END PRIVATE KEY-----/, '')
-    .replace(/\s+/g, '');
-  const binary = atob(b64);
-  const bytes  = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-
-// ---------------------------------------------------------------------------
-// Envia uma mensagem FCM HTTP v1 para um token específico
+// FCM HTTP v1 — envio por token
 // ---------------------------------------------------------------------------
 
 async function enviarFcm(
   accessToken: string,
   token: string,
-  titulo: string,
-  corpo: string,
-  dados: Record<string, string>
-): Promise<FcmResult> {
-  const message = {
+  payload: {
+    titulo: string;
+    corpo:  string;
+    dados:  Record<string, unknown>;
+    notificacaoId: number;
+  }
+): Promise<{ ok: boolean; error?: string; invalidToken?: boolean }> {
+  // FCM exige que todos os valores em `data` sejam strings
+  const dataPayload: Record<string, string> = {
+    notificacao_id: String(payload.notificacaoId),
+  };
+  for (const [k, v] of Object.entries(payload.dados)) {
+    dataPayload[k] = String(v);
+  }
+
+  const body = JSON.stringify({
     message: {
       token,
-      // Notification: exibe na bandeja do sistema (background/encerrado)
       notification: {
-        title: titulo,
-        body:  corpo,
+        title: payload.titulo,
+        body:  payload.corpo,
       },
-      // Data: entregue ao app em foreground e background (usado para roteamento)
-      data: dados,
-      // Configurações específicas de plataforma
+      data: dataPayload,
+      android: {
+        priority: 'high',
+        notification: { channel_id: 'aeterna_transacional' },
+      },
       apns: {
         payload: {
           aps: {
+            alert: { title: payload.titulo, body: payload.corpo },
             sound: 'default',
-            'content-available': 1,
           },
         },
       },
-      android: {
-        priority: 'high',
-        notification: {
-          sound: 'default',
-          channel_id: 'aeterna_transacional',
-        },
-      },
     },
+  });
+
+  const res = await fetch(FCM_ENDPOINT, {
+    method:  'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type':  'application/json',
+    },
+    body,
+  });
+
+  if (res.ok) return { ok: true };
+
+  const errBody = await res.json().catch(() => ({}));
+  const fcmCode = (
+    errBody?.error?.details?.[0]?.errorCode as string | undefined
+    ?? errBody?.error?.status as string | undefined
+    ?? String(res.status)
+  );
+
+  return {
+    ok:           false,
+    error:        fcmCode,
+    invalidToken: INVALID_TOKEN_CODES.has(fcmCode),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// OAuth2 — JWT RS256 → access_token do Google
+// ---------------------------------------------------------------------------
+
+async function getFcmAccessToken(serviceAccountJson: string): Promise<string> {
+  const sa  = JSON.parse(serviceAccountJson);
+  const now = Math.floor(Date.now() / 1000);
+
+  const header  = { alg: 'RS256', typ: 'JWT' };
+  const payload = {
+    iss:   sa.client_email,
+    scope: FCM_SCOPE,
+    aud:   'https://oauth2.googleapis.com/token',
+    iat:   now,
+    exp:   now + 3600,
   };
 
-  try {
-    const res = await fetch(FCM_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(message),
-    });
+  const encode = (obj: unknown) =>
+    btoa(JSON.stringify(obj))
+      .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 
-    if (res.ok) {
-      const data = await res.json();
-      console.log(`[PUSH_FCM_OK] token=...${token.slice(-8)} name=${data?.name}`);
-      return { token, success: true };
-    }
+  const signingInput = `${encode(header)}.${encode(payload)}`;
 
-    // Falha
-    const errData = await res.json().catch(() => ({}));
-    const fcmError = errData?.error;
-    const errorCode: string =
-      (fcmError?.details?.[0]?.errorCode as string) ??
-      (fcmError?.status as string) ??
-      String(res.status);
+  const pemBody = sa.private_key
+    .replace('-----BEGIN PRIVATE KEY-----', '')
+    .replace('-----END PRIVATE KEY-----', '')
+    .replace(/\s/g, '');
 
-    console.warn(`[PUSH_FCM_ERR] token=...${token.slice(-8)} code=${errorCode} status=${res.status}`);
-    return { token, success: false, error: fcmError?.message, errorCode };
+  const keyBytes = Uint8Array.from(atob(pemBody), c => c.charCodeAt(0));
+  const cryptoKey = await crypto.subtle.importKey(
+    'pkcs8',
+    keyBytes,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
 
-  } catch (err) {
-    console.error(`[PUSH_FCM_EXCEPTION] token=...${token.slice(-8)}`, err);
-    return { token, success: false, error: String(err), errorCode: 'EXCEPTION' };
+  const signatureBytes = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5',
+    cryptoKey,
+    new TextEncoder().encode(signingInput)
+  );
+
+  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
+    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+
+  const jwt = `${signingInput}.${signature}`;
+
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+  });
+
+  if (!tokenRes.ok) {
+    const err = await tokenRes.text();
+    throw new Error(`Google token exchange falhou: ${err}`);
   }
+
+  const { access_token } = await tokenRes.json();
+  return access_token as string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers de atualização em notificacoes
+// ---------------------------------------------------------------------------
+
+async function marcarEnviada(
+  supabase: ReturnType<typeof createClient>,
+  id: number,
+  tentativasAtuais: number
+): Promise<void> {
+  await supabase
+    .from('notificacoes')
+    .update({
+      enviada:    true,
+      enviada_at: new Date().toISOString(),
+      tentativas: tentativasAtuais + 1,
+      erro_envio: null,
+    })
+    .eq('id', id);
+}
+
+async function marcarErro(
+  supabase: ReturnType<typeof createClient>,
+  id: number,
+  erro: string,
+  tentativasAtuais: number
+): Promise<void> {
+  await supabase
+    .from('notificacoes')
+    .update({
+      tentativas: tentativasAtuais + 1,
+      erro_envio: erro,
+    })
+    .eq('id', id);
 }

@@ -4,31 +4,32 @@
 -- Sprint : S.9.2
 -- Data   : 2026-07-10
 --
+-- ARQUITETURA: Database Webhook (sem pg_net, sem ALTER DATABASE)
+--   1. Triggers fazem INSERT em `notificacoes` (fila/auditoria)
+--   2. Supabase Database Webhook detecta o INSERT e chama a Edge Function send-push
+--   3. Edge Function lê o registro, busca tokens em push_dispositivos e envia FCM
+--
 -- O QUE ESTE ARQUIVO FAZ (em ordem):
---   1. Cria tabela `push_dispositivos`  — tokens FCM por pessoa (FK correta: pessoas.id)
---   2. Cria tabela `notificacoes`       — trilha de auditoria + idempotência por envio
+--   1. Cria tabela `push_dispositivos`     — tokens FCM por pessoa (FK: pessoas.id)
+--   2. Cria tabela `notificacoes`          — fila de envio + auditoria + idempotência
 --   3. Função  `upsert_push_dispositivo`   — Flutter chama ao logar / token refresh
 --   4. Função  `desativar_dispositivo`     — Flutter chama ao fazer logout
 --   5. Função  `desativar_token_invalido`  — Edge Function chama quando FCM rejeita token
 --   6. Função  `marcar_notificacao_lida`   — Flutter chama quando usuário toca na notificação
---   7. Função  `fn_enviar_push_evento`     — helper interno dos triggers
---   8. Triggers para 5 dos 6 eventos autorizados:
+--   7. Triggers para 5 dos 6 eventos autorizados (apenas INSERT em notificacoes):
 --        a) convite_familiar_recebido   → AFTER INSERT em convites_familiares
 --        b) memoria_compartilhada       → AFTER INSERT em conteudo_permissoes
 --        c) nova_contribuicao           → AFTER INSERT em contribuicoes
 --        d) convite_memorial            → AFTER INSERT em memorial_pessoas
 --        e) atualizacao_conteudo        → AFTER UPDATE em memorias
---        (f) mensagem_futura_liberada   → requer pg_cron — implementar separadamente)
---   9. RLS e GRANTs padrão MVP anônimo
---  10. Migração best-effort de device_tokens → push_dispositivos
+--        (f) mensagem_futura_liberada   → requer pg_cron — implementar separadamente
+--   8. RLS e GRANTs padrão MVP anônimo
+--   9. Migração best-effort de device_tokens → push_dispositivos
 --
 -- PRÉ-REQUISITOS:
---   a) Extensão pg_net habilitada (Supabase Dashboard → Settings → Extensions)
---   b) Variáveis de banco configuradas (execute uma vez antes deste arquivo):
---        ALTER DATABASE postgres SET "app.supabase_url" = 'https://SEU_ID.supabase.co';
---        ALTER DATABASE postgres SET "app.supabase_service_role_key" = 'eyJ...';
---   c) Segredo FIREBASE_SERVICE_ACCOUNT_JSON em Supabase → Edge Functions → Secrets
---   d) Edge Function send-push deployada antes de os triggers dispararem em produção
+--   a) Segredo FIREBASE_SERVICE_ACCOUNT_JSON em Supabase → Edge Functions → Secrets
+--   b) Edge Function send-push deployada
+--   c) Database Webhook configurado no dashboard (instruções no final do arquivo)
 --
 -- IDEMPOTENTE: pode ser executado múltiplas vezes sem efeitos colaterais.
 -- ============================================================================
@@ -58,30 +59,19 @@ comment on table public.push_dispositivos is
     'S.9.2: tokens FCM por dispositivo/pessoa. FK correta: pessoas.id (não usuarios.id).';
 comment on column public.push_dispositivos.ativo is
     'false após logout explícito ou quando FCM retorna token inválido/não-registrado.';
-comment on column public.push_dispositivos.last_seen_at is
-    'Atualizado a cada upsert; permite expirar tokens antigos por inatividade.';
 
--- Um token por (pessoa, token) — o mesmo token nunca é duplicado para a mesma pessoa
 create unique index if not exists uq_push_dispositivos_pessoa_token
     on public.push_dispositivos (pessoa_id, token);
 
--- Índices de consulta
 create index if not exists idx_push_dispositivos_pessoa_ativo
-    on public.push_dispositivos (pessoa_id, ativo)
-    where ativo = true;
-
-create index if not exists idx_push_dispositivos_token
-    on public.push_dispositivos (token);
+    on public.push_dispositivos (pessoa_id) where ativo = true;
 
 
 -- ============================================================================
 -- 2. TABELA notificacoes
 -- ============================================================================
--- Uma linha por envio tentado. Usada para:
---   - Auditoria (o que foi enviado, para quem, quando)
---   - Idempotência: UNIQUE impede disparar duas vezes o mesmo evento para a mesma pessoa
---   - Retry: campos tentativas + erro_envio permitem reenvio futuro
---   - Lida/não lida: o app marca como lida ao tocar na notificação
+-- Fila de envio: o trigger insere aqui; o Webhook chama a Edge Function;
+-- a Edge Function atualiza enviada/erro_envio ao terminar.
 
 create table if not exists public.notificacoes (
     id             bigint generated always as identity primary key,
@@ -89,9 +79,9 @@ create table if not exists public.notificacoes (
     tipo           text   not null,
     titulo         text   not null,
     corpo          text   not null,
-    dados          jsonb,                      -- payload de rota para o Flutter
-    conteudo_id    bigint,                     -- id do registro-origem (para idempotência)
-    conteudo_tipo  text,                       -- tabela-origem (para idempotência)
+    dados          jsonb,
+    conteudo_id    bigint,
+    conteudo_tipo  text,
     lida           boolean not null default false,
     enviada        boolean not null default false,
     tentativas     int     not null default 0,
@@ -102,56 +92,34 @@ create table if not exists public.notificacoes (
 );
 
 comment on table public.notificacoes is
-    'S.9.2: trilha de notificações push. Uma linha por envio tentado.';
-comment on column public.notificacoes.dados is
-    'Payload de rota enviado no FCM data message. Nunca contém dados sensíveis.';
-comment on column public.notificacoes.conteudo_id is
-    'ID do registro que originou o evento (ex.: contribuicao.id). Usado na UNIQUE de idempotência.';
+    'S.9.2: fila de push + auditoria. INSERT feito pelos triggers; '
+    'envio feito pela Edge Function send-push via Database Webhook.';
 
--- Idempotência: o mesmo evento não gera dois pushes para a mesma pessoa
+-- Índice de idempotência: mesmo evento para a mesma pessoa não gera duplicatas
 create unique index if not exists uq_notificacoes_evento_pessoa
     on public.notificacoes (pessoa_id, tipo, conteudo_id, conteudo_tipo)
     where conteudo_id is not null and conteudo_tipo is not null;
 
 create index if not exists idx_notificacoes_pessoa_lida
-    on public.notificacoes (pessoa_id, lida, created_at desc);
-
-create index if not exists idx_notificacoes_nao_enviadas
-    on public.notificacoes (enviada, tentativas, created_at)
-    where enviada = false;
-
--- CHECK nos tipos autorizados
-alter table public.notificacoes
-    drop constraint if exists ck_notificacoes_tipo;
-alter table public.notificacoes
-    add  constraint ck_notificacoes_tipo
-    check (tipo in (
-        'convite_familiar_recebido',
-        'memoria_compartilhada',
-        'nova_contribuicao',
-        'convite_memorial',
-        'atualizacao_conteudo',
-        'mensagem_futura_liberada'
-    ));
+    on public.notificacoes (pessoa_id, lida) where lida = false;
 
 
 -- ============================================================================
--- 3. FUNÇÃO upsert_push_dispositivo
+-- 3. RPC upsert_push_dispositivo
 -- ============================================================================
--- Chamada pelo Flutter após login, restore de sessão e token refresh.
--- Parâmetros:
---   p_pessoa_id  — PessoaRepository.usuarioId (que desde S.3 contém pessoas.id)
---   p_token      — token FCM obtido pelo firebase_messaging
+-- Chamada pelo Flutter ao logar, ao restaurar sessão e ao renovar token FCM.
+--   p_pessoa_id  — PessoaRepository.usuarioId (pessoas.id desde S.3)
+--   p_token      — token FCM do dispositivo
 --   p_plataforma — 'ios' | 'android'
---   p_device_id  — identificador do dispositivo (opcional)
---   p_app_version — versão do app (opcional)
+--   p_device_id  — opcional, identificador do hardware
+--   p_app_version — opcional
 
 create or replace function public.upsert_push_dispositivo(
-    p_pessoa_id   bigint,
-    p_token       text,
-    p_plataforma  text    default 'unknown',
-    p_device_id   text    default null,
-    p_app_version text    default null
+    p_pessoa_id  bigint,
+    p_token      text,
+    p_plataforma text    default 'unknown',
+    p_device_id  text    default null,
+    p_app_version text   default null
 )
 returns bigint
 language plpgsql security definer set search_path = public
@@ -163,13 +131,13 @@ begin
         (pessoa_id, token, plataforma, device_id, app_version, ativo, last_seen_at, updated_at)
     values
         (p_pessoa_id, p_token, p_plataforma, p_device_id, p_app_version, true, now(), now())
-    on conflict (pessoa_id, token) do update set
-        plataforma   = excluded.plataforma,
-        device_id    = coalesce(excluded.device_id,    push_dispositivos.device_id),
-        app_version  = coalesce(excluded.app_version,  push_dispositivos.app_version),
-        ativo        = true,
-        last_seen_at = now(),
-        updated_at   = now()
+    on conflict (pessoa_id, token) do update
+        set plataforma   = excluded.plataforma,
+            device_id    = coalesce(excluded.device_id,    push_dispositivos.device_id),
+            app_version  = coalesce(excluded.app_version,  push_dispositivos.app_version),
+            ativo        = true,
+            last_seen_at = now(),
+            updated_at   = now()
     returning id into v_id;
 
     return v_id;
@@ -177,14 +145,14 @@ end;
 $$;
 
 comment on function public.upsert_push_dispositivo is
-    'S.9.2: registra ou atualiza token FCM de um dispositivo. Sempre reactiva token se estava inativo.';
+    'S.9.2: registra/atualiza token FCM. Chamado pelo Flutter no login e token refresh.';
 
 
 -- ============================================================================
--- 4. FUNÇÃO desativar_dispositivo
+-- 4. RPC desativar_dispositivo
 -- ============================================================================
--- Chamada pelo Flutter ao fazer logout.
--- Não apaga o registro — apenas marca ativo = false para não receber pushes.
+-- Chamado pelo Flutter no logout. Marca ativo=false para não receber pushes
+-- de outra conta no mesmo dispositivo.
 
 create or replace function public.desativar_dispositivo(
     p_pessoa_id bigint,
@@ -203,14 +171,14 @@ end;
 $$;
 
 comment on function public.desativar_dispositivo is
-    'S.9.2: desativa token FCM ao fazer logout. Não apaga — permite reativar ao logar novamente.';
+    'S.9.2: desativa token no logout. Evita push para conta errada no mesmo aparelho.';
 
 
 -- ============================================================================
--- 5. FUNÇÃO desativar_token_invalido
+-- 5. RPC desativar_token_invalido
 -- ============================================================================
--- Chamada pela Edge Function send-push quando a FCM HTTP v1 API retorna
--- NOT_REGISTERED ou INVALID_ARGUMENT (token expirado/desinstalado).
+-- Chamado pela Edge Function quando FCM retorna NOT_REGISTERED ou INVALID_ARGUMENT.
+-- Não recebe pessoa_id (o token identifica o dispositivo unicamente).
 
 create or replace function public.desativar_token_invalido(
     p_token text
@@ -227,17 +195,16 @@ end;
 $$;
 
 comment on function public.desativar_token_invalido is
-    'S.9.2: chamada pela Edge Function send-push ao receber NOT_REGISTERED do FCM.';
+    'S.9.2: chamado pela Edge Function quando FCM rejeita o token (NOT_REGISTERED).';
 
 
 -- ============================================================================
--- 6. FUNÇÃO marcar_notificacao_lida
+-- 6. RPC marcar_notificacao_lida
 -- ============================================================================
--- Chamada pelo Flutter quando o usuário toca na notificação.
+-- Chamado pelo Flutter quando o usuário toca na notificação.
 
 create or replace function public.marcar_notificacao_lida(
-    p_notificacao_id bigint,
-    p_pessoa_id      bigint      -- guard: só a própria pessoa pode marcar
+    p_notificacao_id bigint
 )
 returns void
 language plpgsql security definer set search_path = public
@@ -246,100 +213,20 @@ begin
     update public.notificacoes
     set    lida    = true,
            lida_at = now()
-    where  id        = p_notificacao_id
-      and  pessoa_id = p_pessoa_id
-      and  lida      = false;
+    where  id = p_notificacao_id
+      and  lida = false;
 end;
 $$;
 
 comment on function public.marcar_notificacao_lida is
-    'S.9.2: marca notificação como lida. Guard: só a própria pessoa pode marcar.';
+    'S.9.2: chamado pelo Flutter ao tocar na notificação push.';
 
 
 -- ============================================================================
--- 7. FUNÇÃO fn_enviar_push_evento (helper interno dos triggers)
--- ============================================================================
--- Constrói o payload JSON e chama net.http_post() para a Edge Function.
--- Parâmetros:
---   p_tipo          — tipo do evento (deve estar em ck_notificacoes_tipo)
---   p_pessoa_id     — destinatário (pessoas.id)
---   p_titulo        — título da notificação
---   p_corpo         — corpo da notificação
---   p_dados         — payload de rota para o Flutter (sem dados sensíveis)
---   p_conteudo_id   — ID do registro-origem (para idempotência)
---   p_conteudo_tipo — tabela-origem (para idempotência)
---
--- NOTA: usa current_setting('app.supabase_url') e
---       current_setting('app.supabase_service_role_key').
---       Configure com ALTER DATABASE postgres SET "app.supabase_url" = '...';
-
-create or replace function public.fn_enviar_push_evento(
-    p_tipo          text,
-    p_pessoa_id     bigint,
-    p_titulo        text,
-    p_corpo         text,
-    p_dados         jsonb   default '{}'::jsonb,
-    p_conteudo_id   bigint  default null,
-    p_conteudo_tipo text    default null
-)
-returns void
-language plpgsql security definer set search_path = public
-as $$
-declare
-    v_supabase_url      text;
-    v_service_role_key  text;
-    v_payload           jsonb;
-begin
-    -- Ler configurações de banco (configuradas uma vez por ALTER DATABASE)
-    v_supabase_url     := current_setting('app.supabase_url',            true);
-    v_service_role_key := current_setting('app.supabase_service_role_key', true);
-
-    -- Guardar silenciosamente se não configurado (não quebra transação de origem)
-    if v_supabase_url is null or v_supabase_url = '' then
-        raise warning '[PUSH] app.supabase_url não configurado — trigger silenciado';
-        return;
-    end if;
-    if v_service_role_key is null or v_service_role_key = '' then
-        raise warning '[PUSH] app.supabase_service_role_key não configurado — trigger silenciado';
-        return;
-    end if;
-
-    v_payload := jsonb_build_object(
-        'tipo',          p_tipo,
-        'pessoa_id',     p_pessoa_id,
-        'titulo',        p_titulo,
-        'corpo',         p_corpo,
-        'dados',         p_dados,
-        'conteudo_id',   p_conteudo_id,
-        'conteudo_tipo', p_conteudo_tipo
-    );
-
-    -- Disparo assíncrono via pg_net (não bloqueia a transação de origem)
-    perform net.http_post(
-        url     := v_supabase_url || '/functions/v1/send-push',
-        headers := jsonb_build_object(
-            'Content-Type',  'application/json',
-            'Authorization', 'Bearer ' || v_service_role_key
-        ),
-        body    := v_payload
-    );
-
-exception when others then
-    -- Nunca deixar o trigger de envio de push quebrar a transação de origem
-    raise warning '[PUSH] fn_enviar_push_evento falhou: % — tipo=% pessoa_id=%',
-        sqlerrm, p_tipo, p_pessoa_id;
-end;
-$$;
-
-comment on function public.fn_enviar_push_evento is
-    'S.9.2: helper interno. Chama a Edge Function send-push via pg_net de forma assíncrona.';
-
-
--- ============================================================================
--- 8a. TRIGGER — convite_familiar_recebido
+-- 7a. TRIGGER — convite_familiar_recebido
 -- ============================================================================
 -- Evento : AFTER INSERT em convites_familiares
--- Destino: usuario_destino_id → look up pessoas.usuario_id → pessoas.id
+-- Destino: usuario_destino_id (já é pessoas.id desde Sprint S.3)
 -- Guard  : usuario_destino_id NOT NULL (sem conta = sem push)
 
 create or replace function public.tg_push_convite_familiar()
@@ -347,43 +234,33 @@ returns trigger
 language plpgsql security definer set search_path = public
 as $$
 declare
-    v_pessoa_id    bigint;
-    v_nome_origem  text;
+    v_nome_origem text;
 begin
     -- Só notifica se o destinatário já tem conta
     if NEW.usuario_destino_id is null then
         return NEW;
     end if;
 
-    -- Resolve pessoa_id do destinatário
-    select p.id into v_pessoa_id
-    from public.pessoas p
-    where p.usuario_id = NEW.usuario_destino_id
+    -- Busca nome do remetente
+    select coalesce(nome, 'Alguém') into v_nome_origem
+    from public.pessoas
+    where id = NEW.usuario_origem_id
     limit 1;
 
-    if v_pessoa_id is null then
-        return NEW;
-    end if;
-
-    -- Busca nome do remetente para texto da notificação
-    select coalesce(p.nome, u.nome, 'Alguém') into v_nome_origem
-    from public.usuarios u
-    left join public.pessoas p on p.usuario_id = u.id
-    where u.id = NEW.usuario_origem_id
-    limit 1;
-
-    perform public.fn_enviar_push_evento(
-        p_tipo          := 'convite_familiar_recebido',
-        p_pessoa_id     := v_pessoa_id,
-        p_titulo        := 'Convite familiar recebido',
-        p_corpo         := v_nome_origem || ' convidou você para se conectar.',
-        p_dados         := jsonb_build_object(
-            'route',      'familia',
-            'convite_id', NEW.id
-        ),
-        p_conteudo_id   := NEW.id,
-        p_conteudo_tipo := 'convite_familiar'
-    );
+    insert into public.notificacoes
+        (pessoa_id, tipo, titulo, corpo, dados, conteudo_id, conteudo_tipo)
+    values (
+        NEW.usuario_destino_id,
+        'convite_familiar_recebido',
+        'Convite familiar recebido',
+        coalesce(v_nome_origem, 'Alguém') || ' convidou você para se conectar.',
+        jsonb_build_object('route', 'familia', 'convite_id', NEW.id),
+        NEW.id,
+        'convite_familiar'
+    )
+    on conflict (pessoa_id, tipo, conteudo_id, conteudo_tipo)
+        where conteudo_id is not null and conteudo_tipo is not null
+    do nothing;
 
     return NEW;
 end;
@@ -397,7 +274,7 @@ create trigger trg_push_convite_familiar
 
 
 -- ============================================================================
--- 8b. TRIGGER — memoria_compartilhada
+-- 7b. TRIGGER — memoria_compartilhada
 -- ============================================================================
 -- Evento : AFTER INSERT em conteudo_permissoes
 -- Destino: NEW.pessoa_id (já é pessoas.id desde Sprint S.5.1)
@@ -408,9 +285,8 @@ returns trigger
 language plpgsql security definer set search_path = public
 as $$
 declare
-    v_titulo_memoria text;
+    v_titulo_conteudo text;
 begin
-    -- Só notifica evento de compartilhamento (não outras permissões)
     if NEW.tipo is distinct from 'compartilhamento' then
         return NEW;
     end if;
@@ -419,34 +295,34 @@ begin
         return NEW;
     end if;
 
-    -- Tenta buscar título do conteúdo compartilhado
     if NEW.tipo_conteudo = 'memoria' then
-        select coalesce(titulo, 'uma memória') into v_titulo_memoria
-        from public.memorias
-        where id = NEW.conteudo_id
-        limit 1;
+        select coalesce(titulo, 'uma memória') into v_titulo_conteudo
+        from public.memorias where id = NEW.conteudo_id limit 1;
     elsif NEW.tipo_conteudo = 'memorial' then
-        select coalesce(nome, 'um memorial') into v_titulo_memoria
-        from public.memoriais
-        where id = NEW.conteudo_id
-        limit 1;
+        select coalesce(nome, 'um memorial') into v_titulo_conteudo
+        from public.memoriais where id = NEW.conteudo_id limit 1;
     else
-        v_titulo_memoria := 'um conteúdo';
+        v_titulo_conteudo := 'um conteúdo';
     end if;
 
-    perform public.fn_enviar_push_evento(
-        p_tipo          := 'memoria_compartilhada',
-        p_pessoa_id     := NEW.pessoa_id,
-        p_titulo        := 'Conteúdo compartilhado com você',
-        p_corpo         := 'Você recebeu acesso a ' || coalesce(v_titulo_memoria, 'um conteúdo') || '.',
-        p_dados         := jsonb_build_object(
+    insert into public.notificacoes
+        (pessoa_id, tipo, titulo, corpo, dados, conteudo_id, conteudo_tipo)
+    values (
+        NEW.pessoa_id,
+        'memoria_compartilhada',
+        'Conteúdo compartilhado com você',
+        'Você recebeu acesso a ' || coalesce(v_titulo_conteudo, 'um conteúdo') || '.',
+        jsonb_build_object(
             'route',        NEW.tipo_conteudo,
             'conteudo_id',  NEW.conteudo_id,
             'permissao_id', NEW.id
         ),
-        p_conteudo_id   := NEW.id,
-        p_conteudo_tipo := 'conteudo_permissao'
-    );
+        NEW.id,
+        'conteudo_permissao'
+    )
+    on conflict (pessoa_id, tipo, conteudo_id, conteudo_tipo)
+        where conteudo_id is not null and conteudo_tipo is not null
+    do nothing;
 
     return NEW;
 end;
@@ -460,11 +336,11 @@ create trigger trg_push_memoria_compartilhada
 
 
 -- ============================================================================
--- 8c. TRIGGER — nova_contribuicao
+-- 7c. TRIGGER — nova_contribuicao
 -- ============================================================================
--- Evento : AFTER INSERT em contribuicoes (status = 'pendente')
--- Destino: dono da memória → memorias.usuario_id → pessoas.usuario_id → pessoas.id
--- Guard  : só memórias (tipo_conteudo = 'memoria'), não notifica o próprio dono
+-- Evento : AFTER INSERT em contribuicoes
+-- Destino: dono da memória (memorias.usuario_id = pessoas.id desde Sprint S.3)
+-- Guard  : só memórias, não notifica o próprio dono
 
 create or replace function public.tg_push_nova_contribuicao()
 returns trigger
@@ -475,17 +351,15 @@ declare
     v_pessoa_id_contrib bigint;
     v_titulo_memoria    text;
 begin
-    -- Só para contribuições de memórias
     if NEW.tipo_conteudo is distinct from 'memoria' then
         return NEW;
     end if;
 
-    -- Busca o pessoa_id do dono da memória
-    select p.id, m.titulo
+    -- memorias.usuario_id já é pessoas.id desde Sprint S.3
+    select usuario_id, titulo
     into   v_pessoa_id_dono, v_titulo_memoria
-    from   public.memorias m
-    join   public.pessoas  p on p.usuario_id = m.usuario_id
-    where  m.id = NEW.conteudo_id
+    from   public.memorias
+    where  id = NEW.conteudo_id
     limit  1;
 
     if v_pessoa_id_dono is null then
@@ -493,30 +367,33 @@ begin
     end if;
 
     -- Não notifica o dono se ele mesmo contribuiu
-    -- (tenta resolver o pessoa_id do contribuidor pelo e-mail)
-    select p.id into v_pessoa_id_contrib
-    from   public.pessoas  p
-    join   public.usuarios u on u.id = p.usuario_id
-    where  lower(u.email) = lower(NEW.usuario_contribuidor_email)
+    select id into v_pessoa_id_contrib
+    from   public.pessoas
+    where  lower(email) = lower(NEW.usuario_contribuidor_email)
     limit  1;
 
     if v_pessoa_id_contrib is not null and v_pessoa_id_contrib = v_pessoa_id_dono then
         return NEW;
     end if;
 
-    perform public.fn_enviar_push_evento(
-        p_tipo          := 'nova_contribuicao',
-        p_pessoa_id     := v_pessoa_id_dono,
-        p_titulo        := 'Nova contribuição recebida',
-        p_corpo         := 'Alguém contribuiu com "' || coalesce(v_titulo_memoria, 'sua memória') || '".',
-        p_dados         := jsonb_build_object(
-            'route',          'memoria',
-            'conteudo_id',    NEW.conteudo_id,
+    insert into public.notificacoes
+        (pessoa_id, tipo, titulo, corpo, dados, conteudo_id, conteudo_tipo)
+    values (
+        v_pessoa_id_dono,
+        'nova_contribuicao',
+        'Nova contribuição recebida',
+        'Alguém contribuiu com "' || coalesce(v_titulo_memoria, 'sua memória') || '".',
+        jsonb_build_object(
+            'route',           'memoria',
+            'conteudo_id',     NEW.conteudo_id,
             'contribuicao_id', NEW.id
         ),
-        p_conteudo_id   := NEW.id,
-        p_conteudo_tipo := 'contribuicao'
-    );
+        NEW.id,
+        'contribuicao'
+    )
+    on conflict (pessoa_id, tipo, conteudo_id, conteudo_tipo)
+        where conteudo_id is not null and conteudo_tipo is not null
+    do nothing;
 
     return NEW;
 end;
@@ -530,10 +407,10 @@ create trigger trg_push_nova_contribuicao
 
 
 -- ============================================================================
--- 8d. TRIGGER — convite_memorial
+-- 7d. TRIGGER — convite_memorial
 -- ============================================================================
 -- Evento : AFTER INSERT em memorial_pessoas
--- Destino: NEW.pessoa_id (já é pessoas.id — FK direto)
+-- Destino: NEW.pessoa_id (FK direto para pessoas.id)
 
 create or replace function public.tg_push_convite_memorial()
 returns trigger
@@ -551,18 +428,20 @@ begin
     where  id = NEW.memorial_id
     limit  1;
 
-    perform public.fn_enviar_push_evento(
-        p_tipo          := 'convite_memorial',
-        p_pessoa_id     := NEW.pessoa_id,
-        p_titulo        := 'Você foi convidado para um memorial',
-        p_corpo         := 'Você foi adicionado ao memorial "' || v_nome_memorial || '".',
-        p_dados         := jsonb_build_object(
-            'route',       'memorial',
-            'memorial_id', NEW.memorial_id
-        ),
-        p_conteudo_id   := NEW.id,
-        p_conteudo_tipo := 'memorial_pessoa'
-    );
+    insert into public.notificacoes
+        (pessoa_id, tipo, titulo, corpo, dados, conteudo_id, conteudo_tipo)
+    values (
+        NEW.pessoa_id,
+        'convite_memorial',
+        'Você foi convidado para um memorial',
+        'Você foi adicionado ao memorial "' || v_nome_memorial || '".',
+        jsonb_build_object('route', 'memorial', 'memorial_id', NEW.memorial_id),
+        NEW.id,
+        'memorial_pessoa'
+    )
+    on conflict (pessoa_id, tipo, conteudo_id, conteudo_tipo)
+        where conteudo_id is not null and conteudo_tipo is not null
+    do nothing;
 
     return NEW;
 end;
@@ -576,11 +455,11 @@ create trigger trg_push_convite_memorial
 
 
 -- ============================================================================
--- 8e. TRIGGER — atualizacao_conteudo
+-- 7e. TRIGGER — atualizacao_conteudo
 -- ============================================================================
--- Evento : AFTER UPDATE em memorias (quando título ou descrição muda)
+-- Evento : AFTER UPDATE em memorias (quando título ou conteúdo muda)
 -- Destino: todos os pessoa_id em conteudo_permissoes para esta memória
--- Guard  : titulo ou descricao efetivamente mudaram (evitar loops por trigger de timestamps)
+-- Sem idempotência por conteudo_id (múltiplas atualizações devem notificar)
 
 create or replace function public.tg_push_atualizacao_conteudo()
 returns trigger
@@ -590,8 +469,9 @@ declare
     v_rec record;
 begin
     -- Só notifica se conteúdo relevante mudou (não timestamps)
-    if OLD.titulo is not distinct from NEW.titulo
-   and OLD.descricao is not distinct from NEW.descricao then
+    -- memorias usa coluna 'conteudo' (não 'descricao')
+    if OLD.titulo   is not distinct from NEW.titulo
+   and OLD.conteudo is not distinct from NEW.conteudo then
         return NEW;
     end if;
 
@@ -603,17 +483,16 @@ begin
           and  cp.conteudo_id   = NEW.id
           and  cp.pessoa_id is not null
     loop
-        perform public.fn_enviar_push_evento(
-            p_tipo          := 'atualizacao_conteudo',
-            p_pessoa_id     := v_rec.pessoa_id,
-            p_titulo        := 'Memória atualizada',
-            p_corpo         := '"' || coalesce(NEW.titulo, 'Uma memória') || '" foi atualizada.',
-            p_dados         := jsonb_build_object(
-                'route',      'memoria',
-                'conteudo_id', NEW.id
-            ),
-            p_conteudo_id   := null,   -- sem idempotência por conteudo_id (múltiplas atualizações devem notificar)
-            p_conteudo_tipo := null
+        insert into public.notificacoes
+            (pessoa_id, tipo, titulo, corpo, dados, conteudo_id, conteudo_tipo)
+        values (
+            v_rec.pessoa_id,
+            'atualizacao_conteudo',
+            'Memória atualizada',
+            '"' || coalesce(NEW.titulo, 'Uma memória') || '" foi atualizada.',
+            jsonb_build_object('route', 'memoria', 'conteudo_id', NEW.id),
+            null,   -- sem idempotência: cada atualização gera nova notificação
+            null
         );
     end loop;
 
@@ -633,7 +512,7 @@ create trigger trg_push_atualizacao_conteudo
 
 
 -- ============================================================================
--- 9. RLS e GRANTs
+-- 8. RLS e GRANTs
 -- ============================================================================
 
 -- push_dispositivos
@@ -670,24 +549,23 @@ drop policy if exists "mvp anon update notificacoes" on public.notificacoes;
 create policy "mvp anon update notificacoes"
     on public.notificacoes for update to anon using (true);
 
--- INSERT em notificacoes é feito apenas pela Edge Function (via service role) e pelo trigger
--- A anon key não precisa inserir diretamente em notificacoes
-
+-- INSERT em notificacoes é feito pelos triggers (security definer) e pela Edge Function (service role)
 grant usage on sequence public.notificacoes_id_seq to anon;
 grant select, update on public.notificacoes to anon;
 
 
 -- ============================================================================
--- 10. MIGRAÇÃO best-effort: device_tokens → push_dispositivos
+-- 9. MIGRAÇÃO best-effort: device_tokens → push_dispositivos
 -- ============================================================================
--- Tenta migrar tokens existentes linkando via pessoas.usuario_id.
--- Ignora tokens cujo usuario_id não tem um pessoas correspondente.
+-- device_tokens.usuario_id já armazena pessoas.id (PessoaRepository.usuarioId = pessoas.id
+-- desde Sprint S.3 — o nome da coluna é legado, o valor já é correto).
+-- Só migra tokens cujo usuario_id existe em pessoas.
 -- A tabela device_tokens é mantida intacta (não removida).
 
 insert into public.push_dispositivos
     (pessoa_id, token, plataforma, ativo, last_seen_at, created_at, updated_at)
 select
-    p.id,
+    dt.usuario_id,
     dt.token,
     dt.plataforma,
     true,
@@ -695,36 +573,22 @@ select
     coalesce(dt.criado_em, now()),
     coalesce(dt.atualizado_em, now())
 from public.device_tokens dt
-join public.pessoas p on p.usuario_id = dt.usuario_id
+where exists (select 1 from public.pessoas where id = dt.usuario_id)
 on conflict (pessoa_id, token) do nothing;
 
 
 -- ============================================================================
--- VALIDAÇÃO MANUAL (executar após deploy da Edge Function)
+-- CONFIGURAÇÃO DO DATABASE WEBHOOK (fazer uma vez no Supabase Dashboard)
 -- ============================================================================
 --
--- 1. Verificar tokens migrados:
---    SELECT p.nome, pd.token, pd.plataforma, pd.ativo
---    FROM push_dispositivos pd
---    JOIN pessoas p ON p.id = pd.pessoa_id;
+-- Supabase Dashboard → Database → Webhooks → Create a new hook
 --
--- 2. Simular convite familiar (substitua pelos IDs reais):
---    INSERT INTO convites_familiares (usuario_origem_id, email_destino, usuario_destino_id)
---    VALUES (1, 'destino@email.com', 2);
---    -- Verificar em notificacoes:
---    SELECT * FROM notificacoes ORDER BY created_at DESC LIMIT 5;
+--   Nome    : push_notificacoes
+--   Tabela  : notificacoes
+--   Eventos : INSERT
+--   Tipo    : Supabase Edge Functions
+--   Função  : send-push
 --
--- 3. Verificar tokens ativos de uma pessoa:
---    SELECT * FROM push_dispositivos WHERE pessoa_id = 1 AND ativo = true;
---
--- 4. Testar upsert de dispositivo:
---    SELECT upsert_push_dispositivo(1, 'fcm-token-teste', 'ios', 'device-uuid', '2.0.0');
---
--- 5. Testar desativação (logout):
---    SELECT desativar_dispositivo(1, 'fcm-token-teste');
---    SELECT ativo FROM push_dispositivos WHERE token = 'fcm-token-teste';
---    -- Deve retornar: false
---
--- ============================================================================
--- Fim — S.9.2 Push Notifications Transacionais
+-- Não precisa de mais nada. O Supabase passa o payload do registro novo
+-- automaticamente para a Edge Function.
 -- ============================================================================
