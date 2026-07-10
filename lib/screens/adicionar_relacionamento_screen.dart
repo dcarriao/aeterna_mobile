@@ -49,14 +49,29 @@ class _AdicionarRelacionamentoScreenState
 
   Future<void> _carregar() async {
     final tipos = await PessoaRelacionamentoService.instance.listarTipos();
-    final pessoas = await PessoaRelacionamentoService.instance.listarContatos(
-      pessoaId: widget.pessoaOrigemId,
-    );
+
+    // CORREÇÃO S.8.14 Item 9:
+    // O pool de candidatos são os contatos do USUÁRIO LOGADO — não da
+    // pessoa-alvo. Em seguida, excluímos quem já tem relação com a
+    // pessoa-alvo em qualquer direção (A→B ou B→A, ambas existem porque
+    // PessoaRelacionamentoService.criar() insere as duas linhas).
+    final pessoasLogado = await PessoaRelacionamentoService.instance
+        .listarContatos(pessoaId: PessoaRelacionamentoService.instance.usuarioId);
+
+    final jaRelacionados = await PessoaRelacionamentoService.instance
+        .listarContatos(pessoaId: widget.pessoaOrigemId);
+
+    final idsJaRelacionados = <int>{
+      widget.pessoaOrigemId, // nunca mostrar a própria pessoa-alvo
+      for (final r in jaRelacionados) r['pessoa_b_id'] as int,
+    };
+
     if (mounted) {
       setState(() {
         _tipos = tipos;
-        _pessoas = pessoas
-            .where((m) => (m['pessoa_b_id'] as int) != widget.pessoaOrigemId)
+        _pessoas = pessoasLogado
+            .where((m) =>
+                !idsJaRelacionados.contains(m['pessoa_b_id'] as int))
             .toList();
         _aplicarFiltro();
         _carregando = false;
