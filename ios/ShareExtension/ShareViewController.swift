@@ -1,16 +1,16 @@
 import UIKit
-import Social
-import MobileCoreServices
+import UniformTypeIdentifiers
 
-class ShareViewController: SLComposeServiceViewController {
+class ShareViewController: UIViewController {
 
-    override func isContentValid() -> Bool {
-        return true
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        handleSharedContent()
     }
 
-    override func didSelectPost() {
+    private func handleSharedContent() {
         guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
-            extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+            completeRequest()
             return
         }
 
@@ -20,9 +20,20 @@ class ShareViewController: SLComposeServiceViewController {
         for item in items {
             guard let attachments = item.attachments else { continue }
             for attachment in attachments {
-                guard attachment.hasItemConformingToTypeIdentifier(kUTTypeImage as String) else { continue }
+                let imageTypes = [
+                    UTType.image.identifier,
+                    UTType.jpeg.identifier,
+                    UTType.png.identifier,
+                    UTType.heic.identifier,
+                    UTType.heif.identifier,
+                ]
+                let conformsToImage = imageTypes.contains { type in
+                    attachment.hasItemConformingToTypeIdentifier(type)
+                }
+                guard conformsToImage else { continue }
+
                 group.enter()
-                attachment.loadItem(forTypeIdentifier: kUTTypeImage as String, options: nil) { data, error in
+                attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { data, error in
                     defer { group.leave() }
                     guard firstImageUrl == nil else { return }
                     if let url = data as? URL {
@@ -35,14 +46,13 @@ class ShareViewController: SLComposeServiceViewController {
         }
 
         var completou = false
-        // Safety timeout: force completion after 10s even if loadItem hangs
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
             guard let self = self, !completou else { return }
             completou = true
             if let url = firstImageUrl {
                 self.launchMainApp(with: url)
             }
-            self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+            self.completeRequest()
         }
 
         group.notify(queue: .main) { [weak self] in
@@ -51,38 +61,44 @@ class ShareViewController: SLComposeServiceViewController {
             if let url = firstImageUrl {
                 self.launchMainApp(with: url)
             }
-            self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+            self.completeRequest()
         }
-    }
-
-    override func configurationItems() -> [Any]! {
-        return []
     }
 
     private func saveToSharedContainer(_ url: URL) -> URL? {
-        guard let sharedURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.aeterna.app") else {
-            return url // fallback: pass original URL
+        guard let sharedURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.com.aeterna.app"
+        ) else {
+            return url
         }
         let dest = sharedURL.appendingPathComponent("shared_image.jpg")
+        try? FileManager.default.removeItem(at: dest)
         try? FileManager.default.copyItem(at: url, to: dest)
         return dest
     }
 
     private func saveImageToSharedContainer(_ image: UIImage) -> URL? {
         guard let jpegData = image.jpegData(compressionQuality: 0.8) else { return nil }
-        if let sharedURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.aeterna.app") {
+        if let sharedURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.com.aeterna.app"
+        ) {
             let fileURL = sharedURL.appendingPathComponent("shared_image.jpg")
+            try? FileManager.default.removeItem(at: fileURL)
             try? jpegData.write(to: fileURL)
             return fileURL
         }
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("shared_image.jpg")
+        try? FileManager.default.removeItem(at: tempURL)
         try? jpegData.write(to: tempURL)
         return tempURL
     }
 
     private func launchMainApp(with imageURL: URL) {
-        guard let encodedPath = imageURL.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let appURL = URL(string: "aeterna://share?image=\(encodedPath)") else { return }
+        guard let encodedPath = imageURL.path.addingPercentEncoding(
+            withAllowedCharacters: .urlQueryAllowed
+        ),
+        let appURL = URL(string: "aeterna://share?image=\(encodedPath)") else { return }
+
         var responder: UIResponder? = self
         while responder != nil {
             if let application = responder as? UIApplication {
@@ -91,5 +107,9 @@ class ShareViewController: SLComposeServiceViewController {
             }
             responder = responder?.next
         }
+    }
+
+    private func completeRequest() {
+        extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
 }
