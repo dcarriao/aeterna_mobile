@@ -62,8 +62,25 @@ workflows:
             project.save
             puts 'ENABLE_USER_SCRIPT_SANDBOXING=NO applied to Runner target'
           "
-          xcode-project build-ipa --workspace ios/Runner.xcworkspace \
-            --scheme Runner
+          ARCHIVE_PATH="build/ios/xcarchive/Runner.xcarchive"
+          mkdir -p "$(dirname "$ARCHIVE_PATH")" /tmp/xcodebuild_logs
+          set -o pipefail
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -archivePath "$ARCHIVE_PATH" \
+            archive \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            DEVELOPMENT_TEAM=R2KU8Q68QG \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            CODE_SIGN_STYLE=Manual \
+            ENABLE_USER_SCRIPT_SANDBOXING=NO \
+            2>&1 | tee /tmp/xcodebuild_logs/archive.log
+          mkdir -p build/ios/ipa
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist "$HOME/export_options.plist"
 
       - name: Validate IPA contains Share Extension .appex
         script: |
