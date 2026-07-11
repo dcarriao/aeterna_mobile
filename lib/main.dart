@@ -492,4 +492,204 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
     }
   }
 
-  void _abri
+  void _abrirTimeline(BuildContext context) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => TimelineScreen(
+          memorias: _memorias,
+          onCriarMemoria: () => _abrirNovaMemoria(context),
+          onAbrirMemoria: (memoria) => _abrirDetalhe(context, memoria),
+        ),
+      ),
+    );
+  }
+
+  void _abrirCompartilhadas(BuildContext context) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => CompartilhadasScreen(
+          memorias: _memorias,
+          memoriasRecebidas: _memoriasRecebidas,
+          onAbrirMemoria: (memoria) => _abrirDetalhe(context, memoria),
+          onCompartilhar: () => _abrirNovaMemoria(context),
+        ),
+      ),
+    );
+  }
+
+  void _abrirMemoriais(BuildContext context) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => const MemoriaisScreen(),
+      ),
+    );
+  }
+
+  void _abrirPessoas(BuildContext context) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => PessoasScreen(
+          titulosMemorias: {
+            for (final m in _memorias.where((m) => m.id != null))
+              m.id!: m.titulo,
+          },
+          onAbrirMemoria: (memoriaId) {
+            final memoria = _memorias.firstWhere(
+              (m) => m.id == memoriaId,
+              orElse: () => _memorias.first,
+            );
+            _abrirDetalhe(context, memoria);
+          },
+        ),
+      ),
+    );
+  }
+
+  void _abrirPerfil(BuildContext context) async {
+    final totalPessoas = (await PessoaRepository.listar()).length;
+    if (context.mounted) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => PerfilScreen(
+            totalMemorias: _memorias.length,
+            totalPessoas: totalPessoas,
+            onLogout: () async {
+              // Sprint S.9.2 — desativa token FCM antes de limpar sessão
+              await PushNotificationService.instance.desativarDispositivoAtual();
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('is_logged_in', false);
+              await prefs.remove('session_user_email');
+              await prefs.remove('session_pessoa_id');
+              await prefs.remove('session_user_id');
+              if (mounted) {
+                setState(() {
+                  _entrou = false;
+                  _memorias.clear(); // Limpa cache local de memórias
+                  _memoriasRecebidas.clear(); // Limpa cache de recebidas
+                  _usuarioFotoUrl = null; // Limpa cache local da foto
+                });
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              }
+            },
+          ),
+        ),
+      );
+      _carregarUsuario();
+    }
+  }
+
+  void _abrirMinhaHistoria(BuildContext context) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => MinhaHistoriaScreen(
+          memorias: _memorias,
+          carregando: _carregandoMemorias,
+          supabaseConfigurado: _service.isConfigured,
+          onRegistrar: () async {
+            await _abrirNovaMemoria(context);
+          },
+          onAbrirDetalhe: (memoria) => _abrirDetalhe(context, memoria),
+          onAtualizar: _carregarMemorias,
+        ),
+      ),
+    );
+  }
+
+  // Sprint S.9.2 — callback chamado pelo PushNotificationService ao tocar numa notificação.
+  // `data` é o campo `data` do FCM message (ex: {'tipo': 'convite_familiar_recebido', 'route': 'familia', ...}).
+  void _navegarViaPush(Map<String, dynamic> data) {
+    final route      = data['route']       as String? ?? '';
+    final conteudoId = int.tryParse(data['conteudo_id']?.toString() ?? '');
+
+    print('[PUSH_OPEN] Navegando via push — route=$route conteudo_id=$conteudoId');
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final nav = _navigatorKey.currentState;
+      if (nav == null) return;
+
+      switch (route) {
+        case 'familia':
+          nav.push(MaterialPageRoute(
+            builder: (_) => PessoasScreen(
+              titulosMemorias: {
+                for (final m in _memorias.where((m) => m.id != null)) m.id!: m.titulo,
+              },
+              onAbrirMemoria: (memoriaId) {
+                final memoria = _memorias.firstWhere(
+                  (m) => m.id == memoriaId,
+                  orElse: () => _memorias.first,
+                );
+                _abrirDetalhe(nav.context, memoria);
+              },
+            ),
+          ));
+          break;
+        case 'memorial':
+          nav.push(MaterialPageRoute(builder: (_) => const MemoriaisScreen()));
+          break;
+        case 'memoria':
+          if (conteudoId != null) {
+            final memoria = _memorias.firstWhere(
+              (m) => m.id == conteudoId,
+              orElse: () => Memoria(titulo: '', contexto: '', categoria: 'momentos', criadaEm: DateTime.now(), id: conteudoId),
+            );
+            nav.push(MaterialPageRoute(
+              builder: (_) => MemoriaDetalheScreen(
+                memoria: memoria,
+                somenteLeitura: memoria.isRecebidaDeOutraConta,
+                memoriasConhecidas: _memorias,
+                onAbrirMemoria: (m) => _abrirDetalhe(nav.context, m),
+              ),
+            ));
+          }
+          break;
+        default:
+          // Rota desconhecida — só traz o app para o foreground (sem navegação adicional)
+          break;
+      }
+    });
+  }
+
+  void _efetuarLogin() {
+    setState(() {
+      _entrou = true;
+    });
+    // Sprint R.4 — associa o token FCM ao usuário que acabou de logar
+    PushNotificationService.instance.salvarTokenParaUsuario();
+    _carregarUsuario();
+    _carregarMemorias();
+    // Sprint S.9.1 — tenta navegar para mídia pendente da Share Extension
+    WidgetsBinding.instance.addPostFrameCallback((_) => _tentarNavegacaoPendente());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      navigatorKey: _navigatorKey,
+      title: 'aEterna',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light,
+      home: _mostrarOnboarding
+          ? OnboardingScreen(
+              onComecar: () => setState(() => _mostrarOnboarding = false),
+            )
+          : _entrou
+              ? Builder(
+                  builder: (context) => HomeScreen(
+                    memorias: _memorias,
+                    fotoUrl: _usuarioFotoUrl,
+                    onRegistrar: () => _abrirNovaMemoria(context),
+                    onMinhaHistoria: () => _abrirMinhaHistoria(context),
+                    onAbrirMemoria: (memoria) => _abrirDetalhe(context, memoria),
+                    onPessoas: () => _abrirPessoas(context),
+                    onTimeline: () => _abrirTimeline(context),
+                    onCompartilhadas: () => _abrirCompartilhadas(context),
+                    onPerfil: () => _abrirPerfil(context),
+                    onMemoriais: () => _abrirMemoriais(context),
+                  ),
+                )
+              : LoginScreen(onEntrar: _efetuarLogin),
+    );
+  }
+}
