@@ -491,15 +491,25 @@ class _AdicionarRelacionamentoScreenState
     try {
       final t = _tipos.firstWhere((t) => t.id == _tipoId);
 
-      // A relação é definida do ponto de vista da ORIGEM.
-      // O tipo escolhido (ex: 'AVO' com rotuloA='Avô(ó)') significa
-      // que a ORIGEM (pessoaA) tem esse papel em relação ao DESTINO.
-      // Os rótulos são passados sem troca: relacaoA = o que A é para B,
-      // relacaoB = o que B é para A. O método criar() já insere as
-      // duas linhas (direta + inversa) automaticamente.
+      // S.9.3.1 (Item 6) — CAUSA RAIZ das relações invertidas no perfil:
+      // a pergunta da tela é "Quem {OUTRA} é para {ORIGEM}?", ou seja, o
+      // tipo escolhido (ex: 'PAI', rotuloA='Pai') descreve o papel da
+      // OUTRA pessoa. A versão anterior chamava
+      //   criar(pessoaA: origem, pessoaB: outra, relacaoA: rotuloA, ...)
+      // gravando o papel da OUTRA como se fosse da ORIGEM
+      // (relacao_a_para_b = 'Pai' na linha origem→outra) — invertido.
+      //
+      // Correção mínima: quem tem o papel escolhido (rotuloA) é a OUTRA
+      // pessoa, então ela entra como pessoa_a da linha direta. criar()
+      // continua inserindo as duas linhas (direta + inversa) e o
+      // ScreenOrigem continua vendo a relação normalmente.
+      // Convenção auditada da base (criar()/s93_pets.sql/_inverseTipo):
+      //   tipo               = papel de pessoa_a
+      //   relacao_a_para_b   = o que A é para B (rotuloA do tipo)
+      //   relacao_b_para_a   = o que B é para A (rotuloB do tipo)
       final id = await PessoaRelacionamentoService.instance.criar(
-        pessoaAId: widget.pessoaOrigemId,
-        pessoaBId: _outraPessoaId!,
+        pessoaAId: _outraPessoaId!,
+        pessoaBId: widget.pessoaOrigemId,
         tipo: _tipoId!,
         relacaoA: t.rotuloA,
         relacaoB: t.rotuloB,

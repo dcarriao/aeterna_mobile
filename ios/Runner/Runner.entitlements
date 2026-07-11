@@ -2,8 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- S.9.3.1 (Item 7) — CAUSA PROVÁVEL do push não chegar no iPhone:
+	     'development' registra o dispositivo no APNs SANDBOX, mas builds
+	     TestFlight/App Store recebem push pelo APNs de PRODUÇÃO (o FCM
+	     envia para produção). Resultado: token válido, envio "aceito",
+	     nada chega. Para TestFlight o valor precisa ser 'production'. -->
 	<key>aps-environment</key>
-	<string>development</string>
+	<string>production</string>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.aeterna.app</string>

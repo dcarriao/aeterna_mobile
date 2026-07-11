@@ -15,6 +15,7 @@ import 'adicionar_relacionamento_screen.dart';
 import 'memorial_detalhe_screen.dart';
 import 'nova_memoria_screen.dart';
 import 'nova_pessoa_screen.dart';
+import 'nova_pet_screen.dart';
 import 'novo_memorial_screen.dart';
 
 /// Sprint H — Pessoa VIVA.
@@ -93,12 +94,22 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
   }
 
   Future<void> _carregarAgregacoes() async {
-    final stats = await PessoaTimelineService.instance.obterEstatisticas(widget.pessoa.id);
-    final eventos = await PessoaTimelineService.instance.obterLinhaDoTempo(widget.pessoa.id);
-    final memorial =
-        await PessoaTimelineService.instance.obterMemorialDaPessoa(widget.pessoa.id);
-    final familia =
-        await PessoaRelacionamentoService.instance.listarRelacionamentos(widget.pessoa.id);
+    final sw = Stopwatch()..start();
+    print('[PERF] tela=PerfilPessoa inicio=${DateTime.now().toIso8601String()} pessoa_id=${widget.pessoa.id}');
+    // S.9.3.1 (Item 9) — 4 queries independentes que rodavam em sequência;
+    // paralelizadas sem alterar regra funcional.
+    final resultados = await Future.wait([
+      PessoaTimelineService.instance.obterEstatisticas(widget.pessoa.id),
+      PessoaTimelineService.instance.obterLinhaDoTempo(widget.pessoa.id),
+      PessoaTimelineService.instance.obterMemorialDaPessoa(widget.pessoa.id),
+      PessoaRelacionamentoService.instance
+          .listarRelacionamentos(widget.pessoa.id),
+    ]);
+    final stats = resultados[0] as PessoaEstatisticas;
+    final eventos = resultados[1] as List<PessoaTimelineEvento>;
+    final memorial = resultados[2] as MemorialResumo?;
+    final familia = resultados[3] as List<OutraPessoaNaFamilia>;
+    print('[PERF] tela=PerfilPessoa pronta_em_ms=${sw.elapsedMilliseconds}');
     if (mounted) {
       setState(() {
         _stats = stats;
@@ -112,9 +123,15 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
   }
 
   Future<void> _editar() async {
+    // S.9.3.1 — Pet edita em NovaPetScreen (campos de pet); humano em
+    // NovaPessoaScreen. Antes, o pet era editado no formulário humano
+    // (sobrenome/e-mail/telefone) e o UPDATE regravava tipo='humano'.
+    final pessoa = _pessoa ?? widget.pessoa;
     final alterou = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => NovaPessoaScreen(pessoa: _pessoa),
+        builder: (_) => pessoa.isPet
+            ? NovaPetScreen(pet: pessoa)
+            : NovaPessoaScreen(pessoa: _pessoa),
       ),
     );
     if (alterou == true && mounted) _carregar();
@@ -224,12 +241,20 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                           child: CircleAvatar(
                             radius: 52,
                             backgroundColor: const Color(0xFFF0EAF5),
+                            // S.9.3.1 — suporta foto por URL (Storage) além
+                            // de base64; fallback de pata para pets.
                             backgroundImage: pessoa.fotoBytes != null
                                 ? MemoryImage(pessoa.fotoBytes!)
-                                : null,
-                            child: pessoa.fotoBytes == null
-                                ? const Icon(Icons.person,
-                                    size: 52, color: AppColors.roxo)
+                                : (pessoa.fotoUrl != null
+                                    ? NetworkImage(pessoa.fotoUrl!)
+                                        as ImageProvider
+                                    : null),
+                            child: (pessoa.fotoBytes == null &&
+                                    pessoa.fotoUrl == null)
+                                ? Icon(
+                                    pessoa.isPet ? Icons.pets : Icons.person,
+                                    size: 52,
+                                    color: AppColors.roxo)
                                 : null,
                           ),
                         ),
@@ -265,7 +290,11 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              pessoa.parentesco,
+                              // S.9.3.1 — no pet, o selo mostra
+                              // "Gato • Siamês" (ou só a espécie).
+                              pessoa.isPet
+                                  ? (pessoa.especieRacaLabel ?? 'Pet')
+                                  : pessoa.parentesco,
                               style: const TextStyle(
                                 color: AppColors.dourado,
                                 fontSize: 14,
@@ -334,11 +363,10 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                         const SizedBox(height: 24),
                         _buildEstatisticas(),
 
-                        // ── MEMORIAL VINCULADO (apenas humanos) ──
-                        if (!(_pessoa ?? widget.pessoa).isPet) ...[
-                          const SizedBox(height: 20),
-                          _buildSecaoMemorial(),
-                        ],
+                        // ── MEMORIAL VINCULADO ──
+                        // S.9.3.1 — pets também podem ter memorial (Item 5).
+                        const SizedBox(height: 20),
+                        _buildSecaoMemorial(),
 
                         // ── SPRINT L — FAMÍLIA (grafo pessoa-pessoa) ──
                         const SizedBox(height: 28),
@@ -498,9 +526,9 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
         ),
       );
     }
-    // S.9.3 — Pets não possuem memorial; oculta o botão de criação.
+    // S.9.3.1 (Item 5) — memorial liberado para pets, reutilizando o mesmo
+    // fluxo estável (NovoMemorialScreen + vínculo via pessoas.id).
     final pessoa = _pessoa ?? widget.pessoa;
-    if (pessoa.isPet) return const SizedBox.shrink();
 
     return OutlinedButton.icon(
       onPressed: _criarMemorialParaPessoa,
@@ -512,9 +540,11 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
       icon: const Icon(Icons.add, size: 18),
-      label: const Text(
-        'Criar memorial para esta pessoa',
-        style: TextStyle(fontWeight: FontWeight.w700),
+      label: Text(
+        pessoa.isPet
+            ? 'Criar memorial para este pet'
+            : 'Criar memorial para esta pessoa',
+        style: const TextStyle(fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -548,16 +578,19 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     final categorias = ordem
         .where(grupos.containsKey)
         .toList();
+    // S.9.3.1 — no perfil do pet a seção mostra o(s) tutor(es).
+    final ehPet = (_pessoa ?? widget.pessoa).isPet;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          children: const [
-            Icon(Icons.diversity_3, color: AppColors.dourado, size: 20),
-            SizedBox(width: 8),
+          children: [
+            Icon(ehPet ? Icons.pets : Icons.diversity_3,
+                color: AppColors.dourado, size: 20),
+            const SizedBox(width: 8),
             Text(
-              'Família',
-              style: TextStyle(
+              ehPet ? 'Tutores' : 'Família',
+              style: const TextStyle(
                 color: AppColors.roxo,
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
@@ -566,9 +599,12 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
           ],
         ),
         const SizedBox(height: 6),
-        const Text(
-          'O lugar desta pessoa na sua história.',
-          style: TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
+        Text(
+          ehPet
+              ? 'Quem cuida deste pet na sua história.'
+              : 'O lugar desta pessoa na sua história.',
+          style: const TextStyle(
+              color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
         ),
         const SizedBox(height: 16),
         ...categorias.expand((cat) {
@@ -606,6 +642,8 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
   }
 
   Widget _vazioFamilia() {
+    // S.9.3.1 — texto/título de pet quando o perfil é de um pet.
+    final ehPet = (_pessoa ?? widget.pessoa).isPet;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -617,12 +655,13 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: const [
-              Icon(Icons.diversity_3, color: AppColors.dourado, size: 20),
-              SizedBox(width: 8),
+            children: [
+              Icon(ehPet ? Icons.pets : Icons.diversity_3,
+                  color: AppColors.dourado, size: 20),
+              const SizedBox(width: 8),
               Text(
-                'Família',
-                style: TextStyle(
+                ehPet ? 'Tutores' : 'Família',
+                style: const TextStyle(
                   color: AppColors.roxo,
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
@@ -631,10 +670,13 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
             ],
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Esta pessoa ainda não tem relações na sua família. '
-            'Conecte-a a quem vive junto com ela para começar a construir o grafo familiar.',
-            style: TextStyle(
+          Text(
+            ehPet
+                ? 'Este pet ainda não tem tutor definido. '
+                    'Conecte-o a quem cuida dele.'
+                : 'Esta pessoa ainda não tem relações na sua família. '
+                    'Conecte-a a quem vive junto com ela para começar a construir o grafo familiar.',
+            style: const TextStyle(
               color: Color(0xFF7A7280),
               fontSize: 13,
               height: 1.4,
@@ -758,9 +800,15 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
 
     if (selecionado == null || !mounted) return;
     final t = tipos.firstWhere((t) => t.id == selecionado);
+    // S.9.3.1 (Item 6) — o tipo escolhido descreve o papel da OUTRA pessoa
+    // (o card diz "É seu X"). Nesta linha (perfil = pessoa_a), o campo
+    // `tipo` registra o papel de pessoa_a, portanto usa o INVERSO do
+    // escolhido. Os rótulos seguem: relacao_a_para_b = papel do perfil
+    // (rotuloB do tipo escolhido); relacao_b_para_a = papel da outra
+    // (rotuloA). atualizarRotulos() replica na linha inversa.
     await PessoaRelacionamentoService.instance.atualizarRotulos(
       relacionamentoId: f.relacionamentoId,
-      tipo: t.id,
+      tipo: PessoaRelacionamentoService.instance.inverseTipo(t.id, t.rotuloA),
       relacaoA: t.rotuloB,
       relacaoB: t.rotuloA,
     );
@@ -957,10 +1005,13 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: AppColors.borda),
             ),
-            child: const Text(
-              'Esta pessoa ainda não apareceu em nenhuma memória ou contribuição. '
-              'Adicione o nome dela em uma memória para ela ganhar vida aqui.',
-              style: TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
+            child: Text(
+              (_pessoa ?? widget.pessoa).isPet
+                  ? 'Este pet ainda não apareceu em nenhuma memória ou contribuição. '
+                      'Adicione o nome dele em uma memória para ele ganhar vida aqui.'
+                  : 'Esta pessoa ainda não apareceu em nenhuma memória ou contribuição. '
+                      'Adicione o nome dela em uma memória para ela ganhar vida aqui.',
+              style: const TextStyle(color: Color(0xFF7A7280), fontSize: 13, height: 1.4),
             ),
           )
         else

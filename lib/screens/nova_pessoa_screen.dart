@@ -331,6 +331,13 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
             ? null
             : _telefoneController.text.trim(),
         parentesco: _parentesco,
+        // S.9.3.1 — CAUSA RAIZ "pet vira humano": este construtor omitia
+        // `tipo`, cujo default é 'humano'. Ao editar um pet por esta tela,
+        // o UPDATE gravava tipo='humano' e o pet sumia da área Pets.
+        // A identidade (pessoas.tipo) é preservada SEMPRE.
+        tipo: widget.pessoa?.tipo ?? 'humano',
+        especie: widget.pessoa?.especie,
+        raca: widget.pessoa?.raca,
         dataNascimento: _dataNascimento,
         fotoBase64: _fotoBase64,
         createdAt: widget.pessoa?.createdAt,

@@ -89,12 +89,13 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
   Future<void> _verificarCompartilhamentoPendente() async {
     try {
       final String? path = await _shareChannel.invokeMethod('getSharedImage');
+      print('[FLUTTER_SHARE] payload_received=${path != null && path.isNotEmpty} path=$path');
       if (path != null && path.isNotEmpty) {
         _processarImagemCompartilhada(path);
       }
     } catch (e) {
       // Canal pode não estar implementado em plataformas sem suporte (ex: web).
-      print('[Share] Erro ao verificar compartilhamento pendente: $e');
+      print('[FLUTTER_SHARE] erro=$e');
     }
   }
 
@@ -231,7 +232,12 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
   }
 
   Future<void> _carregarUsuario() async {
+    // S.9.3.1 (Item 3) — o avatar da sessão vem SEMPRE da pessoa
+    // autenticada canônica (pessoas.id = usuarioId), nunca da "última
+    // pessoa editada".
     final dados = await PessoaRepository.obterUsuario();
+    print('[LOGIN_AVATAR] pessoa_id=${PessoaRepository.usuarioId}');
+    print('[LOGIN_AVATAR] foto_perfil=${dados?['foto_perfil']}');
     if (mounted && dados != null) {
       setState(() {
         _usuarioFotoUrl = dados['foto_perfil'] as String?;

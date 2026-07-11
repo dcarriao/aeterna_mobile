@@ -38,15 +38,19 @@ class _PetsScreenState extends State<PetsScreen> {
   }
 
   Future<void> _carregar() async {
+    final sw = Stopwatch()..start();
+    print('[PERF] tela=Pets inicio=${DateTime.now().toIso8601String()}');
     setState(() => _carregando = true);
     try {
       final todas = await PessoaRepository.listar();
       if (mounted) {
         setState(() {
+          // Regra: a lista Pets exibe SOMENTE pessoas.tipo = 'pet'.
           _pets      = todas.where((p) => p.isPet).toList();
           _carregando = false;
         });
       }
+      print('[PERF] tela=Pets pronta_em_ms=${sw.elapsedMilliseconds}');
     } catch (_) {
       if (mounted) setState(() => _carregando = false);
     }
@@ -198,10 +202,14 @@ class _PetCard extends StatelessWidget {
                 CircleAvatar(
                   radius: 30,
                   backgroundColor: const Color(0xFFF0EAF5),
+                  // S.9.3.1 — a foto do pet é salva como URL do Storage;
+                  // antes só base64 era exibido e a foto "não aparecia".
                   backgroundImage: pet.fotoBytes != null
                       ? MemoryImage(pet.fotoBytes!)
-                      : null,
-                  child: pet.fotoBytes == null
+                      : (pet.fotoUrl != null
+                          ? NetworkImage(pet.fotoUrl!) as ImageProvider
+                          : null),
+                  child: (pet.fotoBytes == null && pet.fotoUrl == null)
                       ? const Icon(Icons.pets,
                           color: AppColors.dourado, size: 26)
                       : null,
@@ -228,7 +236,10 @@ class _PetCard extends StatelessWidget {
                             _Chip(texto: 'In memoriam',
                                 cor: const Color(0xFF9B949D)),
                           if (!pet.falecido)
-                            _Chip(texto: 'Pet', cor: AppColors.dourado),
+                            // S.9.3.1 — "Gato • Siamês" quando informado
+                            _Chip(
+                                texto: pet.especieRacaLabel ?? 'Pet',
+                                cor: AppColors.dourado),
                           if (pet.dataNascimento != null) ...[
                             const SizedBox(width: 8),
                             Icon(Icons.cake_outlined,

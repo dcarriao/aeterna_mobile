@@ -97,13 +97,19 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _carregarSugestoes();
-    _carregarPessoasVivas();
-    _carregarMemoriasQuePodemCrescer();
-    _carregarSessaoCurador();
-    _carregarConexoesPendentes();
-    _carregarMemoriasDoDia();
-    _carregarOportunidadeProativa();
+    // S.9.3.1 (Item 9) — instrumentação de performance da Home.
+    final sw = Stopwatch()..start();
+    print('[PERF] tela=Home inicio=${DateTime.now().toIso8601String()}');
+    Future.wait([
+      _carregarSugestoes().catchError((e) => print('[PERF] Home sugestoes ERRO: $e')),
+      _carregarPessoasVivas().catchError((e) => print('[PERF] Home pessoasVivas ERRO: $e')),
+      _carregarMemoriasQuePodemCrescer().catchError((e) => print('[PERF] Home memCrescer ERRO: $e')),
+      _carregarSessaoCurador().catchError((e) => print('[PERF] Home sessaoCurador ERRO: $e')),
+      _carregarConexoesPendentes().catchError((e) => print('[PERF] Home conexoes ERRO: $e')),
+      _carregarMemoriasDoDia().catchError((e) => print('[PERF] Home memDoDia ERRO: $e')),
+      _carregarOportunidadeProativa().catchError((e) => print('[PERF] Home proativo ERRO: $e')),
+    ]).whenComplete(() =>
+        print('[PERF] tela=Home pronta_em_ms=${sw.elapsedMilliseconds}'));
   }
 
   Future<void> _carregarSessaoCurador() async {

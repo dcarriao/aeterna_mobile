@@ -333,11 +333,15 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     await PessoaRepository.salvarDataMemoria(memoriaId, data);
   }
 
+  // S.9.3.1 (Item 10) — seletores separados: pessoas ≠ pets.
+  // Participação (quem aparece na memória) aceita humanos E pets, mas em
+  // seletores distintos. Compartilhamento (permissões) aceita SOMENTE
+  // humanos: pet não recebe permissão, push, nem autentica.
   Future<void> _abrirSelecaoPessoas() async {
     if (!mounted) return;
+    // Mantém no set apenas os já selecionados do mesmo filtro
     final selecionadas = Set<int>.from(_pessoasSelecionadas);
 
-    if (!mounted) return;
     final resultado = await showModalBottomSheet<List<int>>(
       context: context,
       isScrollControlled: true,
@@ -348,12 +352,49 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
         return PessoaPickerSheet(
           selecionadas: selecionadas,
           titulo: 'Quem participou?',
+          filtro: PessoaPickerFiltro.humanos,
         );
       },
     );
 
     if (resultado != null && mounted) {
-      setState(() => _pessoasSelecionadas = resultado);
+      // Preserva pets já selecionados (gerenciados pelo outro seletor)
+      final petsJaSelecionados = _pessoasSelecionadas
+          .where((id) => _todasPessoas.any((p) => p.id == id && p.isPet))
+          .toList();
+      setState(() =>
+          _pessoasSelecionadas = [...resultado, ...petsJaSelecionados]);
+      _carregarPessoas();
+    }
+  }
+
+  /// S.9.3.1 (Item 10) — seletor exclusivo de pets como participantes.
+  Future<void> _abrirSelecaoPets() async {
+    if (!mounted) return;
+    final selecionados = Set<int>.from(_pessoasSelecionadas);
+
+    final resultado = await showModalBottomSheet<List<int>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return PessoaPickerSheet(
+          selecionadas: selecionados,
+          titulo: 'Quais pets participaram?',
+          filtro: PessoaPickerFiltro.pets,
+        );
+      },
+    );
+
+    if (resultado != null && mounted) {
+      // Preserva humanos já selecionados (gerenciados pelo outro seletor)
+      final humanosJaSelecionados = _pessoasSelecionadas
+          .where((id) => !_todasPessoas.any((p) => p.id == id && p.isPet))
+          .toList();
+      setState(() =>
+          _pessoasSelecionadas = [...humanosJaSelecionados, ...resultado]);
       _carregarPessoas();
     }
   }
@@ -362,7 +403,6 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     if (!mounted) return;
     final selecionados = Set<int>.from(_familiaresSelecionados);
 
-    if (!mounted) return;
     final resultado = await showModalBottomSheet<List<int>>(
       context: context,
       isScrollControlled: true,
@@ -373,6 +413,8 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
         return PessoaPickerSheet(
           selecionadas: selecionados,
           titulo: 'Selecionar pessoas',
+          // Compartilhamento: pet NUNCA é destinatário de permissão.
+          filtro: PessoaPickerFiltro.humanos,
         );
       },
     );
@@ -1120,8 +1162,11 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
                                   ? MemoryImage(p.fotoBytes!)
                                   : null,
                               child: p.fotoBytes == null
-                                  ? const Icon(Icons.person,
-                                      size: 14, color: AppColors.roxo)
+                                  ? Icon(
+                                      // S.9.3.1 — pata para pets
+                                      p.isPet ? Icons.pets : Icons.person,
+                                      size: 14,
+                                      color: AppColors.roxo)
                                   : null,
                             ),
                             label: Text(p.nome, style: const TextStyle(fontSize: 12)),
@@ -1131,15 +1176,23 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
                             },
                           );
                         }),
+                        // S.9.3.1 (Item 10) — seletores separados
                         ActionChip(
-                          avatar: const Icon(Icons.add, size: 14),
-                          label: Text(
-                            _pessoasSelecionadas.isEmpty
-                                ? 'Adicionar pessoas'
-                                : 'Adicionar mais',
-                            style: const TextStyle(fontSize: 12),
+                          avatar: const Icon(Icons.person_add_alt,
+                              size: 14),
+                          label: const Text(
+                            'Adicionar pessoas',
+                            style: TextStyle(fontSize: 12),
                           ),
                           onPressed: _abrirSelecaoPessoas,
+                        ),
+                        ActionChip(
+                          avatar: const Icon(Icons.pets, size: 14),
+                          label: const Text(
+                            'Adicionar pets',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          onPressed: _abrirSelecaoPets,
                         ),
                       ],
                     ),
@@ -1219,14 +1272,19 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
   }
 }
 
+/// S.9.3.1 (Item 10) — filtro do seletor: humanos ou pets, nunca misturado.
+enum PessoaPickerFiltro { humanos, pets }
+
 class PessoaPickerSheet extends StatefulWidget {
   const PessoaPickerSheet({
     required this.selecionadas,
     required this.titulo,
+    this.filtro = PessoaPickerFiltro.humanos,
   });
 
   final Set<int> selecionadas;
   final String titulo;
+  final PessoaPickerFiltro filtro;
 
   @override
   State<PessoaPickerSheet> createState() => _PessoaPickerSheetState();
@@ -1244,9 +1302,14 @@ class _PessoaPickerSheetState extends State<PessoaPickerSheet> {
   }
 
   Future<void> _carregar() async {
-    print('[PessoaPickerSheet] _carregar() iniciando');
-    final pessoas = await PessoaRelacionamentoService.instance.listarContatos();
-    print('[PessoaPickerSheet] _carregar() -> ${pessoas.length} pessoas');
+    print('[PessoaPickerSheet] _carregar() iniciando filtro=${widget.filtro}');
+    final todas = await PessoaRelacionamentoService.instance.listarContatos();
+    // S.9.3.1 (Item 10) — separa humanos de pets pelo pessoas.tipo.
+    final pessoas = todas.where((m) {
+      final ehPet = (m['tipo'] as String?) == 'pet';
+      return widget.filtro == PessoaPickerFiltro.pets ? ehPet : !ehPet;
+    }).toList();
+    print('[PessoaPickerSheet] _carregar() -> ${pessoas.length} de ${todas.length}');
     if (mounted) {
       setState(() {
         _pessoas = pessoas;
@@ -1334,11 +1397,13 @@ class _PessoaPickerSheetState extends State<PessoaPickerSheet> {
               const SizedBox(height: 12),
               Expanded(
                 child: _pessoas.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
-                          'Nenhuma pessoa cadastrada. Cadastre em Pessoas.',
+                          widget.filtro == PessoaPickerFiltro.pets
+                              ? 'Nenhum pet cadastrado. Cadastre em Pets.'
+                              : 'Nenhuma pessoa cadastrada. Cadastre em Pessoas.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Color(0xFF7A7280)),
+                          style: const TextStyle(color: Color(0xFF7A7280)),
                         ),
                       )
                     : ListView.separated(
@@ -1372,8 +1437,12 @@ class _PessoaPickerSheetState extends State<PessoaPickerSheet> {
                             subtitle: label.isNotEmpty ? Text(label) : null,
                             secondary: CircleAvatar(
                               backgroundColor: const Color(0xFFF0EAF5),
-                              child: const Icon(Icons.person,
-                                  color: AppColors.roxo),
+                              child: Icon(
+                                widget.filtro == PessoaPickerFiltro.pets
+                                    ? Icons.pets
+                                    : Icons.person,
+                                color: AppColors.roxo,
+                              ),
                             ),
                           );
                         },
@@ -1384,7 +1453,14 @@ class _PessoaPickerSheetState extends State<PessoaPickerSheet> {
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () {
-                    Navigator.of(ctx).pop(_sel.toList());
+                    // Retorna somente ids visíveis neste filtro — ids do
+                    // outro grupo (pré-selecionados) são preservados pelo
+                    // chamador.
+                    final visiveis = _pessoas
+                        .map((m) => m['pessoa_b_id'] as int)
+                        .toSet();
+                    Navigator.of(ctx)
+                        .pop(_sel.where(visiveis.contains).toList());
                   },
                   child: const Text('Confirmar'),
                 ),

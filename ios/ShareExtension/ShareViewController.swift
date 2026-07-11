@@ -1,5 +1,14 @@
 import UIKit
 import UniformTypeIdentifiers
+import os.log
+
+/// S.9.3.1 (Item 8) — logs [IOS_SHARE] visíveis no Console.app / Xcode
+/// (subsystem com.aeterna.share) para auditar o handoff completo.
+private let shareLog = OSLog(subsystem: "com.aeterna.share", category: "IOS_SHARE")
+private func iosShareLog(_ msg: String) {
+    os_log("[IOS_SHARE] %{public}@", log: shareLog, type: .default, msg)
+    NSLog("[IOS_SHARE] %@", msg)
+}
 
 /// Share Extension — aEterna
 ///
@@ -16,14 +25,21 @@ class ShareViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // Equivalente ao didSelectPost() de uma SLComposeService — ponto
+        // de entrada da extensão após o usuário tocar em "aEterna".
+        iosShareLog("did_select_post=true (viewDidLoad)")
         handleSharedContent()
     }
 
     private func handleSharedContent() {
         guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
+            iosShareLog("attachments=0 (inputItems vazio)")
             completeRequest()
             return
         }
+
+        let totalAttachments = items.reduce(0) { $0 + ($1.attachments?.count ?? 0) }
+        iosShareLog("attachments=\(totalAttachments)")
 
         let group = DispatchGroup()
         var savedOne = false
@@ -38,12 +54,17 @@ class ShareViewController: UIViewController {
                     UTType.heic.identifier,
                     UTType.heif.identifier,
                 ]
+                iosShareLog("uti=\(attachment.registeredTypeIdentifiers.joined(separator: ","))")
                 guard imageTypes.contains(where: { attachment.hasItemConformingToTypeIdentifier($0) })
-                else { continue }
+                else {
+                    iosShareLog("attachment ignorado (não conforma a imagem)")
+                    continue
+                }
 
                 group.enter()
-                attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] data, _ in
+                attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] data, error in
                     defer { group.leave() }
+                    if let error { iosShareLog("loadItem erro=\(error.localizedDescription)") }
                     guard let self, !savedOne else { return }
 
                     let shareId = UUID().uuidString
@@ -51,8 +72,12 @@ class ShareViewController: UIViewController {
 
                     if let url = data as? URL {
                         filePath = self.copyToAppGroup(url, shareId: shareId)
+                        iosShareLog("origem=URL copied_path=\(filePath ?? "FALHOU")")
                     } else if let image = data as? UIImage {
                         filePath = self.saveImageToAppGroup(image, shareId: shareId)
+                        iosShareLog("origem=UIImage copied_path=\(filePath ?? "FALHOU")")
+                    } else {
+                        iosShareLog("origem=tipo inesperado \(String(describing: data))")
                     }
 
                     if let path = filePath {
@@ -106,7 +131,10 @@ class ShareViewController: UIViewController {
     /// Um arquivo por share_id evita race condition quando dois
     /// compartilhamentos chegam simultaneamente.
     private func writeManifest(shareId: String, filePath: String) {
-        guard let container = containerURL() else { return }
+        guard let container = containerURL() else {
+            iosShareLog("manifest=FALHOU (App Group container nil — verificar entitlement group.com.aeterna.app no profile da extensão)")
+            return
+        }
         let manifest: [String: String] = [
             "share_id": shareId,
             "file_path": filePath,
@@ -114,10 +142,18 @@ class ShareViewController: UIViewController {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: manifest) else { return }
         let dest = container.appendingPathComponent("share_\(shareId).json")
-        try? data.write(to: dest)
+        do {
+            try data.write(to: dest)
+            iosShareLog("manifest=\(String(data: data, encoding: .utf8) ?? "?") gravado em \(dest.lastPathComponent)")
+        } catch {
+            iosShareLog("manifest=FALHOU erro=\(error.localizedDescription)")
+        }
     }
 
     private func completeRequest() {
-        extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+        iosShareLog("completion=completeRequest chamado")
+        extensionContext?.completeRequest(returningItems: [], completionHandler: { expired in
+            iosShareLog("completion=finalizado expired=\(expired)")
+        })
     }
 }

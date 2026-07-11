@@ -28,14 +28,20 @@ import UserNotifications
     // (_verificarCompartilhamentoPendente em main.dart).
 
     private func registerShareChannel(registry: FlutterPluginRegistry) {
-        guard let registrar = registry.registrar(forPlugin: "AeternaSharePlugin") else { return }
+        guard let registrar = registry.registrar(forPlugin: "AeternaSharePlugin") else {
+            NSLog("[IOS_SHARE] registerShareChannel FALHOU: registrar nil")
+            return
+        }
+        NSLog("[IOS_SHARE] canal com.aeterna.app/share registrado")
         let channel = FlutterMethodChannel(
             name: "com.aeterna.app/share",
             binaryMessenger: registrar.messenger()
         )
         channel.setMethodCallHandler { [weak self] call, result in
             if call.method == "getSharedImage" {
-                result(self?.consumePendingShare())
+                let path = self?.consumePendingShare()
+                NSLog("[IOS_SHARE] getSharedImage -> %@", path ?? "nil (sem pendência)")
+                result(path)
             } else {
                 result(FlutterMethodNotImplemented)
             }

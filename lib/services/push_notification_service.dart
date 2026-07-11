@@ -72,16 +72,38 @@ class PushNotificationService {
         sound: true,
       );
       print('[PUSH_TOKEN] Permissão: ${settings.authorizationStatus}');
+      print('[PUSH_IOS] permission=${settings.authorizationStatus}');
 
       // Inicializa flutter_local_notifications (necessário para foreground Android
       // e para roteamento ao tocar em notificação recebida em foreground)
       await _inicializarLocalNotifications();
 
+      // S.9.3.1 (Item 7) — no iOS, o token FCM depende do token APNs.
+      // Se o APNs token for null, o getToken() falha ou devolve token
+      // inválido para push real. Logamos o APNs token (parcial) para
+      // auditar o elo iPhone → APNs → FCM.
+      if (Platform.isIOS) {
+        try {
+          String? apns = await messaging.getAPNSToken();
+          // O APNs token pode demorar alguns instantes após o registro.
+          for (var i = 0; apns == null && i < 5; i++) {
+            await Future.delayed(const Duration(seconds: 1));
+            apns = await messaging.getAPNSToken();
+          }
+          print('[PUSH_IOS] apns_token=${apns == null ? 'NULL (registro APNs falhou?)' : '...${apns.substring(apns.length > 8 ? apns.length - 8 : 0)}'}');
+        } catch (e) {
+          print('[PUSH_IOS] apns_token=erro: $e');
+        }
+      }
+
       // Captura o token atual
       _currentToken = await messaging.getToken();
       if (_currentToken != null) {
         print('[PUSH_TOKEN] Token FCM obtido: ...${_currentToken!.substring(_currentToken!.length - 8)}');
+        print('[PUSH_IOS] fcm_token=...${_currentToken!.substring(_currentToken!.length - 8)}');
         await _salvarTokenSeLogado();
+      } else {
+        print('[PUSH_IOS] fcm_token=NULL');
       }
 
       // Escuta renovação de token
@@ -218,8 +240,11 @@ class PushNotificationService {
         },
       );
       print('[PUSH_TOKEN] Token salvo/atualizado para pessoa_id=$pessoaId plataforma=$plataforma');
+      print('[PUSH_IOS] pessoa_id=$pessoaId');
+      print('[PUSH_IOS] persistido=true');
     } catch (e) {
       print('[PUSH_TOKEN] Erro ao salvar token: $e');
+      print('[PUSH_IOS] persistido=false erro=$e');
     }
   }
 

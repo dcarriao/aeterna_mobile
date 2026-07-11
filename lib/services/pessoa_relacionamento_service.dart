@@ -37,28 +37,31 @@ class PessoaRelacionamentoService {
     }
   }
 
-  /// Lista todas as relações de uma pessoa (em qualquer direção).
-  /// Usa query direta em `pessoas_relacionamentos` — sem RPC, sem view.
+  /// Lista as relações exibidas no perfil da pessoa.
+  ///
+  /// S.9.3.1 (Item 6) — QUERY OFICIAL do perfil: apenas as linhas em que a
+  /// pessoa do perfil é `pessoa_a_id`, exibindo `relacao_b_para_a`
+  /// (o que a OUTRA pessoa é para ela). Toda relação criada por criar()
+  /// possui as duas direções (linha direta + inversa), então ler só o lado
+  /// A cobre 100% das relações bidirecionais e elimina a ambiguidade que
+  /// invertia rótulos quando a mesma relação era lida pelos dois lados.
   Future<List<OutraPessoaNaFamilia>> listarRelacionamentos(
     int pessoaId,
   ) async {
     if (!PessoaRepository.isConfigured) return const [];
+    final sw = Stopwatch()..start();
     try {
-      // A→B: quem B é para A
+      // Perfil da pessoa A: quem B é para A
       final rowsA = await PessoaRepository.supabaseClient
           .from('pessoas_relacionamentos')
           .select('pessoa_b_id, relacao_a_para_b, relacao_b_para_a, tipo, id')
-          .eq('pessoa_a_id', pessoaId);
-      // B→A: quem A é para B
-      final rowsB = await PessoaRepository.supabaseClient
-          .from('pessoas_relacionamentos')
-          .select('pessoa_a_id, relacao_a_para_b, relacao_b_para_a, tipo, id')
-          .eq('pessoa_b_id', pessoaId);
+          .eq('pessoa_a_id', pessoaId)
+          .order('pessoa_b_id');
+      print('[PERF] query=listarRelacionamentos duracao_ms=${sw.elapsedMilliseconds} linhas=${rowsA.length}');
 
       // Busca nomes de todas as pessoas envolvidas
       final todosIds = <int>{
         for (final r in rowsA) (r['pessoa_b_id'] as num).toInt(),
-        for (final r in rowsB) (r['pessoa_a_id'] as num).toInt(),
       };
       final nomes = <int, String>{};
       if (todosIds.isNotEmpty) {
@@ -97,21 +100,7 @@ class PessoaRelacionamentoService {
           rotuloDeMimParaAOutra: rotA,
         ));
       }
-      for (final r in rowsB) {
-        final outraId = (r['pessoa_a_id'] as num).toInt();
-        final tipo = r['tipo'] as String? ?? 'OUTRO';
-        final rotA = r['relacao_a_para_b'] as String? ?? rotuloAPorTipo[tipo] ?? 'Pessoa';
-        final rotB = r['relacao_b_para_a'] as String? ?? rotuloBPorTipo[tipo] ?? 'Pessoa';
-        lista.add(OutraPessoaNaFamilia(
-          relacionamentoId: (r['id'] as num).toInt(),
-          outraPessoaId: outraId,
-          outraPessoaNome: nomes[outraId] ?? 'Pessoa #$outraId',
-          tipo: tipo,
-          rotuloDaOutraParaMim: rotA,
-          rotuloDeMimParaAOutra: rotB,
-        ));
-      }
-      // Remove duplicatas
+      // Remove duplicatas (defensivo — não deve ocorrer lendo só o lado A)
       final unique = <int, OutraPessoaNaFamilia>{};
       for (final f in lista) {
         unique.putIfAbsent(f.outraPessoaId, () => f);
@@ -153,13 +142,18 @@ class PessoaRelacionamentoService {
 
       final nomes = await PessoaRepository.supabaseClient
           .from('pessoas')
-          .select('id, nome, sobrenome')
+          .select('id, nome, sobrenome, tipo')
           .inFilter('id', bIds);
 
       final nomePorId = <int, String>{
         for (final r in nomes)
           (r['id'] as num).toInt():
               '${r['nome'] ?? ''} ${r['sobrenome'] ?? ''}'.trim(),
+      };
+      // S.9.3.1 — tipo da pessoa (humano/pet) para os seletores separados.
+      final tipoPorId = <int, String>{
+        for (final r in nomes)
+          (r['id'] as num).toInt(): (r['tipo'] as String?) ?? 'humano',
       };
 
       return rows
@@ -169,6 +163,7 @@ class PessoaRelacionamentoService {
               'pessoa_b_id': bid,
               'relacao_b_para_a': r['relacao_b_para_a'] as String? ?? '',
               'nome': nomePorId[bid] ?? 'Pessoa #$bid',
+              'tipo': tipoPorId[bid] ?? 'humano',
             };
           })
           .where((m) =>
@@ -377,7 +372,10 @@ class PessoaRelacionamentoService {
   }
 
   /// Mapeia o tipo para seu inverso bidirecional.
-  /// Usado para criar a linha inversa em `criar()`.
+  /// Usado para criar a linha inversa em `criar()` e pelas telas que
+  /// precisam gravar o tipo correto do ponto de vista de cada linha.
+  String inverseTipo(String tipo, String rotuloB) => _inverseTipo(tipo, rotuloB);
+
   String _inverseTipo(String tipo, String rotuloB) {
     switch (tipo) {
       case 'PAI':

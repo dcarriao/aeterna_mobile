@@ -70,12 +70,21 @@ class _PessoasScreenState extends State<PessoasScreen> {
   }
 
   Future<void> _carregar() async {
-    print('[PessoasScreen] _carregar() iniciando');
+    final sw = Stopwatch()..start();
+    print('[PERF] tela=Pessoas inicio=${DateTime.now().toIso8601String()}');
     try {
-      final pessoas = await PessoaRepository.listar();
-      final vinculos = await PessoaRepository.listarVinculos();
-      final rels = await PessoaRelacionamentoService.instance
-          .listarRelacionamentos(PessoaRepository.usuarioId);
+      // S.9.3.1 (Item 9) — as três queries são independentes entre si;
+      // antes rodavam em sequência (soma das latências). Future.wait
+      // paraleliza sem alterar nenhuma regra funcional.
+      final resultados = await Future.wait([
+        PessoaRepository.listar(),
+        PessoaRepository.listarVinculos(),
+        PessoaRelacionamentoService.instance
+            .listarRelacionamentos(PessoaRepository.usuarioId),
+      ]);
+      final pessoas = resultados[0] as List<Pessoa>;
+      final vinculos = resultados[1] as Map<int, List<int>>;
+      final rels = resultados[2] as List<OutraPessoaNaFamilia>;
       final parentescoMap = <int, String>{};
       for (final r in rels) {
         parentescoMap[r.outraPessoaId] = r.rotuloDaOutraParaMim;
@@ -93,6 +102,7 @@ class _PessoasScreenState extends State<PessoasScreen> {
           _carregando = false;
         });
       }
+      print('[PERF] tela=Pessoas pronta_em_ms=${sw.elapsedMilliseconds}');
     } catch (_) {
       if (mounted) setState(() => _carregando = false);
     }

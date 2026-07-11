@@ -13,6 +13,8 @@ class Pessoa {
     this.apelido,
     this.parentesco = '',
     this.tipo = 'humano',
+    this.especie,
+    this.raca,
     this.dataNascimento,
     this.fotoBase64,
     this.email,
@@ -32,6 +34,13 @@ class Pessoa {
   final String? apelido;
   final String parentesco;
   final String tipo;
+
+  /// S.9.3.1 — Espécie do pet (ex: 'Cachorro', 'Gato'). Sempre null para humanos.
+  final String? especie;
+
+  /// S.9.3.1 — Raça do pet (texto livre, opcional). Sempre null para humanos.
+  final String? raca;
+
   final DateTime? dataNascimento;
   final String? fotoBase64;
   final String? email;
@@ -60,6 +69,18 @@ class Pessoa {
 
   bool get isPet => tipo == 'pet';
   bool get isHumano => tipo == 'humano';
+
+  /// S.9.3.1 — Rótulo "Gato • Siamês" / "Cachorro" para exibição.
+  /// Retorna null se não houver espécie (nunca inventa texto artificial).
+  String? get especieRacaLabel {
+    if (!isPet) return null;
+    final e = especie?.trim() ?? '';
+    final r = raca?.trim() ?? '';
+    if (e.isEmpty && r.isEmpty) return null;
+    if (e.isEmpty) return r;
+    if (r.isEmpty) return e;
+    return '$e • $r';
+  }
   bool get isAutenticavel => isHumano && authUserId != null;
 
   Map<String, dynamic> toMap() {
@@ -72,6 +93,8 @@ class Pessoa {
       'data_nascimento': dataNascimento?.toIso8601String(),
       'foto_perfil': fotoBase64,
       'tipo': tipo,
+      if (especie != null) 'especie': especie,
+      if (raca != null) 'raca': raca,
       'situacao': situacao,
       'falecido': falecido,
       if (authUserId != null) 'auth_user_id': authUserId,
@@ -92,6 +115,8 @@ class Pessoa {
       apelido: (map['sobrenome'] as String?) ?? (map['apelido'] as String?),
       parentesco: (map['parentesco'] as String?) ?? '',
       tipo: (map['tipo'] as String?) ?? 'humano',
+      especie: map['especie'] as String?,
+      raca: map['raca'] as String?,
       dataNascimento: map['data_nascimento'] != null
           ? DateTime.tryParse('${map['data_nascimento']}')
           : null,
@@ -300,21 +325,26 @@ class PessoaRepository {
 
   static Future<List<Pessoa>> listar() async {
     if (!isConfigured) return [];
+    final sw = Stopwatch()..start();
     try {
       final relRows = await _supabase
           .from('pessoas_relacionamentos')
           .select('pessoa_a_id, pessoa_b_id');
+      print('[PERF] query=listar.relacionamentos duracao_ms=${sw.elapsedMilliseconds} linhas=${relRows.length}');
       final ids = <int>{usuarioId};
       for (final r in relRows) {
         ids.add((r['pessoa_a_id'] as num).toInt());
         ids.add((r['pessoa_b_id'] as num).toInt());
       }
       if (ids.isEmpty) return [];
+      final t2 = Stopwatch()..start();
+      // S.9.3.1 — inclui especie/raca (requer migration sprint_s9_3_1_pet_especie_raca.sql)
       final rows = await _supabase
           .from('pessoas')
-          .select('id, nome, sobrenome, email, telefone, tipo, data_nascimento, foto_perfil, situacao, falecido, created_at')
+          .select('id, nome, sobrenome, email, telefone, tipo, especie, raca, data_nascimento, foto_perfil, situacao, falecido, created_at')
           .inFilter('id', ids.toList())
           .order('nome');
+      print('[PERF] query=listar.pessoas duracao_ms=${t2.elapsedMilliseconds} linhas=${rows.length} total_ms=${sw.elapsedMilliseconds}');
       return rows.map((r) => Pessoa.fromMap(r)).toList();
     } catch (e) {
       print('[PessoaRepo] listar() ERRO: $e');
@@ -329,9 +359,13 @@ class PessoaRepository {
     
     String? fotoUrl = pessoa.fotoUrl;
     
-    // Se houver bytes locais de foto nova, faz o upload para o Storage primeiro
+    // Se houver bytes locais de foto nova, faz o upload para o Storage primeiro.
+    // S.9.3.1 — uploadFoto() é puro (só sobe o arquivo e retorna a URL).
+    // A URL é gravada APENAS na linha desta pessoa (filtro id = pessoa.id
+    // abaixo). Nunca toca em pessoas.id = usuarioId.
     if (pessoa.fotoBytes != null) {
-      final url = await uploadFotoPerfil(pessoa.fotoBytes!, 'contato_${pessoa.id}.jpg');
+      print('[PET_PHOTO] pet_id=${pessoa.id} usuario_logado_id=$usuarioId (upload via salvar)');
+      final url = await uploadFoto(pessoa.fotoBytes!, 'contato_${pessoa.id}.jpg');
       if (url != null) {
         fotoUrl = url;
       }
@@ -343,6 +377,16 @@ class PessoaRepository {
       'tipo': pessoa.tipo,
       'situacao': pessoa.situacao,
     };
+    // S.9.3.1 — espécie/raça: somente para pets; nunca gravadas em humanos.
+    if (pessoa.isPet) {
+      if (pessoa.especie != null && pessoa.especie!.trim().isNotEmpty) {
+        data['especie'] = pessoa.especie!.trim();
+      }
+      // raca pode ser explicitamente limpa (string vazia → null no banco)
+      data['raca'] = (pessoa.raca == null || pessoa.raca!.trim().isEmpty)
+          ? null
+          : pessoa.raca!.trim();
+    }
     if (pessoa.apelido != null && pessoa.apelido!.isNotEmpty) {
       data['sobrenome'] = pessoa.apelido;
     }
@@ -568,7 +612,17 @@ class PessoaRepository {
     } catch (_) {}
   }
 
-  static Future<String?> uploadFotoPerfil(Uint8List bytes, String nomeArquivo) async {
+  /// S.9.3.1 — Upload PURO de foto para o Storage. Sobe o arquivo e retorna
+  /// a URL pública. NÃO grava nada em `pessoas` — quem chama decide em qual
+  /// linha a URL será gravada.
+  ///
+  /// CAUSA RAIZ do bug "foto do usuário substituída pela foto do pet":
+  /// a versão anterior (uploadFotoPerfil) fazia
+  ///   `salvarUsuario({'foto_perfil': publicUrl})`
+  /// ou seja, UPDATE pessoas SET foto_perfil WHERE id = usuarioId — para
+  /// QUALQUER foto (pet, contato...). Ao salvar a foto da Mili, o avatar do
+  /// usuário logado era sobrescrito.
+  static Future<String?> uploadFoto(Uint8List bytes, String nomeArquivo) async {
     if (!isConfigured) return null;
 
     final nomeSeguro = nomeArquivo.toLowerCase().replaceAll(
@@ -588,11 +642,24 @@ class PessoaRepository {
           );
 
       final publicUrl = _supabase.storage.from('fotos').getPublicUrl(caminho);
-      await salvarUsuario({'foto_perfil': publicUrl});
+      print('[PET_PHOTO] storage_path=$caminho');
+      print('[PET_PHOTO] public_url=$publicUrl');
       return publicUrl;
-    } catch (_) {
+    } catch (e) {
+      print('[PET_PHOTO] erro_upload=$e');
       return null;
     }
+  }
+
+  /// Upload da foto de perfil DO USUÁRIO LOGADO. Único lugar onde a URL é
+  /// gravada em pessoas.id = usuarioId (usado apenas pela tela Perfil).
+  static Future<String?> uploadFotoPerfil(Uint8List bytes, String nomeArquivo) async {
+    final publicUrl = await uploadFoto(bytes, nomeArquivo);
+    if (publicUrl != null) {
+      print('[PET_PHOTO] update_filter=pessoas.id=$usuarioId (perfil do usuário — intencional)');
+      await salvarUsuario({'foto_perfil': publicUrl});
+    }
+    return publicUrl;
   }
 
   static Future<void> excluirMemoriaCompleta(int memoriaId) async {

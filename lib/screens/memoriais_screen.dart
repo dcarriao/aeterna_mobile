@@ -26,8 +26,11 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
 
   Future<void> _carregarMemoriais() async {
     if (!_service.isConfigured) return;
+    final sw = Stopwatch()..start();
+    print('[PERF] tela=Memoriais inicio=${DateTime.now().toIso8601String()}');
     setState(() => _carregando = true);
     try {
+      // S.9.3.1 (Item 9) — instrumentado para medir antes de otimizar.
       final lista = await _service.listarMemoriais();
       final colaborativos = await _service.listarMemoriaisColaborativos();
       if (mounted) {
@@ -36,6 +39,7 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
           _memoriaisColaborativos = colaborativos;
         });
       }
+      print('[PERF] tela=Memoriais pronta_em_ms=${sw.elapsedMilliseconds}');
     } catch (e) {
       print('Erro ao carregar memoriais: $e');
     } finally {

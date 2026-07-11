@@ -33,14 +33,20 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   }
 
   Future<void> _carregar() async {
+    final sw = Stopwatch()..start();
+    print('[PERF] tela=MapaFamilia inicio=${DateTime.now().toIso8601String()}');
     setState(() {
       _carregando = true;
       _erro = null;
     });
     try {
-      final pessoas = await PessoaRepository.listar();
-      final grafo =
-          await PessoaRelacionamentoService.instance.carregarGrafo();
+      // S.9.3.1 (Item 9) — queries independentes paralelizadas.
+      final resultados = await Future.wait<dynamic>([
+        PessoaRepository.listar(),
+        PessoaRelacionamentoService.instance.carregarGrafo(),
+      ]);
+      final pessoas = resultados[0] as List<Pessoa>;
+      final grafo = resultados[1] as List<Map<String, dynamic>>;
       if (mounted) {
         setState(() {
           _pessoas = pessoas;
@@ -48,6 +54,7 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
           _carregando = false;
         });
       }
+      print('[PERF] tela=MapaFamilia pronta_em_ms=${sw.elapsedMilliseconds}');
     } catch (e) {
       print('[GrafoFamilia] _carregar ERRO: $e');
       if (mounted) {
