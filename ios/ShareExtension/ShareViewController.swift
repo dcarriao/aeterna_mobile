@@ -1,15 +1,10 @@
 import UIKit
 import UniformTypeIdentifiers
-import MobileCoreServices
 
-// Sprint S.9.1 — Share Extension iOS
-// Corrige o fluxo de compartilhamento:
-//   - Usa extensionContext?.open() para abrir o host app (UIResponder chain não funciona em iOS 13+)
-//   - Salva mídia em App Group container com UUID para evitar colisões
-//   - Escreve manifest.json com metadados (share_id, file_path, media_type, timestamp)
-//   - Suporta foto e vídeo
-//   - URL: aeterna://share?manifest=<encoded_path>
 class ShareViewController: UIViewController {
+
+    // Flag protegida pelo MainActor (ambos os closures rodam na main queue).
+    private var completou = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -18,20 +13,16 @@ class ShareViewController: UIViewController {
 
     private func handleSharedContent() {
         guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
-            NSLog("[IOS_SHARE] ERRO — extensionContext sem inputItems")
             completeRequest()
             return
         }
 
         let group = DispatchGroup()
-        var fileURL: URL?
-        var mediaType: String = "image"
+        var firstImageUrl: URL?
 
         for item in items {
             guard let attachments = item.attachments else { continue }
             for attachment in attachments {
-
-                // — Foto
                 let imageTypes = [
                     UTType.image.identifier,
                     UTType.jpeg.identifier,
@@ -42,62 +33,87 @@ class ShareViewController: UIViewController {
                 let conformsToImage = imageTypes.contains { type in
                     attachment.hasItemConformingToTypeIdentifier(type)
                 }
+                guard conformsToImage else { continue }
 
-                // — Vídeo
-                let videoTypes = [
-                    UTType.movie.identifier,
-                    UTType.video.identifier,
-                    "public.movie",
-                    "com.apple.quicktime-movie",
-                ]
-                let conformsToVideo = videoTypes.contains { type in
-                    attachment.hasItemConformingToTypeIdentifier(type)
-                }
-
-                if conformsToVideo {
-                    group.enter()
-                    let typeId = UTType.movie.identifier
-                    attachment.loadItem(forTypeIdentifier: typeId, options: nil) { data, error in
-                        defer { group.leave() }
-                        guard fileURL == nil else { return }
-                        if let url = data as? URL {
-                            fileURL = self.salvarMidiaNoContainer(url, extensao: "mp4")
-                            mediaType = "video"
-                            NSLog("[IOS_SHARE] Vídeo carregado: %@", url.lastPathComponent)
-                        }
-                    }
-                } else if conformsToImage {
-                    group.enter()
-                    attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { data, error in
-                        defer { group.leave() }
-                        guard fileURL == nil else { return }
-                        if let url = data as? URL {
-                            fileURL = self.salvarMidiaNoContainer(url, extensao: "jpg")
-                            mediaType = "image"
-                            NSLog("[IOS_SHARE] Foto carregada: %@", url.lastPathComponent)
-                        } else if let image = data as? UIImage {
-                            fileURL = self.salvarUIImageNoContainer(image)
-                            mediaType = "image"
-                            NSLog("[IOS_SHARE] UIImage convertida e salva")
-                        }
+                group.enter()
+                attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { data, error in
+                    defer { group.leave() }
+                    guard firstImageUrl == nil else { return }
+                    if let url = data as? URL {
+                        firstImageUrl = self.saveToSharedContainer(url)
+                    } else if let image = data as? UIImage {
+                        firstImageUrl = self.saveImageToSharedContainer(image)
                     }
                 }
             }
         }
 
-        var completou = false
-
-        // Timeout de segurança: 10 segundos
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-            guard let self = self, !completou else { return }
-            completou = true
-            NSLog("[IOS_SHARE] Timeout atingido — prosseguindo")
-            if let url = fileURL {
-                self.escreverManifest(fileURL: url, mediaType: mediaType)
-                self.launchMainApp()
+            guard let self else { return }
+            guard !self.completou else { return }
+            self.completou = true
+            if let url = firstImageUrl {
+                self.launchMainApp(with: url)
             }
             self.completeRequest()
         }
 
         group.notify(queue: .main) { [weak self] in
-            guard let self = self, !com
+            guard let self else { return }
+            guard !self.completou else { return }
+            self.completou = true
+            if let url = firstImageUrl {
+                self.launchMainApp(with: url)
+            }
+            self.completeRequest()
+        }
+    }
+
+    private func saveToSharedContainer(_ url: URL) -> URL? {
+        guard let sharedURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.com.aeterna.app"
+        ) else {
+            return url
+        }
+        let dest = sharedURL.appendingPathComponent("shared_image.jpg")
+        try? FileManager.default.removeItem(at: dest)
+        try? FileManager.default.copyItem(at: url, to: dest)
+        return dest
+    }
+
+    private func saveImageToSharedContainer(_ image: UIImage) -> URL? {
+        guard let jpegData = image.jpegData(compressionQuality: 0.8) else { return nil }
+        if let sharedURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.com.aeterna.app"
+        ) {
+            let fileURL = sharedURL.appendingPathComponent("shared_image.jpg")
+            try? FileManager.default.removeItem(at: fileURL)
+            try? jpegData.write(to: fileURL)
+            return fileURL
+        }
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("shared_image.jpg")
+        try? FileManager.default.removeItem(at: tempURL)
+        try? jpegData.write(to: tempURL)
+        return tempURL
+    }
+
+    private func launchMainApp(with imageURL: URL) {
+        guard let encodedPath = imageURL.path.addingPercentEncoding(
+            withAllowedCharacters: .urlQueryAllowed
+        ),
+        let appURL = URL(string: "aeterna://share?image=\(encodedPath)") else { return }
+
+        var responder: UIResponder? = self
+        while responder != nil {
+            if let application = responder as? UIApplication {
+                application.open(appURL, options: [:], completionHandler: nil)
+                break
+            }
+            responder = responder?.next
+        }
+    }
+
+    private func completeRequest() {
+        extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+    }
+}
