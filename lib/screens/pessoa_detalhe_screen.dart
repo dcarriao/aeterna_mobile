@@ -334,9 +334,11 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                         const SizedBox(height: 24),
                         _buildEstatisticas(),
 
-                        // ── MEMORIAL VINCULADO ──
-                        const SizedBox(height: 20),
-                        _buildSecaoMemorial(),
+                        // ── MEMORIAL VINCULADO (apenas humanos) ──
+                        if (!(_pessoa ?? widget.pessoa).isPet) ...[
+                          const SizedBox(height: 20),
+                          _buildSecaoMemorial(),
+                        ],
 
                         // ── SPRINT L — FAMÍLIA (grafo pessoa-pessoa) ──
                         const SizedBox(height: 28),
@@ -496,6 +498,10 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
         ),
       );
     }
+    // S.9.3 — Pets não possuem memorial; oculta o botão de criação.
+    final pessoa = _pessoa ?? widget.pessoa;
+    if (pessoa.isPet) return const SizedBox.shrink();
+
     return OutlinedButton.icon(
       onPressed: _criarMemorialParaPessoa,
       style: OutlinedButton.styleFrom(

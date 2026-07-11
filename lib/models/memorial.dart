@@ -50,7 +50,7 @@ class Memorial {
       'data_falecimento': '${dataFalecimento.year}-${dataFalecimento.month.toString().padLeft(2, '0')}-${dataFalecimento.day.toString().padLeft(2, '0')}',
       'biografia': biografia,
       if (fotoUrl != null) 'foto_perfil': fotoUrl,
-      if (pessoaId != null) 'pessoa_id': pessoaId,
+      // pessoa_id NÃO vai em memoriais; vínculo fica em memorial_pessoas.
       'usuario_id': usuarioId,
       'criado_em': createdAt.toIso8601String(),
     };
