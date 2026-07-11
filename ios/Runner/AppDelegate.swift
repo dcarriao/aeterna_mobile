@@ -28,7 +28,7 @@ import UserNotifications
     // (_verificarCompartilhamentoPendente em main.dart).
 
     private func registerShareChannel(registry: FlutterPluginRegistry) {
-        let registrar = registry.registrar(forPlugin: "AeternaSharePlugin")
+        guard let registrar = registry.registrar(forPlugin: "AeternaSharePlugin") else { return }
         let channel = FlutterMethodChannel(
             name: "com.aeterna.app/share",
             binaryMessenger: registrar.messenger()
