@@ -52,9 +52,18 @@ workflows:
             --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY \
             --dart-define=OPENAI_API_KEY=$OPENAI_API_KEY
           xcode-project use-profiles --project ios/Runner.xcodeproj
+          ruby -e "
+            require 'xcodeproj'
+            project = Xcodeproj::Project.open('ios/Runner.xcodeproj')
+            project.targets.each do |t|
+              next unless t.name == 'Runner'
+              t.build_configurations.each { |c| c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO' }
+            end
+            project.save
+            puts 'ENABLE_USER_SCRIPT_SANDBOXING=NO applied to Runner target'
+          "
           xcode-project build-ipa --workspace ios/Runner.xcworkspace \
-            --scheme Runner \
-            --xcargs "ENABLE_USER_SCRIPT_SANDBOXING=NO"
+            --scheme Runner
 
       - name: Validate IPA contains Share Extension .appex
         script: |
