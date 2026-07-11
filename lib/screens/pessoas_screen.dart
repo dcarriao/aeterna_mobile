@@ -9,6 +9,7 @@ import 'convites_screen.dart';
 import 'grafo_familia_screen.dart';
 import 'nova_pessoa_screen.dart';
 import 'pessoa_detalhe_screen.dart';
+import 'pets_screen.dart'; // S.9.3
 
 class PessoasScreen extends StatefulWidget {
   const PessoasScreen({
@@ -60,7 +61,7 @@ class _PessoasScreenState extends State<PessoasScreen> {
           pessoa: Pessoa(
             id: DateTime.now().millisecondsSinceEpoch,
             nome: s.nome,
-            parentesco: '',
+            parentesco: 'Outro',
           ),
         ),
       ),
@@ -73,20 +74,20 @@ class _PessoasScreenState extends State<PessoasScreen> {
     try {
       final pessoas = await PessoaRepository.listar();
       final vinculos = await PessoaRepository.listarVinculos();
-      // Query oficial: pessoa_a_id = usuarioId → relacao_b_para_a
-      final contatos = await PessoaRelacionamentoService.instance
-          .listarContatos(pessoaId: PessoaRepository.usuarioId);
+      final rels = await PessoaRelacionamentoService.instance
+          .listarRelacionamentos(PessoaRepository.usuarioId);
       final parentescoMap = <int, String>{};
-      for (final c in contatos) {
-        final id = c['pessoa_b_id'] as int;
-        final rotulo = c['relacao_b_para_a'] as String? ?? '';
-        if (rotulo.isNotEmpty) parentescoMap[id] = rotulo;
+      for (final r in rels) {
+        parentescoMap[r.outraPessoaId] = r.rotuloDaOutraParaMim;
       }
       print(
           '[PessoasScreen] _carregar() recebeu ${pessoas.length} pessoas. mounted=$mounted');
       if (mounted) {
         setState(() {
-          _pessoas = pessoas.where((p) => p.id != PessoaRepository.usuarioId).toList();
+          // S.9.3: exclui o próprio usuário E pets (pets têm seção própria)
+          _pessoas = pessoas
+              .where((p) => p.id != PessoaRepository.usuarioId && !p.isPet)
+              .toList();
           _vinculos = vinculos;
           _parentescoMap = parentescoMap;
           _carregando = false;
@@ -135,6 +136,18 @@ class _PessoasScreenState extends State<PessoasScreen> {
     );
   }
 
+  // S.9.3
+  void _abrirPets() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => PetsScreen(
+          onAbrirMemoria: widget.onAbrirMemoria,
+          titulosMemorias: widget.titulosMemorias,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -156,6 +169,21 @@ class _PessoasScreenState extends State<PessoasScreen> {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: const Icon(Icons.diversity_3,
+                  color: AppColors.dourado, size: 20),
+            ),
+          ),
+          // S.9.3 — Acesso à seção de Pets
+          IconButton(
+            tooltip: 'Meus Pets',
+            onPressed: _abrirPets,
+            icon: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0EAF5),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(Icons.pets,
                   color: AppColors.dourado, size: 20),
             ),
           ),
@@ -252,7 +280,7 @@ class _PessoasScreenState extends State<PessoasScreen> {
                                   final pessoa = _pessoas[i];
                                   return _PessoaCard(
                                     pessoa: pessoa,
-                                    relacaoLabel: _parentescoMap[pessoa.id] ?? '',
+                                    relacaoLabel: _parentescoMap[pessoa.id] ?? pessoa.parentesco,
                                     totalMemorias: _contarMemorias(pessoa.id),
                                     onTap: () => _abrirDetalhe(pessoa),
                                   );

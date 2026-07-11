@@ -103,6 +103,11 @@ const _TIPOS_INICIAIS = <TipoRelacionamento>[
       id: 'AMIGO', rotuloA: 'Amigo(a)', rotuloB: 'Amigo(a)', categoria: 'amizade'),
   TipoRelacionamento(
       id: 'OUTRO', rotuloA: 'Conhecido(a)', rotuloB: 'Conhecido(a)', categoria: 'outro'),
+  // S.9.3 — Pets (fallback client-side; servidor é a fonte da verdade)
+  TipoRelacionamento(
+      id: 'TUTOR',  rotuloA: 'Tutor',  rotuloB: 'Pet de', categoria: 'outro'),
+  TipoRelacionamento(
+      id: 'PET_DE', rotuloA: 'Pet de', rotuloB: 'Tutor',  categoria: 'outro'),
 ];
 
 List<TipoRelacionamento> get TIPOS_RELACIONAMENTO_INICIAIS => _TIPOS_INICIAIS;

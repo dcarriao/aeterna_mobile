@@ -73,26 +73,42 @@ class PessoaRelacionamentoService {
       }
 
       final lista = <OutraPessoaNaFamilia>[];
+
+      // Carrega catálogo para fallback de rótulos nulos
+      final tipos = await listarTipos();
+      final rotuloBPorTipo = <String, String>{
+        for (final t in tipos) t.id: t.rotuloB,
+      };
+      final rotuloAPorTipo = <String, String>{
+        for (final t in tipos) t.id: t.rotuloA,
+      };
+
       for (final r in rowsA) {
         final outraId = (r['pessoa_b_id'] as num).toInt();
+        final tipo = r['tipo'] as String? ?? 'OUTRO';
+        final rotB = r['relacao_b_para_a'] as String? ?? rotuloBPorTipo[tipo] ?? 'Pessoa';
+        final rotA = r['relacao_a_para_b'] as String? ?? rotuloAPorTipo[tipo] ?? 'Pessoa';
         lista.add(OutraPessoaNaFamilia(
           relacionamentoId: (r['id'] as num).toInt(),
           outraPessoaId: outraId,
           outraPessoaNome: nomes[outraId] ?? 'Pessoa #$outraId',
-          tipo: r['tipo'] as String? ?? 'OUTRO',
-          rotuloDaOutraParaMim: r['relacao_b_para_a'] as String? ?? 'Conhecido(a)',
-          rotuloDeMimParaAOutra: r['relacao_a_para_b'] as String? ?? 'Conhecido(a)',
+          tipo: tipo,
+          rotuloDaOutraParaMim: rotB,
+          rotuloDeMimParaAOutra: rotA,
         ));
       }
       for (final r in rowsB) {
         final outraId = (r['pessoa_a_id'] as num).toInt();
+        final tipo = r['tipo'] as String? ?? 'OUTRO';
+        final rotA = r['relacao_a_para_b'] as String? ?? rotuloAPorTipo[tipo] ?? 'Pessoa';
+        final rotB = r['relacao_b_para_a'] as String? ?? rotuloBPorTipo[tipo] ?? 'Pessoa';
         lista.add(OutraPessoaNaFamilia(
           relacionamentoId: (r['id'] as num).toInt(),
           outraPessoaId: outraId,
           outraPessoaNome: nomes[outraId] ?? 'Pessoa #$outraId',
-          tipo: r['tipo'] as String? ?? 'OUTRO',
-          rotuloDaOutraParaMim: r['relacao_a_para_b'] as String? ?? 'Conhecido(a)',
-          rotuloDeMimParaAOutra: r['relacao_b_para_a'] as String? ?? 'Conhecido(a)',
+          tipo: tipo,
+          rotuloDaOutraParaMim: rotA,
+          rotuloDeMimParaAOutra: rotB,
         ));
       }
       // Remove duplicatas
@@ -183,6 +199,10 @@ class PessoaRelacionamentoService {
           .neq('pessoa_b_id', pessoaId)
           .neq('tipo', 'AMIGO')
           .neq('tipo', 'CONHECIDO')
+          .neq('tipo', 'OUTRO')
+          // S.9.3 — pets não aparecem no Mapa da Família
+          .neq('tipo', 'TUTOR')
+          .neq('tipo', 'PET_DE')
           .order('pessoa_b_id');
 
       if (rows.isEmpty) return [];
@@ -395,6 +415,11 @@ class PessoaRelacionamentoService {
         return 'SOGRO';
       case 'SOGRO':
         return rotuloB == 'Genro' ? 'GENRO' : 'NORA';
+      // S.9.3 — Pets
+      case 'TUTOR':
+        return 'PET_DE';
+      case 'PET_DE':
+        return 'TUTOR';
       // Simétricos: mesmo tipo nos dois lados
       default:
         return tipo; // IRMAO, CONJUGE, PRIMO, CUNHADO, AMIGO, OUTRO, COMPANHEIRO
@@ -522,4 +547,3 @@ class PessoaRelacionamentoService {
     }
   }
 }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
