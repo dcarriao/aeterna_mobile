@@ -44,4 +44,20 @@ post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
   end
+
+  # Xcode 14+ (and later) enables ENABLE_USER_SCRIPT_SANDBOXING by default.
+  # That sandbox silently blocks Flutter's xcode_backend.sh from reading the
+  # Flutter SDK, causing a zero-output PhaseScriptExecution failure at archive.
+  # We set the flag to NO on the Runner target here — AFTER CocoaPods has
+  # finished all its own project.pbxproj writes — so nothing can override it.
+  runner_project = Xcodeproj::Project.open(
+    File.expand_path('../Runner.xcodeproj', __FILE__)
+  )
+  runner_project.targets.each do |target|
+    next unless target.name == 'Runner'
+    target.build_configurations.each do |config|
+      config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+    end
+  end
+  runner_project.save
 end
