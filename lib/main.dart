@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:app_links/app_links.dart';
@@ -520,6 +521,14 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       navigatorKey: _navigatorKey,
       title: 'aEterna',
       debugShowCheckedModeBanner: false,
+      // S.9.3.2 — datas/calendários em português (público 40+ sem 2º idioma)
+      locale: const Locale('pt', 'BR'),
+      supportedLocales: const [Locale('pt', 'BR')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: AppTheme.light,
       home: _mostrarOnboarding
           ? OnboardingScreen(

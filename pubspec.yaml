@@ -31,6 +31,9 @@ dependencies:
   flutter:
     sdk: flutter
 
+  flutter_localizations:
+    sdk: flutter
+
   # S.9.3.2 — reprodução inline de vídeo nas memórias
   video_player: ^2.9.2
 

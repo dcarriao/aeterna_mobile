@@ -516,6 +516,18 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     _contextoController.text = resultado.contextoEnriquecido;
   }
 
+  /// Regra de produto (Darlan, S.9.3.2): todo PARTICIPANTE humano recebe
+  /// o compartilhamento automaticamente (quem estava no balão vê a foto);
+  /// compartilhados extras não precisam ser participantes; pet participa
+  /// mas nunca recebe permissão/push.
+  List<int> _compartilhadosEfetivos() {
+    final humanosParticipantes = _pessoasSelecionadas.where((id) {
+      final p = _todasPessoas.where((x) => x.id == id).firstOrNull;
+      return p == null || !p.isPet;
+    });
+    return <int>{..._familiaresSelecionados, ...humanosParticipantes}.toList();
+  }
+
   Future<void> _salvar() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -554,7 +566,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
         );
         await PessoaRepository.salvarCompartilhamento(
           m.id!,
-          _familiaresSelecionados,
+          _compartilhadosEfetivos(),
         );
 
         String? novaFotoUrl = m.fotoUrl;
@@ -633,10 +645,11 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           _pessoasSelecionadas,
         );
       }
-      if (_isCompartilhada && memoria.id != null) {
+      if (memoria.id != null) {
+        // participantes humanos entram SEMPRE no compartilhamento
         await PessoaRepository.salvarCompartilhamento(
           memoria.id!,
-          _familiaresSelecionados,
+          _compartilhadosEfetivos(),
         );
       }
       if (memoria.id != null) {
