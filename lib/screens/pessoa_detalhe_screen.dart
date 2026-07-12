@@ -628,17 +628,20 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
           ];
         }),
         const SizedBox(height: 4),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: _abrirAdicionarRelacionamento,
-            icon: const Icon(Icons.add, size: 16),
-            label: const Text(
-              'Adicionar relação',
-              style: TextStyle(fontWeight: FontWeight.w700),
+        // S.9.3.2 — pet não tem "Adicionar relação" (só tutores, criados
+        // pelo fluxo de Pets); humano segue normal.
+        if (!ehPet)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _abrirAdicionarRelacionamento,
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text(
+                'Adicionar relação',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -685,6 +688,7 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
             ),
           ),
           const SizedBox(height: 12),
+          if (!ehPet)
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton.icon(
@@ -721,6 +725,14 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
   }
 
   Future<void> _alterarRelacao(OutraPessoaNaFamilia f) async {
+    // S.9.3.2 — relação de pet (tutor) é fixa: não há o que alterar.
+    if ((_pessoa ?? widget.pessoa).isPet ||
+        f.tipo == 'TUTOR' || f.tipo == 'PET_DE') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('O vínculo tutor–pet é fixo.')),
+      );
+      return;
+    }
     // S.9.3.1 — alterar relação nunca oferece tipos de pet (o vínculo
     // tutor/pet é fixo, criado pela área Pets).
     final tipos = (await PessoaRelacionamentoService.instance.listarTipos())

@@ -13,7 +13,34 @@ import UserNotifications
     ) -> Bool {
         // Sprint R.4 — registra delegate para notificações push
         UNUserNotificationCenter.current().delegate = self
-        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+        let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+        // S.9.3.2 (Item 8) — FALLBACK de registro do canal de share.
+        // didInitializeImplicitFlutterEngine pode não disparar em todos os
+        // ciclos de vida; sem canal registrado, o Flutter recebe
+        // MissingPluginException e o compartilhamento "some".
+        // Registrar duas vezes é inofensivo (o segundo handler substitui).
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let controller = self.window?.rootViewController as? FlutterViewController {
+                NSLog("[IOS_SHARE] fallback: registrando canal via rootViewController")
+                let channel = FlutterMethodChannel(
+                    name: "com.aeterna.app/share",
+                    binaryMessenger: controller.binaryMessenger
+                )
+                channel.setMethodCallHandler { [weak self] call, resultCb in
+                    if call.method == "getSharedImage" {
+                        let path = self?.consumePendingShare()
+                        NSLog("[IOS_SHARE] getSharedImage(fallback) -> %@", path ?? "nil (sem pendência)")
+                        resultCb(path)
+                    } else {
+                        resultCb(FlutterMethodNotImplemented)
+                    }
+                }
+            } else {
+                NSLog("[IOS_SHARE] fallback: rootViewController não é FlutterViewController")
+            }
+        }
+        return result
     }
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {

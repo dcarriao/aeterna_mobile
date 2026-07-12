@@ -53,7 +53,8 @@ class _PetsScreenState extends State<PetsScreen> {
           // Regra: a lista Pets exibe SOMENTE pessoas.tipo = 'pet'.
           // S.9.3.2 — pet com memorial vive no memorial, não na lista.
           _pets = todas
-              .where((p) => p.isPet && !comMemorial.contains(p.id))
+              .where((p) =>
+                  p.isPet && !(p.falecido && comMemorial.contains(p.id)))
               .toList();
           _carregando = false;
         });

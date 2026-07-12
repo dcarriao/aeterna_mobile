@@ -97,12 +97,14 @@ class _PessoasScreenState extends State<PessoasScreen> {
       if (mounted) {
         setState(() {
           // S.9.3: exclui o próprio usuário E pets (pets têm seção própria)
-          // S.9.3.2 — quem tem memorial vive no memorial, não na lista.
+          // S.9.3.2 — FALECIDO com memorial vive no memorial, não na
+          // lista. (Correção: memorial_pessoas também tem colaboradores
+          // vivos — o filtro anterior escondia gente viva da lista.)
           _pessoas = pessoas
               .where((p) =>
                   p.id != PessoaRepository.usuarioId &&
                   !p.isPet &&
-                  !comMemorial.contains(p.id))
+                  !(p.falecido && comMemorial.contains(p.id)))
               .toList();
           _vinculos = vinculos;
           _parentescoMap = parentescoMap;

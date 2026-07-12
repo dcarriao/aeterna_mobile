@@ -256,7 +256,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _carregarPessoasVivas() async {
-    final pessoas = await PessoaTimelineService.instance.obterPessoasRecentes(limite: 6);
+    // S.9.3.2 — pets fora do card de pessoas da Home.
+    final resultadosPV = await Future.wait([
+      PessoaTimelineService.instance.obterPessoasRecentes(limite: 6),
+      PessoaRepository.listar(),
+    ]);
+    final idsPets = {
+      for (final p in (resultadosPV[1] as List<Pessoa>))
+        if (p.isPet) p.id,
+    };
+    final pessoas = (resultadosPV[0] as List<PessoaVivaResumo>)
+        .where((p) => !idsPets.contains(p.id))
+        .toList();
     // Query oficial: pessoa_a_id = usuarioId → relacao_b_para_a
     final contatos = await PessoaRelacionamentoService.instance
         .listarContatos(pessoaId: PessoaRepository.usuarioId);
