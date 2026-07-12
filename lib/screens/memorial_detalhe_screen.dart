@@ -431,14 +431,6 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     return Scaffold(
       backgroundColor: AppColors.fundo,
       appBar: AppBar(
-        actions: [
-          if (_pessoaVinculada != null)
-            IconButton(
-              tooltip: 'Definir relações familiares',
-              icon: const Icon(Icons.diversity_3),
-              onPressed: _definirRelacoes,
-            ),
-        ],
         title: Text(widget.memorial.nome,
             style: const TextStyle(
                 color: AppColors.roxo,
@@ -448,6 +440,13 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         elevation: 0,
         iconTheme: const IconThemeData(color: AppColors.roxo),
         actions: [
+          // S.9.4d — definir relações do humano homenageado
+          if (_pessoaVinculada != null)
+            IconButton(
+              tooltip: 'Definir relações familiares',
+              icon: const Icon(Icons.diversity_3, color: AppColors.roxo),
+              onPressed: _definirRelacoes,
+            ),
           if (_souDono) ...[
             IconButton(
               icon: const Icon(Icons.admin_panel_settings_outlined, color: AppColors.roxo),
