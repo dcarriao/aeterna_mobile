@@ -42,6 +42,7 @@ class HomeScreen extends StatefulWidget {
     required this.onMinhaHistoria,
     required this.onAbrirMemoria,
     required this.onPessoas,
+    required this.onPets,
     required this.onTimeline,
     required this.onCompartilhadas,
     required this.onPerfil,
@@ -55,6 +56,7 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback onMinhaHistoria;
   final void Function(Memoria memoria) onAbrirMemoria;
   final VoidCallback onPessoas;
+  final VoidCallback onPets;
   final VoidCallback onTimeline;
   final VoidCallback onCompartilhadas;
   final VoidCallback onPerfil;
@@ -385,6 +387,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     icon: Icons.people_outline,
                     label: 'Pessoas',
                     onTap: widget.onPessoas),
+                // S.9.3.2 — Pets com a mesma visibilidade de Pessoas
+                _NavItem(
+                    icon: Icons.pets_outlined,
+                    label: 'Pets',
+                    onTap: widget.onPets),
                 _NavItem(
                     icon: Icons.timeline_outlined,
                     label: 'Timeline',

@@ -327,9 +327,13 @@ class PessoaRepository {
     if (!isConfigured) return [];
     final sw = Stopwatch()..start();
     try {
+      // S.9.3.2 (multi-conta) — CAUSA: sem filtro, contatos de OUTRO
+      // usuário (ex.: os do Darlan) apareciam na conta da Alice.
+      // Escopo correto: apenas relações que envolvem o usuário logado.
       final relRows = await _supabase
           .from('pessoas_relacionamentos')
-          .select('pessoa_a_id, pessoa_b_id');
+          .select('pessoa_a_id, pessoa_b_id')
+          .or('pessoa_a_id.eq.$usuarioId,pessoa_b_id.eq.$usuarioId');
       print('[PERF] query=listar.relacionamentos duracao_ms=${sw.elapsedMilliseconds} linhas=${relRows.length}');
       final ids = <int>{usuarioId};
       for (final r in relRows) {
@@ -866,6 +870,47 @@ class PessoaRepository {
       }
     } catch (e) {
       print('[PessoaRepo] listarMemoriasCompartilhadasComigo() (real) ERRO: $e');
+    }
+
+    // 1b) S.9.3.2 — Fonte DIRETA (modelo atual): conteudo_permissoes com
+    //     papel='compartilhado' apontando para a MINHA pessoa. É o que o
+    //     app grava quando outro usuário compartilha comigo pelo seletor.
+    try {
+      final permsDiretas = await _supabase
+          .from('conteudo_permissoes')
+          .select('conteudo_id')
+          .eq('tipo_conteudo', 'memoria')
+          .eq('pessoa_id', usuarioId)
+          .eq('papel', 'compartilhado');
+      final memIds = [
+        for (final r in permsDiretas) (r['conteudo_id'] as num).toInt()
+      ].where((id) => !resultado.containsKey(id)).toList();
+      if (memIds.isNotEmpty) {
+        final mems = await _supabase
+            .from('memorias')
+            .select('id, usuario_id')
+            .inFilter('id', memIds)
+            .neq('usuario_id', usuarioId); // só memórias de OUTROS donos
+        final donoIds = mems
+            .map<int>((r) => (r['usuario_id'] as num?)?.toInt() ?? 0)
+            .where((id) => id > 0)
+            .toSet()
+            .toList();
+        final nomesPorDono = await _mapaNomesPorId(donoIds);
+        for (final r in mems) {
+          final memId = (r['id'] as num).toInt();
+          final donoId = (r['usuario_id'] as num?)?.toInt();
+          resultado.putIfAbsent(memId, () => {
+                'usuario_id': donoId,
+                'nome': (donoId != null &&
+                        (nomesPorDono[donoId]?.isNotEmpty ?? false))
+                    ? nomesPorDono[donoId]
+                    : 'Familiar',
+              });
+        }
+      }
+    } catch (e) {
+      print('[PessoaRepo] listarMemoriasCompartilhadasComigo() (direta) ERRO: $e');
     }
 
     // 2) Fonte legada: cruzamento por e-mail (pessoas x conteudo_permissoes).

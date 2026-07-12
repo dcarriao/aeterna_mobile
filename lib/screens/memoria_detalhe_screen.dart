@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 import 'package:intl/intl.dart';
 
 import '../curador/perguntas.dart';
@@ -1183,56 +1184,7 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                           icon: Icons.video_library_outlined,
                           titulo: 'Vídeo da memória',
                           color: AppColors.roxo,
-                          child: InkWell(
-                            onTap: () {
-                              showDialog<void>(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Text('Vídeo da memória', style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.w800)),
-                                  content: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text('Este vídeo está salvo com segurança no Supabase Storage do seu legado.', style: TextStyle(color: Color(0xFF625B67))),
-                                      const SizedBox(height: 12),
-                                      SelectableText(_videoUrl!, style: const TextStyle(color: AppColors.roxo, fontSize: 12, fontWeight: FontWeight.w600)),
-                                    ],
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.of(ctx).pop(),
-                                      child: const Text('Fechar', style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.w700)),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFBF4E8),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFEDE8DC)),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.play_circle_outline, size: 36, color: AppColors.dourado),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Assistir vídeo', style: TextStyle(color: AppColors.roxo, fontSize: 15, fontWeight: FontWeight.w800)),
-                                        const SizedBox(height: 2),
-                                        Text('Toque para ver a referência do vídeo salvo.', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                                      ],
-                                    ),
-                                  ),
-                                  const Icon(Icons.chevron_right, color: Colors.grey),
-                                ],
-                              ),
-                            ),
-                          ),
+                          child: _VideoInline(url: _videoUrl!),
                         ),
                       ],
 
@@ -1529,6 +1481,95 @@ class _CategoriaBadge extends StatelessWidget {
               color: Color(0xFF8B5E6B),
               fontSize: 12,
               fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
+/// S.9.3.2 (Item 7) — player inline: o vídeo APARECE na memória
+/// (antes, só um diálogo com a URL). Toque para reproduzir/pausar.
+class _VideoInline extends StatefulWidget {
+  const _VideoInline({required this.url});
+  final String url;
+
+  @override
+  State<_VideoInline> createState() => _VideoInlineState();
+}
+
+class _VideoInlineState extends State<_VideoInline> {
+  VideoPlayerController? _ctrl;
+  bool _erro = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final c = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    _ctrl = c;
+    c.initialize().then((_) {
+      if (mounted) setState(() {});
+    }).catchError((e) {
+      print('[VIDEO] erro ao inicializar: $e');
+      if (mounted) setState(() => _erro = true);
+    });
+    c.setLooping(false);
+  }
+
+  @override
+  void dispose() {
+    _ctrl?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _ctrl;
+    if (_erro) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: Text('Não foi possível carregar o vídeo.',
+            style: TextStyle(color: Color(0xFF7A7280))),
+      );
+    }
+    if (c == null || !c.value.isInitialized) {
+      return const SizedBox(
+        height: 180,
+        child: Center(
+          child: CircularProgressIndicator(
+              strokeWidth: 2, color: AppColors.roxo),
+        ),
+      );
+    }
+    return Column(
+      children: [
+        GestureDetector(
+          onTap: () => setState(
+              () => c.value.isPlaying ? c.pause() : c.play()),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                AspectRatio(
+                  aspectRatio:
+                      c.value.aspectRatio == 0 ? 16 / 9 : c.value.aspectRatio,
+                  child: VideoPlayer(c),
+                ),
+                if (!c.value.isPlaying)
+                  Container(
+                    decoration: const BoxDecoration(
+                      color: Colors.black45,
+                      shape: BoxShape.circle,
+                    ),
+                    padding: const EdgeInsets.all(14),
+                    child: const Icon(Icons.play_arrow,
+                        color: Colors.white, size: 36),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        VideoProgressIndicator(c, allowScrubbing: true,
+            padding: const EdgeInsets.only(top: 8)),
+      ],
     );
   }
 }

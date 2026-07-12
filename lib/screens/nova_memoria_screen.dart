@@ -694,7 +694,15 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           video: _videoBytes,
           videoUrl: criadoVideoUrl,
         );
+        // S.9.3.2 (Item 5) — CAUSA DA TELA PRETA: após este pop, a
+        // execução CONTINUAVA e chegava ao pop() de fallback logo
+        // abaixo — DOIS pops seguidos derrubavam também a tela de baixo
+        // (restava rota nenhuma = tela preta). O hook roda antes e
+        // encerramos aqui.
+        // ignore: unawaited_futures
+        MemoryRelationshipService.instance.aoSalvarMemoria(memoria.id!);
         Navigator.of(context).pop(finalMemoria);
+        return;
       }
 
       // Sprint K — hook incremental: após salvar a memória, dispara o

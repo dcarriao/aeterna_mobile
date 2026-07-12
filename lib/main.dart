@@ -16,6 +16,7 @@ import 'screens/perfil_screen.dart';
 import 'services/legacy_curator_service.dart';
 import 'screens/compartilhadas_screen.dart';
 import 'screens/pessoas_screen.dart';
+import 'screens/pets_screen.dart';
 import 'screens/timeline_screen.dart';
 import 'screens/memoriais_screen.dart';
 import 'services/supabase_service.dart';
@@ -415,6 +416,26 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
     );
   }
 
+  void _abrirPets(BuildContext context) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => PetsScreen(
+          titulosMemorias: {
+            for (final m in _memorias.where((m) => m.id != null))
+              m.id!: m.titulo,
+          },
+          onAbrirMemoria: (memoriaId) {
+            final memoria = _memorias.firstWhere(
+              (m) => m.id == memoriaId,
+              orElse: () => _memorias.first,
+            );
+            _abrirDetalhe(context, memoria);
+          },
+        ),
+      ),
+    );
+  }
+
   void _abrirPessoas(BuildContext context) {
     Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -513,6 +534,7 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
                     onMinhaHistoria: () => _abrirMinhaHistoria(context),
                     onAbrirMemoria: (memoria) => _abrirDetalhe(context, memoria),
                     onPessoas: () => _abrirPessoas(context),
+                    onPets: () => _abrirPets(context),
                     onTimeline: () => _abrirTimeline(context),
                     onCompartilhadas: () => _abrirCompartilhadas(context),
                     onPerfil: () => _abrirPerfil(context),

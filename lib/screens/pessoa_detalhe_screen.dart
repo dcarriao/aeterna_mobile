@@ -53,6 +53,9 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
 
   // Sprint L — Família (grafo pessoa-pessoa)
   List<OutraPessoaNaFamilia> _familia = const [];
+
+  /// S.9.3.2 — rótulo da relação do usuário logado com esta pessoa.
+  String? _minhaRelacao;
   bool _carregandoFamilia = true;
   bool _carregandoEventos = true;
 
@@ -104,11 +107,15 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
       PessoaTimelineService.instance.obterMemorialDaPessoa(widget.pessoa.id),
       PessoaRelacionamentoService.instance
           .listarRelacionamentos(widget.pessoa.id),
+      // S.9.3.2 — minha relação com esta pessoa (badge sob o nome)
+      PessoaRepository.listarRelacionados(PessoaRepository.usuarioId),
     ]);
     final stats = resultados[0] as PessoaEstatisticas;
     final eventos = resultados[1] as List<PessoaTimelineEvento>;
     final memorial = resultados[2] as MemorialResumo?;
     final familia = resultados[3] as List<OutraPessoaNaFamilia>;
+    final minhasRelacoes = resultados[4] as Map<int, String>;
+    _minhaRelacao = minhasRelacoes[widget.pessoa.id];
     print('[PERF] tela=PerfilPessoa pronta_em_ms=${sw.elapsedMilliseconds}');
     if (mounted) {
       setState(() {
@@ -294,7 +301,7 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                               // "Gato • Siamês" (ou só a espécie).
                               pessoa.isPet
                                   ? (pessoa.especieRacaLabel ?? 'Pet')
-                                  : pessoa.parentesco,
+                                  : (_minhaRelacao ?? pessoa.parentesco),
                               style: const TextStyle(
                                 color: AppColors.dourado,
                                 fontSize: 14,
@@ -570,9 +577,19 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     if (_familia.isEmpty) {
       return _vazioFamilia();
     }
+    // S.9.3.2 — perfil humano: vínculos de pet ficam fora (pets têm
+    // área própria e "Meus Pets" no Mapa); perfil de pet: só tutores.
+    final ehPetPerfil = (_pessoa ?? widget.pessoa).isPet;
+    final familiaVisivel = _familia.where((f) {
+      final ehVinculoPet = f.tipo == 'TUTOR' || f.tipo == 'PET_DE';
+      return ehPetPerfil ? ehVinculoPet : !ehVinculoPet;
+    }).toList();
+    if (familiaVisivel.isEmpty) {
+      return _vazioFamilia();
+    }
     // Agrupa por tipo (família / afinidade / conjugue / amizade / outro).
     final grupos = <String, List<OutraPessoaNaFamilia>>{};
-    for (final f in _familia) {
+    for (final f in familiaVisivel) {
       final cat = _categoriaParaTipo(f.tipo);
       grupos.putIfAbsent(cat, () => []).add(f);
     }
