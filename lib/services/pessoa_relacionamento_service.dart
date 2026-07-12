@@ -72,14 +72,19 @@ class PessoaRelacionamentoService {
         for (final r in rowsA) (r['pessoa_b_id'] as num).toInt(),
       };
       final nomes = <int, String>{};
+      final fotos = <int, String>{};
       if (todosIds.isNotEmpty) {
         final pRows = await PessoaRepository.supabaseClient
             .from('pessoas')
-            .select('id, nome, sobrenome')
+            .select('id, nome, sobrenome, foto_perfil')
             .inFilter('id', todosIds.toList());
         for (final r in pRows) {
           nomes[(r['id'] as num).toInt()] =
               '${r['nome'] ?? ''} ${r['sobrenome'] ?? ''}'.trim();
+          final foto = r['foto_perfil'] as String?;
+          if (foto != null && foto.startsWith('http')) {
+            fotos[(r['id'] as num).toInt()] = foto;
+          }
         }
       }
 
@@ -109,6 +114,7 @@ class PessoaRelacionamentoService {
           tipo: tipo,
           rotuloDaOutraParaMim: rotB,
           rotuloDeMimParaAOutra: rotA,
+          fotoUrl: fotos[outraId],
         ));
       }
       // Remove duplicatas (defensivo — não deve ocorrer lendo só o lado A)

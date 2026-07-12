@@ -381,7 +381,6 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _NavItem(
                     icon: Icons.people_outline,
@@ -1262,23 +1261,30 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    // S.9.4c (Item 9) — 5 itens: cada um ocupa 1/5 da largura, texto
+    // encolhe em vez de cortar, espaçamento uniforme.
+    return Expanded(
+      child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, color: AppColors.roxo, size: 22),
             const SizedBox(height: 4),
-            Text(label,
-                style: const TextStyle(
-                    color: AppColors.roxo,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600)),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(label,
+                  style: const TextStyle(
+                      color: AppColors.roxo,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600)),
+            ),
           ],
         ),
+      ),
       ),
     );
   }

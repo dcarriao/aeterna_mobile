@@ -946,10 +946,19 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
       ),
       child: Row(
         children: [
-          const CircleAvatar(
+          CircleAvatar(
             radius: 16,
-            backgroundColor: Color(0xFFF0EAF5),
-            child: Icon(Icons.person, size: 16, color: AppColors.roxo),
+            backgroundColor: const Color(0xFFF0EAF5),
+            backgroundImage:
+                f.fotoUrl != null ? NetworkImage(f.fotoUrl!) : null,
+            child: f.fotoUrl == null
+                ? Icon(
+                    (f.tipo == 'TUTOR' || f.tipo == 'PET_DE')
+                        ? Icons.pets
+                        : Icons.person,
+                    size: 16,
+                    color: AppColors.roxo)
+                : null,
           ),
           const SizedBox(width: 12),
           Expanded(

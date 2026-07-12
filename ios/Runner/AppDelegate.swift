@@ -54,6 +54,25 @@ import UserNotifications
     // O Flutter já chama esse canal em cold start e ao voltar ao foreground
     // (_verificarCompartilhamentoPendente em main.dart).
 
+    /// S.9.4c — registro reutilizável do canal (chamado pelo caminho da
+    /// engine implícita E pelo SceneDelegate — o que chegar primeiro).
+    func registerShareChannel(messenger: FlutterBinaryMessenger) {
+        NSLog("[IOS_SHARE] canal com.aeterna.app/share registrado (messenger)")
+        let channel = FlutterMethodChannel(
+            name: "com.aeterna.app/share",
+            binaryMessenger: messenger
+        )
+        channel.setMethodCallHandler { [weak self] call, result in
+            if call.method == "getSharedImage" {
+                let path = self?.consumePendingShare()
+                NSLog("[IOS_SHARE] getSharedImage -> %@", path ?? "nil (sem pendência)")
+                result(path)
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
+        }
+    }
+
     private func registerShareChannel(registry: FlutterPluginRegistry) {
         guard let registrar = registry.registrar(forPlugin: "AeternaSharePlugin") else {
             NSLog("[IOS_SHARE] registerShareChannel FALHOU: registrar nil")
@@ -78,7 +97,7 @@ import UserNotifications
     /// Consome o compartilhamento pendente mais antigo do App Group.
     /// Deleta o manifesto JSON e a imagem após leitura.
     /// Retorna o caminho do arquivo de imagem, ou nil se não houver pendências.
-    private func consumePendingShare() -> String? {
+    func consumePendingShare() -> String? {
         let fm = FileManager.default
         guard let container = fm.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupId

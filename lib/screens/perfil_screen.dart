@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/push_notification_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -121,6 +122,31 @@ class _PerfilScreenState extends State<PerfilScreen> {
       builder: (ctx) => SafeArea(
         child: Wrap(
           children: [
+            // S.9.4c — diagnóstico do push (toque para expandir)
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text('Diagnóstico de notificações',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF7A7280))),
+              children: [
+                if (PushNotificationService.diagnostico.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Text('Sem registros ainda.',
+                        style: TextStyle(fontSize: 12)),
+                  )
+                else
+                  ...PushNotificationService.diagnostico.map((l) => Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(l,
+                              style: const TextStyle(
+                                  fontSize: 11, fontFamily: 'monospace')),
+                        ),
+                      )),
+              ],
+            ),
             ListTile(
               leading: const Icon(Icons.photo_camera_outlined, color: AppColors.roxo),
               title: const Text('Tirar foto', style: TextStyle(fontWeight: FontWeight.w600)),

@@ -116,7 +116,11 @@ class OutraPessoaNaFamilia {
     this.observacoes,
     this.dataInicio,
     this.dataFim,
+    this.fotoUrl,
   });
+
+  /// S.9.4c — foto da outra pessoa (para os cards do perfil).
+  final String? fotoUrl;
 
   final int relacionamentoId;
   final int outraPessoaId;

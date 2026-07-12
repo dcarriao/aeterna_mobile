@@ -59,8 +59,15 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
       final idsRelacionados = {
         for (final r in rels) r['pessoa_b_id'] as int,
       };
+      // S.9.4c — pet falecido com memorial vive no memorial (regra igual
+      // à da lista Pets).
+      final comMemorial =
+          await PessoaRepository.listarPessoasComMemorial();
       final meusPets = pessoas
-          .where((p) => p.isPet && idsRelacionados.contains(p.id))
+          .where((p) =>
+              p.isPet &&
+              idsRelacionados.contains(p.id) &&
+              !(p.falecido && comMemorial.contains(p.id)))
           .toList()
         ..sort((a, b) => a.nome.compareTo(b.nome));
       if (mounted) {

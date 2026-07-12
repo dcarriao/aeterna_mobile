@@ -34,6 +34,15 @@ class PushNotificationService {
   static final instance = PushNotificationService._();
 
   bool _inicializado = false;
+
+  /// S.9.4c — trilha de diagnóstico visível na tela Perfil (iPhone sem
+  /// Mac não tem Console; isto substitui).
+  static final List<String> diagnostico = [];
+  static void _diag(String m) {
+    diagnostico.add('${DateTime.now().toIso8601String().substring(11, 19)} $m');
+    if (diagnostico.length > 30) diagnostico.removeAt(0);
+    print('[PUSH_IOS] $m');
+  }
   String? _currentToken;
   PushNavigationCallback? _navigationCallback;
   final _localNotifications = FlutterLocalNotificationsPlugin();
@@ -72,7 +81,7 @@ class PushNotificationService {
         sound: true,
       );
       print('[PUSH_TOKEN] Permissão: ${settings.authorizationStatus}');
-      print('[PUSH_IOS] permission=${settings.authorizationStatus}');
+      _diag('permission=${settings.authorizationStatus}');
 
       // Inicializa flutter_local_notifications (necessário para foreground Android
       // e para roteamento ao tocar em notificação recebida em foreground)
@@ -90,9 +99,9 @@ class PushNotificationService {
             await Future.delayed(const Duration(seconds: 1));
             apns = await messaging.getAPNSToken();
           }
-          print('[PUSH_IOS] apns_token=${apns == null ? 'NULL (registro APNs falhou?)' : '...${apns.substring(apns.length > 8 ? apns.length - 8 : 0)}'}');
+          _diag('apns_token(init)=${apns == null ? 'NULL' : 'ok'}');
         } catch (e) {
-          print('[PUSH_IOS] apns_token=erro: $e');
+          _diag('apns_token(init) erro: $e');
         }
       }
 
@@ -100,10 +109,10 @@ class PushNotificationService {
       _currentToken = await messaging.getToken();
       if (_currentToken != null) {
         print('[PUSH_TOKEN] Token FCM obtido: ...${_currentToken!.substring(_currentToken!.length - 8)}');
-        print('[PUSH_IOS] fcm_token=...${_currentToken!.substring(_currentToken!.length - 8)}');
+        _diag('fcm_token=...${_currentToken!.substring(_currentToken!.length - 8)}');
         await _salvarTokenSeLogado();
       } else {
-        print('[PUSH_IOS] fcm_token=NULL');
+        _diag('fcm_token(init)=NULL');
       }
 
       // Escuta renovação de token
@@ -191,7 +200,7 @@ class PushNotificationService {
               await Future.delayed(const Duration(seconds: 1));
               apns = await FirebaseMessaging.instance.getAPNSToken();
             }
-            print('[PUSH_IOS] apns_token(tentativa $tentativa)=${apns == null ? 'NULL' : 'ok'}');
+            _diag('apns(tent $tentativa)=${apns == null ? 'NULL' : 'ok'}');
             if (apns == null) {
               // APNs ainda não registrou; aguarda e tenta de novo
               await Future.delayed(Duration(seconds: 2 * tentativa));
@@ -200,7 +209,7 @@ class PushNotificationService {
           }
           _currentToken = await FirebaseMessaging.instance.getToken();
         } catch (e) {
-          print('[PUSH_IOS] getToken tentativa $tentativa falhou: $e');
+          _diag('getToken tent $tentativa: $e');
           await Future.delayed(Duration(seconds: 2 * tentativa));
         }
       }
@@ -208,7 +217,7 @@ class PushNotificationService {
     if (_currentToken != null) {
       await _salvarToken(_currentToken!);
     } else {
-      print('[PUSH_IOS] persistido=false erro=token indisponível após retries');
+      _diag('persistido=false (sem token após retries)');
     }
   }
 
@@ -263,11 +272,10 @@ class PushNotificationService {
         },
       );
       print('[PUSH_TOKEN] Token salvo/atualizado para pessoa_id=$pessoaId plataforma=$plataforma');
-      print('[PUSH_IOS] pessoa_id=$pessoaId');
-      print('[PUSH_IOS] persistido=true');
+      _diag('persistido=true pessoa=$pessoaId');
     } catch (e) {
       print('[PUSH_TOKEN] Erro ao salvar token: $e');
-      print('[PUSH_IOS] persistido=false erro=$e');
+      _diag('persistido=false erro=$e');
     }
   }
 
