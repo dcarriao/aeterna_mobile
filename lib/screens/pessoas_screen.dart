@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/pessoa.dart';
 import '../models/pessoa_linha_tempo.dart';
+import '../models/pessoa_relacionamento.dart';
 import '../services/pessoa_relacionamento_service.dart';
 import '../services/pessoa_timeline_service.dart';
 import '../theme/app_theme.dart';
