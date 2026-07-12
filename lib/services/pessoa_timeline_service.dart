@@ -138,22 +138,19 @@ class PessoaTimelineService {
       return const PessoaEstatisticas(totalMemorias: 0, totalFotos: 0,
           totalVideos: 0, totalContribuicoes: 0);
     }
+    // S.9.4c — cada contagem isolada em seu próprio try/catch: se UMA
+    // consulta falhar (coluna ausente numa tabela, RLS, etc.) as demais
+    // continuam somando, em vez de zerar todo o patrimônio (bug Alice).
+    final db = PessoaRepository.supabaseClient;
+
+    int totalMemorias = 0;
+    DateTime? primeira, ultima;
     try {
-      final db = PessoaRepository.supabaseClient;
       final mems = await db
           .from('memorias')
           .select('id, data_evento, data_criacao')
           .eq('usuario_id', pessoaId);
-      final fotos = await db
-          .from('fotos').select('id').eq('usuario_id', pessoaId);
-      final videos = await db
-          .from('videos').select('id').eq('usuario_id', pessoaId);
-      final contribs = await db
-          .from('contribuicoes')
-          .select('id')
-          .eq('usuario_id', pessoaId)
-          .eq('status', 'aprovado');
-      DateTime? primeira, ultima;
+      totalMemorias = mems.length;
       for (final m in mems) {
         final d = DateTime.tryParse(
             '${m['data_evento'] ?? m['data_criacao'] ?? ''}');
@@ -161,19 +158,48 @@ class PessoaTimelineService {
         if (primeira == null || d.isBefore(primeira)) primeira = d;
         if (ultima == null || d.isAfter(ultima)) ultima = d;
       }
-      return PessoaEstatisticas(
-        totalMemorias: mems.length,
-        totalFotos: fotos.length,
-        totalVideos: videos.length,
-        totalContribuicoes: contribs.length,
-        primeiraData: primeira,
-        ultimaData: ultima,
-      );
     } catch (e) {
-      print('[PessoaTimeline] estatisticasPublicadas ERRO: $e');
-      return const PessoaEstatisticas(totalMemorias: 0, totalFotos: 0,
-          totalVideos: 0, totalContribuicoes: 0);
+      print('[PessoaTimeline] estatisticasPublicadas memorias ERRO: $e');
     }
+
+    int totalFotos = 0;
+    try {
+      final fotos = await db
+          .from('fotos').select('id').eq('usuario_id', pessoaId);
+      totalFotos = fotos.length;
+    } catch (e) {
+      print('[PessoaTimeline] estatisticasPublicadas fotos ERRO: $e');
+    }
+
+    int totalVideos = 0;
+    try {
+      final videos = await db
+          .from('videos').select('id').eq('usuario_id', pessoaId);
+      totalVideos = videos.length;
+    } catch (e) {
+      print('[PessoaTimeline] estatisticasPublicadas videos ERRO: $e');
+    }
+
+    int totalContribuicoes = 0;
+    try {
+      final contribs = await db
+          .from('contribuicoes')
+          .select('id')
+          .eq('usuario_id', pessoaId)
+          .eq('status', 'aprovado');
+      totalContribuicoes = contribs.length;
+    } catch (e) {
+      print('[PessoaTimeline] estatisticasPublicadas contribuicoes ERRO: $e');
+    }
+
+    return PessoaEstatisticas(
+      totalMemorias: totalMemorias,
+      totalFotos: totalFotos,
+      totalVideos: totalVideos,
+      totalContribuicoes: totalContribuicoes,
+      primeiraData: primeira,
+      ultimaData: ultima,
+    );
   }
 
   /// S.9.4b — linha do tempo do humano: memórias que ELE publicou

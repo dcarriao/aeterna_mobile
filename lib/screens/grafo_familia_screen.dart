@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/pessoa.dart';
+import '../models/memorial.dart';
 import '../services/pessoa_relacionamento_service.dart';
 import '../theme/app_theme.dart';
 import '../services/supabase_service.dart';
@@ -33,6 +34,11 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   /// S.9.4d — pessoa_id → memorial_id (fita preta no mapa; toque abre
   /// o memorial).
   Map<int, int> _memorialPorPessoa = const {};
+
+  /// S.9.4c — memoriais que têm parentesco mas cuja pessoa NÃO está na
+  /// árvore de relacionamentos (ex.: Douglas, "Irmão"). Entram no mapa
+  /// automaticamente, posicionados pela geração do parentesco.
+  List<Memorial> _memoriaisOrfaos = const [];
   bool _carregando = true;
   String? _erro;
 
@@ -54,9 +60,13 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
       final resultados = await Future.wait<dynamic>([
         PessoaRepository.listar(),
         PessoaRelacionamentoService.instance.carregarGrafo(),
+        SupabaseService.instance.listarMemoriais(),
+        SupabaseService.instance.listarMemorialIdsDePets(),
       ]);
       final pessoas = resultados[0] as List<Pessoa>;
       final grafo = resultados[1] as List<Map<String, dynamic>>;
+      final memoriais = resultados[2] as List<Memorial>;
+      final petMemorialIds = resultados[3] as Set<int>;
       // S.9.3.2 — Meus Pets: pets relacionados ao usuário logado
       // (tutoria; um pet com dois tutores aparece uma vez em cada mapa,
       // sem duplicar o registro em pessoas).
@@ -76,12 +86,35 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
               !(p.falecido && comMemorial.contains(p.id)))
           .toList()
         ..sort((a, b) => a.nome.compareTo(b.nome));
+
+      // S.9.4c — memoriais órfãos: têm parentesco mas a pessoa não está
+      // na árvore. Removemos os que já aparecem na árvore (por memorial_id
+      // ou por nome) e os de pets, para não duplicar.
+      final idsNaArvore = grafo
+          .map<int>((r) => (r['pessoa_b_id'] as num).toInt())
+          .toSet();
+      final memoriaisNaArvore = <int>{
+        for (final bId in idsNaArvore)
+          if (memorialPorPessoa[bId] != null) memorialPorPessoa[bId]!,
+      };
+      final nomesNaArvore = grafo
+          .map((r) => ((r['nome'] as String?) ?? '').toLowerCase().trim())
+          .toSet();
+      final orfaos = memoriais
+          .where((m) =>
+              m.id != null &&
+              !petMemorialIds.contains(m.id) &&
+              !memoriaisNaArvore.contains(m.id) &&
+              !nomesNaArvore.contains(m.nome.toLowerCase().trim()))
+          .toList();
+
       if (mounted) {
         setState(() {
           _pessoas = pessoas;
           _grafo = grafo;
           _meusPets = meusPets;
           _memorialPorPessoa = memorialPorPessoa;
+          _memoriaisOrfaos = orfaos;
           _carregando = false;
         });
       }
@@ -116,7 +149,7 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
                 ? const Center(child: CircularProgressIndicator(color: AppColors.roxo))
                 : _erro != null
                     ? _buildErro()
-                    : _grafo.isEmpty
+                    : (_grafo.isEmpty && _memoriaisOrfaos.isEmpty)
                         ? _vazio()
                         : RefreshIndicator(
                             onRefresh: _carregar,
@@ -310,7 +343,16 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
       final nivel = (r['nivel'] as num?)?.toInt() ?? 99;
       porNivel.putIfAbsent(nivel, () => []).add(r);
     }
-    final niveisOrdenados = porNivel.keys.toList()..sort();
+
+    // S.9.4c — memoriais órfãos agrupados pela geração do parentesco.
+    final orfaosPorNivel = <int, List<Memorial>>{};
+    for (final m in _memoriaisOrfaos) {
+      final nivel = _nivelPorParentesco(m.parentesco);
+      orfaosPorNivel.putIfAbsent(nivel, () => []).add(m);
+    }
+
+    final niveisOrdenados =
+        <int>{...porNivel.keys, ...orfaosPorNivel.keys}.toList()..sort();
     final widgets = <Widget>[];
 
     final pessoasPorId = {for (final p in _pessoas) p.id: p};
@@ -329,16 +371,126 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
           ),
         ),
       ));
-      for (final r in porNivel[nivel]!) {
+      for (final r in porNivel[nivel] ?? const []) {
         final bId = (r['pessoa_b_id'] as num).toInt();
         final nome = r['nome'] as String? ?? 'Pessoa #$bId';
         final rotulo = r['relacao_b_para_a'] as String? ?? '';
         final pessoa = pessoasPorId[bId];
         widgets.add(_buildCardPessoa(bId, nome, rotulo, pessoa));
       }
+      for (final m in orfaosPorNivel[nivel] ?? const []) {
+        widgets.add(_buildCardMemorialOrfao(m));
+      }
     }
 
     return widgets;
+  }
+
+  /// S.9.4c — classifica o parentesco (texto livre) na geração do mapa.
+  /// Casos não reconhecidos caem em "Outros vínculos" (99), garantindo
+  /// que o memorial NUNCA some do mapa.
+  int _nivelPorParentesco(String parentesco) {
+    final p = parentesco.toLowerCase().trim();
+    if (p.contains('bisav')) return 1;
+    if (p.contains('bisneto') || p.contains('bisneta')) return 6;
+    if (p.contains('av')) return 2; // avô / avó / avos
+    if (p.contains('pai') ||
+        p.contains('mãe') ||
+        p.contains('mae') ||
+        p.contains('padrast') ||
+        p.contains('madrast') ||
+        p.contains('sogr')) return 3;
+    if (p.contains('irm') ||
+        p.contains('espos') ||
+        p.contains('marido') ||
+        p.contains('mulher') ||
+        p.contains('cônjuge') ||
+        p.contains('conjuge') ||
+        p.contains('compan') ||
+        p.contains('prim') ||
+        p.contains('cunhad')) return 4;
+    if (p.contains('filh') ||
+        p.contains('entead') ||
+        p.contains('genro') ||
+        p.contains('nora') ||
+        p.contains('sobrinh')) return 5;
+    if (p.contains('neto') || p.contains('neta')) return 6;
+    return 99;
+  }
+
+  /// S.9.4c — card de um memorial órfão no mapa: fita preta, rótulo do
+  /// parentesco e toque abre o memorial diretamente.
+  Widget _buildCardMemorialOrfao(Memorial m) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => MemorialDetalheScreen(memorial: m),
+            ),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.borda),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: Colors.black87,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: const Color(0xFFF0EAF5),
+                  backgroundImage:
+                      m.fotoUrl != null ? NetworkImage(m.fotoUrl!) : null,
+                  child: m.fotoUrl == null
+                      ? const Icon(Icons.person, size: 16, color: AppColors.roxo)
+                      : null,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        m.nome,
+                        style: const TextStyle(
+                          color: AppColors.roxo,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (m.parentesco.trim().isNotEmpty)
+                        Text(
+                          m.parentesco,
+                          style: const TextStyle(
+                            color: Color(0xFF7A7280),
+                            fontSize: 11,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right,
+                    color: Color(0xFF9B949D), size: 18),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   String _rotuloNivel(int nivel) {

@@ -43,6 +43,11 @@ class PushNotificationService {
     if (diagnostico.length > 30) diagnostico.removeAt(0);
     print('[PUSH_IOS] $m');
   }
+
+  /// S.9.4c — sink público de diagnóstico. Permite que outros serviços
+  /// (ex.: falha da consulta de vídeos em lote) registrem no MESMO painel
+  /// visível do Perfil, sem expor _diag.
+  static void registrarDiagnostico(String m) => _diag(m);
   String? _currentToken;
   PushNavigationCallback? _navigationCallback;
   final _localNotifications = FlutterLocalNotificationsPlugin();

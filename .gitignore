@@ -55,3 +55,11 @@ openia.txt
 # Prompt files
 novoprompt.txt
 promptfinal1706.txt
+
+# Context/handoff files (NUNCA versionar — repo é público)
+CLAUDE.md
+AGENTS.md
+analyze.txt
+**/analyze.txt
+
+_to_delete/

@@ -393,8 +393,14 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                         _buildSecaoLinhaDoTempo(),
 
                         // ── MEMÓRIAS VINCULADAS (lista auxiliar) ──
-                        const SizedBox(height: 28),
-                        _buildSecaoMemorias(),
+                        // S.9.4c — só para PETS. Para humanos, o perfil já
+                        // mostra o que a pessoa PUBLICOU (patrimônio + linha
+                        // do tempo); "aparições" em memórias de terceiros não
+                        // pertencem ao humano e confundiam o "N memórias".
+                        if ((_pessoa ?? widget.pessoa).isPet) ...[
+                          const SizedBox(height: 28),
+                          _buildSecaoMemorias(),
+                        ],
 
                         const SizedBox(height: 32),
                       ],

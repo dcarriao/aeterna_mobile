@@ -5,6 +5,7 @@ import 'package:supabase/supabase.dart';
 import '../models/memoria.dart';
 import '../models/memorial.dart';
 import '../models/contribuicao.dart';
+import 'push_notification_service.dart';
 
 class SupabaseService {
   SupabaseService._();
@@ -123,8 +124,14 @@ class SupabaseService {
           }
         }
       }
+      // S.9.4c — visibilidade: por que o bloco de vídeo não aparece no card
+      // da home. Registra no painel de diagnóstico do Perfil.
+      PushNotificationService.registrarDiagnostico(
+          'videos lote: ${vidVinculos.length} vinculo(s), '
+          '${videoPorMemoria.length} card(s) com vídeo');
     } catch (e) {
       print('[SupabaseService] videos em lote ERRO: $e');
+      PushNotificationService.registrarDiagnostico('videos lote ERRO: $e');
     }
 
     return memoriaRows.map<Memoria>((row) {

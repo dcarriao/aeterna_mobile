@@ -122,31 +122,6 @@ class _PerfilScreenState extends State<PerfilScreen> {
       builder: (ctx) => SafeArea(
         child: Wrap(
           children: [
-            // S.9.4c — diagnóstico do push (toque para expandir)
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: const Text('Diagnóstico de notificações',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF7A7280))),
-              children: [
-                if (PushNotificationService.diagnostico.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Text('Sem registros ainda.',
-                        style: TextStyle(fontSize: 12)),
-                  )
-                else
-                  ...PushNotificationService.diagnostico.map((l) => Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(l,
-                              style: const TextStyle(
-                                  fontSize: 11, fontFamily: 'monospace')),
-                        ),
-                      )),
-              ],
-            ),
             ListTile(
               leading: const Icon(Icons.photo_camera_outlined, color: AppColors.roxo),
               title: const Text('Tirar foto', style: TextStyle(fontWeight: FontWeight.w600)),
@@ -465,6 +440,45 @@ class _PerfilScreenState extends State<PerfilScreen> {
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Notificações no celular', style: TextStyle(color: AppColors.roxo, fontSize: 14, fontWeight: FontWeight.w600)),
                       secondary: const Icon(Icons.notifications_none_outlined, color: AppColors.dourado, size: 20),
+                    ),
+                    // S.9.4c — painel de diagnóstico de notificações (visível).
+                    // Antes ficava escondido no menu da foto de perfil; movido
+                    // para cá para que o registro de push possa ser inspecionado.
+                    ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.bug_report_outlined,
+                          color: AppColors.dourado, size: 20),
+                      title: const Text('Diagnóstico de notificações',
+                          style: TextStyle(
+                              color: AppColors.roxo,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600)),
+                      children: [
+                        if (PushNotificationService.diagnostico.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 8),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text('Sem registros ainda.',
+                                  style: TextStyle(fontSize: 12)),
+                            ),
+                          )
+                        else
+                          ...PushNotificationService.diagnostico.map((l) =>
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(l,
+                                      style: const TextStyle(
+                                          fontSize: 11,
+                                          fontFamily: 'monospace')),
+                                ),
+                              )),
+                      ],
                     ),
                     const ListTile(
                       contentPadding: EdgeInsets.zero,

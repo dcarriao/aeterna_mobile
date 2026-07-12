@@ -1,10 +1,9 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../models/pessoa.dart';
 import '../models/tipo_relacionamento.dart';
@@ -460,9 +459,10 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
       if (!mounted) return;
       setState(() => _salvando = false);
 
-      if (pessoa.email != null && pessoa.email!.isNotEmpty) {
-        await _oferecerConvite(pessoa.nome, pessoa.email!);
-      }
+      // S.9.4c — o convite agora é feito EXCLUSIVAMENTE pelo checkbox
+      // "Convidar para a aEterna?" (_processarConvite acima, via WhatsApp/
+      // e-mail). O diálogo antigo "Edite o texto..." foi removido — ele
+      // disparava um segundo pop-up sempre que havia e-mail.
 
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -474,118 +474,6 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         );
       }
     }
-  }
-
-  String _mensagemPadraoConvite(String nome, String email) {
-    return 'Oi${nome.isNotEmpty ? ', $nome' : ''}! Estou usando o app aEterna para guardar '
-        'as memórias da nossa família e quero muito que você faça parte também.\n\n'
-        '1. Baixe o app aEterna:\n'
-        '[cole aqui o link de instalação — Play Store / App Store / APK]\n\n'
-        '2. Crie sua conta usando este e-mail: $email\n\n'
-        '3. Abra o app, toque em "Convites" e aceite meu convite para vermos '
-        'as histórias um do outro.\n\n'
-        'Um abraço!';
-  }
-
-  /// Convite real (fora do fluxo de memorial): ao cadastrar/editar uma
-  /// pessoa com e-mail, oferece registrar o convite e compartilhar o texto
-  /// (com o link de instalação) por qualquer app instalado no celular
-  /// (WhatsApp, SMS, e-mail...), já que o app não envia e-mails sozinho.
-  Future<void> _oferecerConvite(String nome, String email) async {
-    final mensagemController = TextEditingController(
-      text: _mensagemPadraoConvite(nome, email),
-    );
-    bool enviando = false;
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            return AlertDialog(
-              backgroundColor: Colors.white,
-              title: const Text(
-                'Convidar para o aEterna?',
-                style: TextStyle(color: AppColors.roxo, fontWeight: FontWeight.bold),
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Edite o texto abaixo (inclua o link de instalação do app) e envie para $email.',
-                      style: const TextStyle(color: Color(0xFF625B67), fontSize: 13),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: mensagemController,
-                      maxLines: 8,
-                      style: const TextStyle(fontSize: 13),
-                      decoration: const InputDecoration(border: OutlineInputBorder()),
-                    ),
-                  ],
-                ),
-              ),
-              actionsAlignment: MainAxisAlignment.spaceBetween,
-              actions: [
-                TextButton(
-                  onPressed: enviando ? null : () => Navigator.of(ctx).pop(),
-                  child: const Text('Agora não', style: TextStyle(color: Color(0xFF9B949D))),
-                ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Copiar texto',
-                      onPressed: enviando
-                          ? null
-                          : () async {
-                              await Clipboard.setData(
-                                ClipboardData(text: mensagemController.text),
-                              );
-                              if (ctx.mounted) {
-                                ScaffoldMessenger.of(ctx).showSnackBar(
-                                  const SnackBar(content: Text('Texto copiado!')),
-                                );
-                              }
-                            },
-                      icon: const Icon(Icons.copy_outlined, size: 20, color: AppColors.roxo),
-                    ),
-                    FilledButton.icon(
-                      onPressed: enviando
-                          ? null
-                          : () async {
-                              setDialogState(() => enviando = true);
-                              try {
-                                await PessoaRepository.enviarConviteFamiliar(email: email);
-                              } catch (_) {
-                                // Pode já existir convite pendente para este
-                                // e-mail — segue o compartilhamento mesmo assim.
-                              }
-                              await Share.share(
-                                mensagemController.text,
-                                subject: 'Convite aEterna',
-                              );
-                              if (ctx.mounted) Navigator.of(ctx).pop();
-                            },
-                      style: FilledButton.styleFrom(backgroundColor: AppColors.roxo),
-                      icon: enviando
-                          ? const SizedBox.square(
-                              dimension: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Icon(Icons.share_outlined, size: 16),
-                      label: const Text('Compartilhar'),
-                    ),
-                  ],
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
   }
 
   @override
