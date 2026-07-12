@@ -177,15 +177,38 @@ class PushNotificationService {
   /// Salva o token para o usuário atualmente logado.
   /// Chamado após login, restore de sessão e token refresh.
   Future<void> salvarTokenParaUsuario() async {
+    // S.9.3.2 — CAUSA RAIZ do iPhone sem token: no iOS, getToken() LANÇA
+    // exceção enquanto o token APNs não estiver disponível (timing de
+    // segundos após o launch), e a versão anterior desistia em silêncio
+    // no primeiro erro — resultado: zero linhas ios em push_dispositivos.
+    // Agora: espera o APNs (iOS) e tenta getToken() com retries.
     if (_currentToken == null) {
-      try {
-        _currentToken = await FirebaseMessaging.instance.getToken();
-      } catch (_) {
-        return;
+      for (var tentativa = 1; tentativa <= 5 && _currentToken == null; tentativa++) {
+        try {
+          if (Platform.isIOS) {
+            String? apns = await FirebaseMessaging.instance.getAPNSToken();
+            for (var i = 0; apns == null && i < 5; i++) {
+              await Future.delayed(const Duration(seconds: 1));
+              apns = await FirebaseMessaging.instance.getAPNSToken();
+            }
+            print('[PUSH_IOS] apns_token(tentativa $tentativa)=${apns == null ? 'NULL' : 'ok'}');
+            if (apns == null) {
+              // APNs ainda não registrou; aguarda e tenta de novo
+              await Future.delayed(Duration(seconds: 2 * tentativa));
+              continue;
+            }
+          }
+          _currentToken = await FirebaseMessaging.instance.getToken();
+        } catch (e) {
+          print('[PUSH_IOS] getToken tentativa $tentativa falhou: $e');
+          await Future.delayed(Duration(seconds: 2 * tentativa));
+        }
       }
     }
     if (_currentToken != null) {
       await _salvarToken(_currentToken!);
+    } else {
+      print('[PUSH_IOS] persistido=false erro=token indisponível após retries');
     }
   }
 
