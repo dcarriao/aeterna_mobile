@@ -45,6 +45,11 @@ class _NovaPetScreenState extends State<NovaPetScreen> {
 
   String?   _especie;
   DateTime? _dataNascimento;
+
+  // S.9.3.2 — Tutores no cadastro: o usuário vem pré-marcado (visível,
+  // não automático-oculto) e outros humanos podem ser marcados.
+  List<Pessoa> _humanos = const [];
+  final Set<int> _tutoresSelecionados = {};
   bool      _falecido    = false;
   String?   _fotoBase64;
   Uint8List? _fotoBytes;
@@ -76,6 +81,27 @@ class _NovaPetScreenState extends State<NovaPetScreen> {
         }
       }
       _racaCtrl.text = p.raca ?? '';
+    }
+    if (!_editando) {
+      _tutoresSelecionados.add(PessoaRepository.usuarioId);
+      _carregarHumanos();
+    }
+  }
+
+  Future<void> _carregarHumanos() async {
+    final todas = await PessoaRepository.listar();
+    if (mounted) {
+      setState(() {
+        _humanos = todas
+            .where((x) => !x.isPet)
+            .toList()
+          ..sort((a, b) {
+            // usuário logado primeiro
+            if (a.id == PessoaRepository.usuarioId) return -1;
+            if (b.id == PessoaRepository.usuarioId) return 1;
+            return a.nome.compareTo(b.nome);
+          });
+      });
     }
   }
 
@@ -292,20 +318,22 @@ class _NovaPetScreenState extends State<NovaPetScreen> {
 
       final novoId = await PessoaRepository.salvar(pet, isUpdate: _editando);
 
-      // Novo pet: criar relação TUTOR automaticamente
+      // S.9.3.2 — cria o vínculo para CADA tutor marcado na interface
+      // (múltiplos tutores; mesmo pessoas.id do pet, sem duplicá-lo).
       if (!_editando && novoId != null) {
-        try {
-          // Convenção: tipo = papel de B (o pet é 'Pet de' do usuário)
-          await PessoaRelacionamentoService.instance.criar(
-            pessoaAId: PessoaRepository.usuarioId,
-            pessoaBId: novoId,
-            tipo:      'PET_DE',
-            relacaoA:  'Tutor',
-            relacaoB:  'Pet de',
-          );
-        } catch (e) {
-          // Se já existe relação (raro), não bloqueia
-          print('[NovaPetScreen] Erro ao criar relação TUTOR: $e');
+        for (final tutorId in _tutoresSelecionados) {
+          try {
+            await PessoaRelacionamentoService.instance.criar(
+              pessoaAId: tutorId,
+              pessoaBId: novoId,
+              tipo:      'PET_DE',   // convenção: tipo = papel de B
+              relacaoA:  'Tutor',
+              relacaoB:  'Pet de',
+            );
+          } catch (e) {
+            // Relação duplicada (criar() recusa) não bloqueia os demais
+            print('[NovaPetScreen] tutor $tutorId: $e');
+          }
         }
       }
 
@@ -515,6 +543,45 @@ class _NovaPetScreenState extends State<NovaPetScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 8),
+
+                  // S.9.3.2 — Tutores (somente no cadastro; no perfil do
+                  // pet gerencia-se por lá)
+                  if (!_editando && _humanos.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Tutores',
+                      style: TextStyle(
+                        color: AppColors.roxo,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ..._humanos.map((h) => CheckboxListTile(
+                          value: _tutoresSelecionados.contains(h.id),
+                          onChanged: (v) {
+                            setState(() {
+                              if (v == true) {
+                                _tutoresSelecionados.add(h.id);
+                              } else if (_tutoresSelecionados.length > 1) {
+                                // pelo menos um tutor
+                                _tutoresSelecionados.remove(h.id);
+                              }
+                            });
+                          },
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          title: Text(
+                            h.id == PessoaRepository.usuarioId
+                                ? '${h.nome} (você)'
+                                : h.nome,
+                            style: const TextStyle(
+                                color: AppColors.roxo, fontSize: 14),
+                          ),
+                        )),
+                  ],
                   const SizedBox(height: 8),
 
                   // Falecido

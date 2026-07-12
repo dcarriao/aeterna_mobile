@@ -23,6 +23,10 @@ class GrafoFamiliaScreen extends StatefulWidget {
 class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   List<Pessoa> _pessoas = const [];
   List<Map<String, dynamic>> _grafo = const [];
+
+  /// S.9.3.2 — pets dos quais o usuário logado é tutor (seção separada,
+  /// nunca nas gerações humanas).
+  List<Pessoa> _meusPets = const [];
   bool _carregando = true;
   String? _erro;
 
@@ -47,10 +51,23 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
       ]);
       final pessoas = resultados[0] as List<Pessoa>;
       final grafo = resultados[1] as List<Map<String, dynamic>>;
+      // S.9.3.2 — Meus Pets: pets relacionados ao usuário logado
+      // (tutoria; um pet com dois tutores aparece uma vez em cada mapa,
+      // sem duplicar o registro em pessoas).
+      final rels = await PessoaRelacionamentoService.instance
+          .listarContatos(pessoaId: PessoaRepository.usuarioId);
+      final idsRelacionados = {
+        for (final r in rels) r['pessoa_b_id'] as int,
+      };
+      final meusPets = pessoas
+          .where((p) => p.isPet && idsRelacionados.contains(p.id))
+          .toList()
+        ..sort((a, b) => a.nome.compareTo(b.nome));
       if (mounted) {
         setState(() {
           _pessoas = pessoas;
           _grafo = grafo;
+          _meusPets = meusPets;
           _carregando = false;
         });
       }
@@ -92,13 +109,106 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
                             child: ListView(
                               padding:
                                   const EdgeInsets.fromLTRB(20, 16, 20, 40),
-                              children: _buildTree(),
+                              children: [
+                                ..._buildTree(),
+                                ..._buildMeusPets(),
+                              ],
                             ),
                           ),
           ),
         ),
       ),
     );
+  }
+
+  /// S.9.3.2 — "Meu Pet"/"Meus Pets": abaixo da árvore, fora das gerações.
+  List<Widget> _buildMeusPets() {
+    if (_meusPets.isEmpty) return const [];
+    return [
+      const SizedBox(height: 28),
+      Row(
+        children: [
+          const Icon(Icons.pets, color: AppColors.dourado, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            _meusPets.length == 1 ? 'Meu Pet' : 'Meus Pets',
+            style: const TextStyle(
+              color: AppColors.roxo,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      ..._meusPets.map((pet) => Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            child: Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => PessoaDetalheScreen(
+                      pessoa: pet,
+                      onAbrirMemoria: (_) {},
+                      titulosMemorias: const {},
+                    ),
+                  ),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.borda),
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundColor: const Color(0xFFF0EAF5),
+                        backgroundImage: pet.fotoBytes != null
+                            ? MemoryImage(pet.fotoBytes!)
+                            : (pet.fotoUrl != null
+                                ? NetworkImage(pet.fotoUrl!) as ImageProvider
+                                : null),
+                        child: (pet.fotoBytes == null && pet.fotoUrl == null)
+                            ? const Icon(Icons.pets,
+                                size: 20, color: AppColors.dourado)
+                            : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              pet.nome,
+                              style: const TextStyle(
+                                color: AppColors.roxo,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (pet.especieRacaLabel != null)
+                              Text(
+                                pet.especieRacaLabel!,
+                                style: const TextStyle(
+                                  color: Color(0xFF7A7280),
+                                  fontSize: 12,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, color: Colors.grey.shade400),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          )),
+    ];
   }
 
   Widget _buildErro() {
