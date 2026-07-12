@@ -605,6 +605,25 @@ class PessoaRepository {
     }
   }
 
+  /// S.9.3.2 — ids de pessoas/pets que já possuem memorial vinculado.
+  /// Regra do Darlan: quem tem memorial SAI das listas Pessoas/Pets
+  /// (sem cortar vínculos nem excluir memórias — vive no memorial).
+  static Future<Set<int>> listarPessoasComMemorial() async {
+    if (!isConfigured) return {};
+    try {
+      final rows = await _supabase
+          .from('memorial_pessoas')
+          .select('pessoa_id');
+      return {
+        for (final r in rows)
+          if (r['pessoa_id'] != null) (r['pessoa_id'] as num).toInt(),
+      };
+    } catch (e) {
+      print('[PessoaRepo] listarPessoasComMemorial ERRO: $e');
+      return {};
+    }
+  }
+
   static Future<void> salvarUsuario(Map<String, dynamic> data) async {
     if (!isConfigured) return;
     try {
@@ -721,14 +740,21 @@ class PessoaRepository {
 
   // ── VÍNCULOS (Supabase conteudo_permissoes) ──
 
-  static Future<Map<int, List<int>>> listarVinculos() async {
+  // S.9.3.2 — PARTICIPAR ≠ COMPARTILHAR (regra do Darlan).
+  // A tabela conteudo_permissoes agora carrega `papel`:
+  //   'participante'  → a pessoa APARECE na memória (as duas perguntas
+  //                     da tela de memória existem porque são coisas
+  //                     distintas)
+  //   'compartilhado' → a pessoa apenas RECEBE ACESSO (e push)
+  // Requer a migration sprint_s9_3_2_papel_permissao.sql.
+  static Future<Map<int, List<int>>> _listarPermissoes(String papel) async {
     if (!isConfigured) return {};
-
     try {
       final rows = await _supabase
           .from('conteudo_permissoes')
           .select('conteudo_id, pessoa_id')
-          .eq('tipo_conteudo', 'memoria');
+          .eq('tipo_conteudo', 'memoria')
+          .eq('papel', papel);
       final map = <int, List<int>>{};
       for (final r in rows) {
         final memId = (r['conteudo_id'] as num).toInt();
@@ -741,21 +767,32 @@ class PessoaRepository {
     }
   }
 
-  static Future<void> salvarVinculo(int memoriaId, List<int> pessoaIds) async {
+  static Future<Map<int, List<int>>> listarVinculos() =>
+      _listarPermissoes('participante');
+
+  static Future<void> _salvarPermissoes(
+      int memoriaId, List<int> pessoaIds, String papel) async {
     if (!isConfigured) return;
+    // Apaga e regrava SOMENTE o próprio papel — o outro conjunto fica
+    // intacto (antes, salvar compartilhamento apagava os participantes).
     await _supabase
         .from('conteudo_permissoes')
         .delete()
         .eq('conteudo_id', memoriaId)
-        .eq('tipo_conteudo', 'memoria');
+        .eq('tipo_conteudo', 'memoria')
+        .eq('papel', papel);
     for (final pessoaId in pessoaIds) {
       await _supabase.from('conteudo_permissoes').insert({
         'tipo_conteudo': 'memoria',
         'conteudo_id': memoriaId,
         'pessoa_id': pessoaId,
+        'papel': papel,
       });
     }
   }
+
+  static Future<void> salvarVinculo(int memoriaId, List<int> pessoaIds) =>
+      _salvarPermissoes(memoriaId, pessoaIds, 'participante');
 
   static Future<List<int>> obterPessoasDaMemoria(int? memoriaId) async {
     if (memoriaId == null) return [];
@@ -763,19 +800,24 @@ class PessoaRepository {
     return vinculos[memoriaId] ?? [];
   }
 
-  // ── COMPARTILHAMENTO = VÍNCULOS (mesma tabela conteudo_permissoes) ──
+  // ── COMPARTILHAMENTO ≠ PARTICIPAÇÃO (papel separado na mesma tabela) ──
 
   static Future<Map<int, List<int>>> listarCompartilhamentos() =>
-      listarVinculos();
+      _listarPermissoes('compartilhado');
 
   static Future<void> salvarCompartilhamento(
     int memoriaId,
     List<int> familiaresIds,
   ) =>
-      salvarVinculo(memoriaId, familiaresIds);
+      _salvarPermissoes(memoriaId, familiaresIds, 'compartilhado');
 
-  static Future<List<int>> obterFamiliaresDaMemoria(int? memoriaId) =>
-      obterPessoasDaMemoria(memoriaId);
+  static Future<List<int>> obterFamiliaresDaMemoria(int? memoriaId) async {
+    // S.9.3.2 — compartilhados têm papel próprio; não confundir com
+    // participantes.
+    if (memoriaId == null) return [];
+    final comp = await listarCompartilhamentos();
+    return comp[memoriaId] ?? [];
+  }
 
   // ── MEMÓRIAS COMPARTILHADAS COM O USUÁRIO LOGADO (Bug 1) ──
   //

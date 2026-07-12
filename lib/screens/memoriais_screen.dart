@@ -15,6 +15,7 @@ class MemoriaisScreen extends StatefulWidget {
 class _MemoriaisScreenState extends State<MemoriaisScreen> {
   final _service = SupabaseService.instance;
   List<Memorial> _memoriais = [];
+  Set<int> _memorialIdsPets = {};
   List<Memorial> _memoriaisColaborativos = [];
   bool _carregando = false;
 
@@ -33,10 +34,12 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
       // S.9.3.1 (Item 9) — instrumentado para medir antes de otimizar.
       final lista = await _service.listarMemoriais();
       final colaborativos = await _service.listarMemoriaisColaborativos();
+      final idsPets = await _service.listarMemorialIdsDePets();
       if (mounted) {
         setState(() {
           _memoriais = lista;
           _memoriaisColaborativos = colaborativos;
+          _memorialIdsPets = idsPets;
         });
       }
       print('[PERF] tela=Memoriais pronta_em_ms=${sw.elapsedMilliseconds}');
@@ -128,7 +131,36 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
                                 ],
                               ),
                             ),
-                            ..._memoriais.map(_buildCardMemorial),
+                            // S.9.3.2 — humanos e pets separados.
+                            ..._memoriais
+                                .where((m) =>
+                                    m.id == null ||
+                                    !_memorialIdsPets.contains(m.id))
+                                .map(_buildCardMemorial),
+                            if (_memoriais.any((m) =>
+                                m.id != null &&
+                                _memorialIdsPets.contains(m.id))) ...[
+                              const Padding(
+                                padding: EdgeInsets.only(top: 8, bottom: 12),
+                                child: Row(children: [
+                                  Icon(Icons.pets,
+                                      color: AppColors.dourado, size: 18),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Memoriais de pets',
+                                    style: TextStyle(
+                                        color: AppColors.roxo,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w800),
+                                  ),
+                                ]),
+                              ),
+                              ..._memoriais
+                                  .where((m) =>
+                                      m.id != null &&
+                                      _memorialIdsPets.contains(m.id))
+                                  .map(_buildCardMemorial),
+                            ],
                             if (_memoriaisColaborativos.isNotEmpty) ...[
                               const Padding(
                                 padding: EdgeInsets.only(top: 8, bottom: 12),

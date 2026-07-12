@@ -528,7 +528,9 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     }
     // S.9.3.1 (Item 5) — memorial liberado para pets, reutilizando o mesmo
     // fluxo estável (NovoMemorialScreen + vínculo via pessoas.id).
+    // S.9.3.2 — memorial é para FALECIDOS: vivo não vê o botão.
     final pessoa = _pessoa ?? widget.pessoa;
+    if (!pessoa.falecido) return const SizedBox.shrink();
 
     return OutlinedButton.icon(
       onPressed: _criarMemorialParaPessoa,
@@ -719,7 +721,11 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
   }
 
   Future<void> _alterarRelacao(OutraPessoaNaFamilia f) async {
-    final tipos = await PessoaRelacionamentoService.instance.listarTipos();
+    // S.9.3.1 — alterar relação nunca oferece tipos de pet (o vínculo
+    // tutor/pet é fixo, criado pela área Pets).
+    final tipos = (await PessoaRelacionamentoService.instance.listarTipos())
+        .where((t) => t.id != 'TUTOR' && t.id != 'PET_DE' && t.categoria != 'pet')
+        .toList();
     if (!mounted || tipos.isEmpty) return;
 
     final selecionado = await showModalBottomSheet<String>(

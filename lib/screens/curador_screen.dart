@@ -109,6 +109,12 @@ class _CuradorScreenState extends State<CuradorScreen> {
   @override
   void initState() {
     super.initState();
+    // S.9.3.2 — CAUSA RAIZ do botão Responder desabilitado: o onPressed
+    // depende de _controller.text, mas nada reconstruía o widget ao
+    // digitar. Listener força rebuild e o botão habilita.
+    _controller.addListener(() {
+      if (mounted) setState(() {});
+    });
     _iniciouConversa = widget.pendingMemory == null && widget.detectedMoment == null;
 
     if (widget.sessaoParaRetomar != null) {

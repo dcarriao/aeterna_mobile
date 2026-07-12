@@ -14,9 +14,15 @@ class PessoaRelacionamentoService {
   /// ID da pessoa logada para metadado de criação.
   static int get _usuarioId => PessoaRepository.usuarioId;
 
+  /// S.9.3.1 (Item 9) — cache do catálogo de tipos. O catálogo é quase
+  /// estático e era buscado no servidor a CADA carga de perfil/relação.
+  /// Reinício do app renova; catálogo só muda em migration.
+  static List<TipoRelacionamento>? _tiposCache;
+
   /// Carrega o catálogo de tipos de relação (do servidor, com
   /// fallback client-side se a chamada falhar).
   Future<List<TipoRelacionamento>> listarTipos() async {
+    if (_tiposCache != null) return _tiposCache!;
     if (!PessoaRepository.isConfigured) {
       return TIPOS_RELACIONAMENTO_INICIAIS;
     }
@@ -27,10 +33,12 @@ class PessoaRelacionamentoService {
           .eq('ativo', true)
           .order('categoria')
           .order('id');
-      return rows
+      final lista = rows
           .cast<Map<String, dynamic>>()
           .map(TipoRelacionamento.fromMap)
           .toList();
+      if (lista.isNotEmpty) _tiposCache = lista;
+      return lista;
     } catch (e) {
       print('[PessoaRelacionamento] listarTipos ERRO: $e');
       return TIPOS_RELACIONAMENTO_INICIAIS;

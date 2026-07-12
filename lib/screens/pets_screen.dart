@@ -42,11 +42,19 @@ class _PetsScreenState extends State<PetsScreen> {
     print('[PERF] tela=Pets inicio=${DateTime.now().toIso8601String()}');
     setState(() => _carregando = true);
     try {
-      final todas = await PessoaRepository.listar();
+      final resultados = await Future.wait([
+        PessoaRepository.listar(),
+        PessoaRepository.listarPessoasComMemorial(),
+      ]);
+      final todas = resultados[0] as List<Pessoa>;
+      final comMemorial = resultados[1] as Set<int>;
       if (mounted) {
         setState(() {
           // Regra: a lista Pets exibe SOMENTE pessoas.tipo = 'pet'.
-          _pets      = todas.where((p) => p.isPet).toList();
+          // S.9.3.2 — pet com memorial vive no memorial, não na lista.
+          _pets = todas
+              .where((p) => p.isPet && !comMemorial.contains(p.id))
+              .toList();
           _carregando = false;
         });
       }

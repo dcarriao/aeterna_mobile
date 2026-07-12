@@ -68,9 +68,15 @@ class _AdicionarRelacionamentoScreenState
 
     if (mounted) {
       setState(() {
-        _tipos = tipos;
+        // S.9.3.1 (Item 1/4) — tipos Tutor/Pet nunca são opção entre
+        // humanos ("Andrey é Pet de Dionir" não pode existir).
+        _tipos = tipos.where((t) => t.id != 'TUTOR' && t.id != 'PET_DE' && t.categoria != 'pet').toList();
+        // S.9.3.1 (Item 1) — relação de família é entre HUMANOS.
+        // Pets nunca aparecem neste seletor (o vínculo tutor/pet é
+        // criado pela área Pets). listarContatos() retorna 'tipo'.
         _pessoas = pessoasLogado
             .where((m) =>
+                (m['tipo'] as String?) != 'pet' &&
                 !idsJaRelacionados.contains(m['pessoa_b_id'] as int))
             .toList();
         _aplicarFiltro();

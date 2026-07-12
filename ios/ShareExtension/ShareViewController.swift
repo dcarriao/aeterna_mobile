@@ -21,6 +21,7 @@ private func iosShareLog(_ msg: String) {
 class ShareViewController: UIViewController {
 
     private var completou = false
+    private var salvou = false
     private let appGroupId = "group.com.aeterna.app"
 
     override func viewDidLoad() {
@@ -42,7 +43,6 @@ class ShareViewController: UIViewController {
         iosShareLog("attachments=\(totalAttachments)")
 
         let group = DispatchGroup()
-        var savedOne = false
 
         for item in items {
             guard let attachments = item.attachments else { continue }
@@ -65,7 +65,7 @@ class ShareViewController: UIViewController {
                 attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] data, error in
                     defer { group.leave() }
                     if let error { iosShareLog("loadItem erro=\(error.localizedDescription)") }
-                    guard let self, !savedOne else { return }
+                    guard let self, !self.salvou else { return }
 
                     let shareId = UUID().uuidString
                     var filePath: String?
@@ -82,7 +82,7 @@ class ShareViewController: UIViewController {
 
                     if let path = filePath {
                         self.writeManifest(shareId: shareId, filePath: path)
-                        savedOne = true
+                        self.salvou = true
                     }
                 }
             }
@@ -151,9 +151,52 @@ class ShareViewController: UIViewController {
     }
 
     private func completeRequest() {
-        iosShareLog("completion=completeRequest chamado")
+        iosShareLog("completion=completeRequest chamado salvou=\(salvou)")
+        // S.9.3.2 (Item 8) — feedback visual: antes, a extensão fechava em
+        // silêncio e parecia quebrada. Mostra confirmação por 1,4s quando o
+        // conteúdo foi salvo no App Group.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.salvou {
+                self.mostrarConfirmacao()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                    self.finalizar()
+                }
+            } else {
+                self.finalizar()
+            }
+        }
+    }
+
+    private func finalizar() {
         extensionContext?.completeRequest(returningItems: [], completionHandler: { expired in
             iosShareLog("completion=finalizado expired=\(expired)")
         })
+    }
+
+    private func mostrarConfirmacao() {
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.25)
+        let card = UIView()
+        card.backgroundColor = UIColor(red: 0.29, green: 0.18, blue: 0.42, alpha: 0.96)
+        card.layer.cornerRadius = 14
+        card.translatesAutoresizingMaskIntoConstraints = false
+        let label = UILabel()
+        label.text = "✓ Enviado para o aEterna\nAbra o app para criar a memória"
+        label.textColor = .white
+        label.numberOfLines = 2
+        label.textAlignment = .center
+        label.font = .systemFont(ofSize: 15, weight: .semibold)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(label)
+        view.addSubview(card)
+        NSLayoutConstraint.activate([
+            card.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            card.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            card.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, constant: -48),
+            label.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            label.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+            label.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 20),
+            label.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -20),
+        ])
     }
 }

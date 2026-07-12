@@ -73,7 +73,9 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
       };
       if (mounted) {
         setState(() {
-          _pessoasDisponiveis = lista;
+          // S.9.3.2 — no fluxo avulso, vincular só humanos; memorial de
+          // pet é criado a partir do perfil do pet.
+          _pessoasDisponiveis = lista.where((x) => !x.isPet).toList();
           _parentescoPorPessoaId = parentescoMap;
           _carregandoPessoas = false;
         });
@@ -232,7 +234,10 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
                         const SizedBox(height: 24),
 
                         // Link com Pessoa do App
-                        if (_pessoasDisponiveis.isNotEmpty) ...[
+                        // S.9.3.2 — se veio do perfil (pessoa ou pet), o
+                        // vínculo é fixo com quem originou: não pergunta.
+                        if (widget.pessoaParaVincular == null &&
+                            _pessoasDisponiveis.isNotEmpty) ...[
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             decoration: BoxDecoration(

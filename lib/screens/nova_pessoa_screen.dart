@@ -64,7 +64,10 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         .then((tipos) {
       if (mounted) {
         setState(() {
-          _tipos = tipos.isNotEmpty ? tipos : TIPOS_RELACIONAMENTO_INICIAIS;
+          // S.9.3.1 — sem tipos de pet no cadastro de pessoa humana.
+          _tipos = (tipos.isNotEmpty ? tipos : TIPOS_RELACIONAMENTO_INICIAIS)
+              .where((t) => t.id != 'TUTOR' && t.id != 'PET_DE' && t.categoria != 'pet')
+              .toList();
         });
       }
     });

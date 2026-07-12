@@ -324,6 +324,28 @@ class SupabaseService {
     }
   }
 
+  /// S.9.3.2 — ids de memoriais vinculados a pets (para separar a lista).
+  Future<Set<int>> listarMemorialIdsDePets() async {
+    if (!isConfigured) return {};
+    try {
+      final pets =
+          await _client.from('pessoas').select('id').eq('tipo', 'pet');
+      final petIds = [for (final r in pets) (r['id'] as num).toInt()];
+      if (petIds.isEmpty) return {};
+      final rows = await _client
+          .from('memorial_pessoas')
+          .select('memorial_id')
+          .inFilter('pessoa_id', petIds);
+      return {
+        for (final r in rows)
+          if (r['memorial_id'] != null) (r['memorial_id'] as num).toInt(),
+      };
+    } catch (e) {
+      print('Erro ao listar memoriais de pets: $e');
+      return {};
+    }
+  }
+
   Future<Memorial> salvarMemorial(Memorial memorial) async {
     if (!isConfigured) return memorial;
     final agora = DateTime.now();

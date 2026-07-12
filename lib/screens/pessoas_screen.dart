@@ -82,10 +82,12 @@ class _PessoasScreenState extends State<PessoasScreen> {
         PessoaRepository.listarVinculos(),
         PessoaRelacionamentoService.instance
             .listarRelacionamentos(PessoaRepository.usuarioId),
+        PessoaRepository.listarPessoasComMemorial(),
       ]);
       final pessoas = resultados[0] as List<Pessoa>;
       final vinculos = resultados[1] as Map<int, List<int>>;
       final rels = resultados[2] as List<OutraPessoaNaFamilia>;
+      final comMemorial = resultados[3] as Set<int>;
       final parentescoMap = <int, String>{};
       for (final r in rels) {
         parentescoMap[r.outraPessoaId] = r.rotuloDaOutraParaMim;
@@ -95,8 +97,12 @@ class _PessoasScreenState extends State<PessoasScreen> {
       if (mounted) {
         setState(() {
           // S.9.3: exclui o próprio usuário E pets (pets têm seção própria)
+          // S.9.3.2 — quem tem memorial vive no memorial, não na lista.
           _pessoas = pessoas
-              .where((p) => p.id != PessoaRepository.usuarioId && !p.isPet)
+              .where((p) =>
+                  p.id != PessoaRepository.usuarioId &&
+                  !p.isPet &&
+                  !comMemorial.contains(p.id))
               .toList();
           _vinculos = vinculos;
           _parentescoMap = parentescoMap;
