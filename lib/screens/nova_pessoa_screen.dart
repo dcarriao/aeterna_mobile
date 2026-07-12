@@ -698,8 +698,8 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
                       labelText: 'E-mail',
                       hintText: 'exemplo@email.com',
                       prefixIcon: Icon(Icons.email_outlined),
-                    onChanged: (_) => setState(() {}),
                     ),
+                    onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
