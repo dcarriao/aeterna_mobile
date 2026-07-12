@@ -494,25 +494,25 @@ class _AdicionarRelacionamentoScreenState
       // S.9.3.1 (Item 6) — CAUSA RAIZ das relações invertidas no perfil:
       // a pergunta da tela é "Quem {OUTRA} é para {ORIGEM}?", ou seja, o
       // tipo escolhido (ex: 'PAI', rotuloA='Pai') descreve o papel da
-      // OUTRA pessoa. A versão anterior chamava
-      //   criar(pessoaA: origem, pessoaB: outra, relacaoA: rotuloA, ...)
-      // gravando o papel da OUTRA como se fosse da ORIGEM
-      // (relacao_a_para_b = 'Pai' na linha origem→outra) — invertido.
+      // OUTRA pessoa (a pessoa_b da linha). A versão anterior gravava
+      // relacaoA = rotuloA, colocando o papel da OUTRA como se fosse da
+      // ORIGEM (relacao_a_para_b = 'Pai' na linha origem→outra).
       //
-      // Correção mínima: quem tem o papel escolhido (rotuloA) é a OUTRA
-      // pessoa, então ela entra como pessoa_a da linha direta. criar()
-      // continua inserindo as duas linhas (direta + inversa) e o
-      // ScreenOrigem continua vendo a relação normalmente.
-      // Convenção auditada da base (criar()/s93_pets.sql/_inverseTipo):
-      //   tipo               = papel de pessoa_a
-      //   relacao_a_para_b   = o que A é para B (rotuloA do tipo)
-      //   relacao_b_para_a   = o que B é para A (rotuloB do tipo)
+      // CONVENÇÃO OFICIAL DO PROJETO (confirmada pelo Mapa da Família,
+      // que posiciona B na geração pelo nivel do tipo, e pelos dados):
+      //   tipo             = papel de B em relação a A (relação de B para A)
+      //   relacao_a_para_b = o que A é para B
+      //   relacao_b_para_a = o que B é para A
+      //
+      // Logo: tipo = escolhido (papel da OUTRA ✓, como já era);
+      // relacaoA = rotuloB (papel da ORIGEM); relacaoB = rotuloA (papel
+      // da OUTRA). criar() segue inserindo as duas linhas.
       final id = await PessoaRelacionamentoService.instance.criar(
-        pessoaAId: _outraPessoaId!,
-        pessoaBId: widget.pessoaOrigemId,
+        pessoaAId: widget.pessoaOrigemId,
+        pessoaBId: _outraPessoaId!,
         tipo: _tipoId!,
-        relacaoA: t.rotuloA,
-        relacaoB: t.rotuloB,
+        relacaoA: t.rotuloB,
+        relacaoB: t.rotuloA,
       );
 
       if (id != null) {

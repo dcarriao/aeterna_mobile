@@ -293,12 +293,15 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
           if (tipo != null) {
             setState(() => _salvando = true);
             try {
+              // S.9.3.1 — o dropdown "Relação com você" descreve a pessoa
+              // cadastrada (B). Convenção: tipo = papel de B;
+              // relacaoA = papel do usuário (rotuloB); relacaoB = rotuloA.
               await PessoaRelacionamentoService.instance.criar(
                 pessoaAId: PessoaRepository.usuarioId,
                 pessoaBId: result.pessoa.id,
                 tipo: tipo.id,
-                relacaoA: tipo.rotuloA,
-                relacaoB: tipo.rotuloB,
+                relacaoA: tipo.rotuloB,
+                relacaoB: tipo.rotuloA,
               );
               if (mounted) Navigator.of(context).pop(true);
             } catch (e) {
@@ -354,12 +357,14 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
           (x) => x.id == _tipoId,
           orElse: () => _tipos.last,
         );
+        // S.9.3.1 — o dropdown "Relação com você" descreve a pessoa nova (B).
+        // Convenção: tipo = papel de B; relacaoA = papel do usuário.
         await PessoaRelacionamentoService.instance.criar(
           pessoaAId: PessoaRepository.usuarioId,
           pessoaBId: novoId,
           tipo: _tipoId!,
-          relacaoA: t.rotuloA,
-          relacaoB: t.rotuloB,
+          relacaoA: t.rotuloB,
+          relacaoB: t.rotuloA,
         );
       }
 

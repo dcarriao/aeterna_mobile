@@ -89,8 +89,11 @@ class PessoaRelacionamentoService {
       for (final r in rowsA) {
         final outraId = (r['pessoa_b_id'] as num).toInt();
         final tipo = r['tipo'] as String? ?? 'OUTRO';
-        final rotB = r['relacao_b_para_a'] as String? ?? rotuloBPorTipo[tipo] ?? 'Pessoa';
-        final rotA = r['relacao_a_para_b'] as String? ?? rotuloAPorTipo[tipo] ?? 'Pessoa';
+        // Convenção oficial: tipo = papel de B. Fallback (rótulo nulo):
+        // o rótulo de B vem de rotuloA do catálogo (nome do papel) e o
+        // de A vem de rotuloB (papel recíproco).
+        final rotB = r['relacao_b_para_a'] as String? ?? rotuloAPorTipo[tipo] ?? 'Pessoa';
+        final rotA = r['relacao_a_para_b'] as String? ?? rotuloBPorTipo[tipo] ?? 'Pessoa';
         lista.add(OutraPessoaNaFamilia(
           relacionamentoId: (r['id'] as num).toInt(),
           outraPessoaId: outraId,

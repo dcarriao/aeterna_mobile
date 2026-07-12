@@ -801,14 +801,14 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     if (selecionado == null || !mounted) return;
     final t = tipos.firstWhere((t) => t.id == selecionado);
     // S.9.3.1 (Item 6) — o tipo escolhido descreve o papel da OUTRA pessoa
-    // (o card diz "É seu X"). Nesta linha (perfil = pessoa_a), o campo
-    // `tipo` registra o papel de pessoa_a, portanto usa o INVERSO do
-    // escolhido. Os rótulos seguem: relacao_a_para_b = papel do perfil
-    // (rotuloB do tipo escolhido); relacao_b_para_a = papel da outra
-    // (rotuloA). atualizarRotulos() replica na linha inversa.
+    // (o card diz "É seu X"). Convenção oficial: `tipo` = papel de B
+    // (a outra pessoa) — portanto tipo = escolhido, sem inversão.
+    // Rótulos: relacao_a_para_b = papel do perfil (rotuloB do escolhido);
+    // relacao_b_para_a = papel da outra (rotuloA).
+    // atualizarRotulos() replica na linha inversa com _inverseTipo.
     await PessoaRelacionamentoService.instance.atualizarRotulos(
       relacionamentoId: f.relacionamentoId,
-      tipo: PessoaRelacionamentoService.instance.inverseTipo(t.id, t.rotuloA),
+      tipo: t.id,
       relacaoA: t.rotuloB,
       relacaoB: t.rotuloA,
     );

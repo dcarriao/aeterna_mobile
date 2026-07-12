@@ -233,10 +233,11 @@ class _NovaPetScreenState extends State<NovaPetScreen> {
             // Cria vínculo TUTOR com o pet existente de outra família
             setState(() => _salvando = true);
             try {
+              // Convenção: tipo = papel de B (o pet é 'Pet de' do usuário)
               await PessoaRelacionamentoService.instance.criar(
                 pessoaAId: PessoaRepository.usuarioId,
                 pessoaBId: dup.pet.id,
-                tipo: 'TUTOR',
+                tipo: 'PET_DE',
                 relacaoA: 'Tutor',
                 relacaoB: 'Pet de',
               );
@@ -294,10 +295,11 @@ class _NovaPetScreenState extends State<NovaPetScreen> {
       // Novo pet: criar relação TUTOR automaticamente
       if (!_editando && novoId != null) {
         try {
+          // Convenção: tipo = papel de B (o pet é 'Pet de' do usuário)
           await PessoaRelacionamentoService.instance.criar(
             pessoaAId: PessoaRepository.usuarioId,
             pessoaBId: novoId,
-            tipo:      'TUTOR',
+            tipo:      'PET_DE',
             relacaoA:  'Tutor',
             relacaoB:  'Pet de',
           );

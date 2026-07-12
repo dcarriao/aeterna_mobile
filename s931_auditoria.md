@@ -368,3 +368,40 @@ Item 10 (42703) → UI pronta; erro de banco depende do D1.
 (`flutter analyze && flutter build apk --debug` e o pipeline Codemagic para
 iOS). Este workspace não tem o SDK Flutter — checagem estática local foi
 feita, mas o analyze oficial deve rodar antes do push, como de costume.
+
+---
+
+## CORREÇÃO S.9.3.1-b — Convenção do campo `tipo` (pós-auditoria de dados)
+
+O dump completo de `pessoas_relacionamentos` + o código do Mapa da Família
+provaram a convenção OFICIAL do projeto:
+
+    tipo             = papel de pessoa_b em relação a pessoa_a
+                       (a relação "de B para A" — ex.: linha Darlan→Dionir
+                       tem tipo=PAI porque Dionir é o pai)
+    relacao_a_para_b = o que A é para B
+    relacao_b_para_a = o que B é para A
+
+O Mapa da Família posiciona B na geração pelo `nivel` do `tipo` da linha —
+o que só funciona com tipo = papel de B (e funciona hoje).
+
+A primeira versão desta sprint havia assumido tipo = papel de A. Ajustes:
+
+- adicionar_relacionamento_screen: tipo = escolhido (papel da outra pessoa,
+  como sempre foi); apenas os RÓTULOS trocam (relacaoA=rotuloB do catálogo,
+  relacaoB=rotuloA).
+- pessoa_detalhe (_alterarRelacao): tipo = escolhido (sem inversão).
+- nova_pessoa_screen: dropdown "Relação com você" descreve a pessoa nova (B)
+  → tipo ok; rótulos trocados (era a mesma inversão de rótulos do Item 6).
+- nova_pet_screen: relação criada com tipo='PET_DE' (B = pet é "Pet de");
+  a linha inversa recebe TUTOR automaticamente.
+- listarRelacionamentos: fallback de rótulos nulos alinhado (rótulo de B =
+  rotuloA do catálogo).
+
+Reparo de dados correspondente: bloco SQL "S.9.3.1-b" (tipo das 6 linhas da
+Delaine, Darlan↔Beatriz(18), Alice↔Jonathas, tipos das linhas de pets,
+trim de rótulos com espaços).
+
+Nota de estrutura: os nomes das colunas do catálogo
+(`rotulo_a_para_b`='Pai' no tipo PAI, onde A é o filho) não batem com a
+convenção — legado. Não foram alterados; apenas documentados.
