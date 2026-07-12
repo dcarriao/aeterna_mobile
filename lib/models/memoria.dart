@@ -44,6 +44,7 @@ class Memoria {
   factory Memoria.fromMap(
     Map<String, dynamic> map, {
     String? fotoUrl,
+    String? videoUrl,
     int? donoUsuarioId,
     String? compartilhadaPorNome,
   }) {
@@ -60,6 +61,7 @@ class Memoria {
       categoria: map['categoria'] as String? ?? 'momentos',
       criadaEm: criadaEm,
       fotoUrl: fotoUrl,
+      videoUrl: videoUrl,
       dataMemoria: dataEvento,
       donoUsuarioId: donoUsuarioId,
       compartilhadaPorNome: compartilhadaPorNome,

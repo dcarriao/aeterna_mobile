@@ -94,9 +94,43 @@ class SupabaseService {
       }
     }
 
+    // S.9.4b (Item 3) — vídeos em lote: cards/timeline sabem que a
+    // memória tem vídeo sem N+1.
+    final videoPorMemoria = <int, String>{};
+    try {
+      final vidVinculos = await _client
+          .from('memoria_videos')
+          .select('memoria_id, video_id')
+          .inFilter('memoria_id', memoriaIds);
+      if (vidVinculos.isNotEmpty) {
+        final videoIds = vidVinculos
+            .map<int>((r) => r['video_id'] as int)
+            .toSet()
+            .toList();
+        final videoRows = await _client
+            .from('videos')
+            .select('id, caminho_arquivo')
+            .inFilter('id', videoIds);
+        final urlPorVideo = <int, String>{
+          for (final r in videoRows)
+            if (r['caminho_arquivo'] != null)
+              r['id'] as int: r['caminho_arquivo'] as String,
+        };
+        for (final v in vidVinculos) {
+          final url = urlPorVideo[v['video_id'] as int];
+          if (url != null) {
+            videoPorMemoria.putIfAbsent(v['memoria_id'] as int, () => url);
+          }
+        }
+      }
+    } catch (e) {
+      print('[SupabaseService] videos em lote ERRO: $e');
+    }
+
     return memoriaRows.map<Memoria>((row) {
       final id = row['id'] as int;
-      return Memoria.fromMap(row, fotoUrl: fotoPorMemoria[id]);
+      return Memoria.fromMap(row,
+          fotoUrl: fotoPorMemoria[id], videoUrl: videoPorMemoria[id]);
     }).toList();
   }
 

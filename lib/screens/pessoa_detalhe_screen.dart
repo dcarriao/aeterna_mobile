@@ -101,9 +101,18 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     print('[PERF] tela=PerfilPessoa inicio=${DateTime.now().toIso8601String()} pessoa_id=${widget.pessoa.id}');
     // S.9.3.1 (Item 9) — 4 queries independentes que rodavam em sequência;
     // paralelizadas sem alterar regra funcional.
+    // S.9.4b — humano: patrimônio/linha do tempo = o que ELE publicou;
+    // pet: aparições (não publica). Pendente => vazio naturalmente.
+    final ehPetCarga = widget.pessoa.isPet;
     final resultados = await Future.wait([
-      PessoaTimelineService.instance.obterEstatisticas(widget.pessoa.id),
-      PessoaTimelineService.instance.obterLinhaDoTempo(widget.pessoa.id),
+      ehPetCarga
+          ? PessoaTimelineService.instance.obterEstatisticas(widget.pessoa.id)
+          : PessoaTimelineService.instance
+              .obterEstatisticasPublicadas(widget.pessoa.id),
+      ehPetCarga
+          ? PessoaTimelineService.instance.obterLinhaDoTempo(widget.pessoa.id)
+          : PessoaTimelineService.instance
+              .obterLinhaDoTempoPublicada(widget.pessoa.id),
       PessoaTimelineService.instance.obterMemorialDaPessoa(widget.pessoa.id),
       PessoaRelacionamentoService.instance
           .listarRelacionamentos(widget.pessoa.id),
@@ -577,15 +586,25 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     if (_familia.isEmpty) {
       return _vazioFamilia();
     }
-    // S.9.3.2 — perfil humano: vínculos de pet ficam fora (pets têm
-    // área própria e "Meus Pets" no Mapa); perfil de pet: só tutores.
+    // S.9.3.2 — perfil humano: vínculos de pet ficam fora da FAMÍLIA;
+    // eles aparecem na seção própria "Pets" (S.9.4b, abaixo).
     final ehPetPerfil = (_pessoa ?? widget.pessoa).isPet;
-    final familiaVisivel = _familia.where((f) {
-      final ehVinculoPet = f.tipo == 'TUTOR' || f.tipo == 'PET_DE';
-      return ehPetPerfil ? ehVinculoPet : !ehVinculoPet;
+    final vinculosPet = _familia
+        .where((f) => f.tipo == 'TUTOR' || f.tipo == 'PET_DE')
+        .toList();
+    final familiaVisivel =
+        ehPetPerfil ? vinculosPet : _familia.where((f) {
+      return !(f.tipo == 'TUTOR' || f.tipo == 'PET_DE');
     }).toList();
-    if (familiaVisivel.isEmpty) {
+    if (familiaVisivel.isEmpty && (ehPetPerfil || vinculosPet.isEmpty)) {
       return _vazioFamilia();
+    }
+    if (familiaVisivel.isEmpty) {
+      // humano sem família mas com pets: só a seção Pets
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: _buildSecaoPetsDoHumano(vinculosPet),
+      );
     }
     // Agrupa por tipo (família / afinidade / conjugue / amizade / outro).
     final grupos = <String, List<OutraPessoaNaFamilia>>{};
@@ -644,6 +663,9 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
             const SizedBox(height: 8),
           ];
         }),
+        // S.9.4b (Item 8) — pets dos quais este humano é tutor, visíveis
+        // a qualquer pessoa (fora da árvore de família).
+        if (!ehPetPerfil) ..._buildSecaoPetsDoHumano(vinculosPet),
         const SizedBox(height: 4),
         // S.9.3.2 — pet: só "Adicionar tutor" (vários tutores permitidos,
         // tipo fixo Tutor→Pet). Humano: "Adicionar relação" normal.
@@ -660,6 +682,49 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
         ),
       ],
     );
+  }
+
+  /// S.9.4b — seção "Pets" no perfil de um humano (tutoria).
+  List<Widget> _buildSecaoPetsDoHumano(List<OutraPessoaNaFamilia> vinculos) {
+    if (vinculos.isEmpty) return const [];
+    return [
+      const SizedBox(height: 20),
+      Row(children: const [
+        Icon(Icons.pets, color: AppColors.dourado, size: 18),
+        SizedBox(width: 8),
+        Text('Pets',
+            style: TextStyle(
+                color: AppColors.roxo,
+                fontSize: 16,
+                fontWeight: FontWeight.w800)),
+      ]),
+      const SizedBox(height: 8),
+      ...vinculos.map((f) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            leading: const CircleAvatar(
+              backgroundColor: Color(0xFFF0EAF5),
+              child: Icon(Icons.pets, color: AppColors.dourado, size: 18),
+            ),
+            title: Text(f.outraPessoaNome,
+                style: const TextStyle(
+                    color: AppColors.roxo, fontWeight: FontWeight.w700)),
+            subtitle: const Text('Pet', style: TextStyle(fontSize: 12)),
+            trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => PessoaDetalheScreen(
+                  pessoa: Pessoa(
+                      id: f.outraPessoaId,
+                      nome: f.outraPessoaNome,
+                      tipo: 'pet'),
+                  onAbrirMemoria: widget.onAbrirMemoria,
+                  titulosMemorias: widget.titulosMemorias,
+                ),
+              ),
+            ),
+          )),
+    ];
   }
 
   Widget _vazioFamilia() {

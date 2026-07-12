@@ -128,6 +128,83 @@ class PessoaTimelineService {
   }
 
   /// Vínculo Pessoa → Memorial (se existir).
+  /// S.9.4b — REGRA (Darlan): no perfil de um HUMANO, patrimônio afetivo
+  /// e linha do tempo mostram o que ELE PUBLICOU (memorias.usuario_id =
+  /// pessoa), nunca participações em memórias de terceiros. Pendente
+  /// nunca publicou => vazio. (Pets continuam por aparições — eles não
+  /// publicam.)
+  Future<PessoaEstatisticas> obterEstatisticasPublicadas(int pessoaId) async {
+    if (!PessoaRepository.isConfigured) {
+      return const PessoaEstatisticas(totalMemorias: 0, totalFotos: 0,
+          totalVideos: 0, totalContribuicoes: 0);
+    }
+    try {
+      final db = PessoaRepository.supabaseClient;
+      final mems = await db
+          .from('memorias')
+          .select('id, data_evento, data_criacao')
+          .eq('usuario_id', pessoaId);
+      final fotos = await db
+          .from('fotos').select('id').eq('usuario_id', pessoaId);
+      final videos = await db
+          .from('videos').select('id').eq('usuario_id', pessoaId);
+      final contribs = await db
+          .from('contribuicoes')
+          .select('id')
+          .eq('usuario_id', pessoaId)
+          .eq('status', 'aprovado');
+      DateTime? primeira, ultima;
+      for (final m in mems) {
+        final d = DateTime.tryParse(
+            '${m['data_evento'] ?? m['data_criacao'] ?? ''}');
+        if (d == null) continue;
+        if (primeira == null || d.isBefore(primeira)) primeira = d;
+        if (ultima == null || d.isAfter(ultima)) ultima = d;
+      }
+      return PessoaEstatisticas(
+        totalMemorias: mems.length,
+        totalFotos: fotos.length,
+        totalVideos: videos.length,
+        totalContribuicoes: contribs.length,
+        primeiraData: primeira,
+        ultimaData: ultima,
+      );
+    } catch (e) {
+      print('[PessoaTimeline] estatisticasPublicadas ERRO: $e');
+      return const PessoaEstatisticas(totalMemorias: 0, totalFotos: 0,
+          totalVideos: 0, totalContribuicoes: 0);
+    }
+  }
+
+  /// S.9.4b — linha do tempo do humano: memórias que ELE publicou
+  /// (o RLS limita às que o usuário atual pode ver).
+  Future<List<PessoaTimelineEvento>> obterLinhaDoTempoPublicada(
+      int pessoaId) async {
+    if (!PessoaRepository.isConfigured) return const [];
+    try {
+      final rows = await PessoaRepository.supabaseClient
+          .from('memorias')
+          .select('id, titulo, data_evento, data_criacao')
+          .eq('usuario_id', pessoaId)
+          .order('data_criacao', ascending: false)
+          .limit(50);
+      return [
+        for (final r in rows)
+          PessoaTimelineEvento(
+            tipo: PessoaTimelineTipo.memoria,
+            conteudoId: (r['id'] as num).toInt(),
+            titulo: (r['titulo'] as String?) ?? 'Memória',
+            data: DateTime.tryParse(
+                    '${r['data_evento'] ?? r['data_criacao'] ?? ''}') ??
+                DateTime.now(),
+          ),
+      ];
+    } catch (e) {
+      print('[PessoaTimeline] linhaPublicada ERRO: $e');
+      return const [];
+    }
+  }
+
   Future<MemorialResumo?> obterMemorialDaPessoa(int pessoaId) async {
     if (!PessoaRepository.isConfigured) return null;
     try {

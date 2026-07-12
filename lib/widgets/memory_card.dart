@@ -62,6 +62,22 @@ class MemoryCard extends StatelessWidget {
                                     color: AppColors.roxo, size: 32)),
                           )),
                 ),
+              )
+            // S.9.4b (Item 3) — memória com vídeo e sem foto: mostra o
+            // bloco de vídeo com ícone de play (o player abre no detalhe).
+            else if (memoria.videoUrl != null)
+              ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(15)),
+                child: Container(
+                  height: 200,
+                  width: double.infinity,
+                  color: const Color(0xFF2B1747),
+                  child: const Center(
+                    child: Icon(Icons.play_circle_outline,
+                        color: Colors.white70, size: 56),
+                  ),
+                ),
               ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),

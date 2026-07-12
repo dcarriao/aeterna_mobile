@@ -119,7 +119,9 @@ class _TimelineScreenState extends State<TimelineScreen> {
                     children: [
                       _StatsBar(
                         totalMemorias: _memoriasFiltradas.length,
-                        totalPessoas: _pessoas.length,
+                        totalPessoas:
+                            _pessoas.where((p) => !p.isPet).length,
+                        totalPets: _pessoas.where((p) => p.isPet).length,
                         anoMaisAntigo: _anoMaisAntigo,
                       ),
                       if (_pessoas.isNotEmpty) _buildFiltro(),
@@ -265,11 +267,13 @@ class _StatsBar extends StatelessWidget {
   const _StatsBar({
     required this.totalMemorias,
     required this.totalPessoas,
+    required this.totalPets,
     required this.anoMaisAntigo,
   });
 
   final int totalMemorias;
   final int totalPessoas;
+  final int totalPets;
   final int? anoMaisAntigo;
 
   @override
@@ -313,6 +317,16 @@ class _StatsBar extends StatelessWidget {
                   label: totalPessoas == 1 ? 'pessoa' : 'pessoas',
                 ),
               ),
+              if (totalPets > 0) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _StatCard(
+                    icon: Icons.pets_outlined,
+                    value: '$totalPets',
+                    label: totalPets == 1 ? 'pet' : 'pets',
+                  ),
+                ),
+              ],
               const SizedBox(width: 10),
               Expanded(
                 child: _StatCard(

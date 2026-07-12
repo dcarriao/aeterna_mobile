@@ -82,7 +82,11 @@ import UserNotifications
         let fm = FileManager.default
         guard let container = fm.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupId
-        ) else { return nil }
+        ) else {
+            NSLog("[IOS_SHARE] APP: container do App Group NULO — o profile do app não inclui group.com.aeterna.app")
+            return nil
+        }
+        NSLog("[IOS_SHARE] APP: lendo pendências em %@", container.path)
 
         guard let contents = try? fm.contentsOfDirectory(
             at: container,
