@@ -628,6 +628,47 @@ class PessoaRepository {
     }
   }
 
+  /// S.9.4d — mapa pessoa_id → memorial_id (para o Mapa da Família).
+  static Future<Map<int, int>> mapaPessoaMemorial() async {
+    if (!isConfigured) return {};
+    try {
+      final rows = await _supabase
+          .from('memorial_pessoas')
+          .select('memorial_id, pessoa_id');
+      return {
+        for (final r in rows)
+          if (r['pessoa_id'] != null && r['memorial_id'] != null)
+            (r['pessoa_id'] as num).toInt():
+                (r['memorial_id'] as num).toInt(),
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// S.9.4d — pessoa vinculada a um memorial (para "Definir relações").
+  static Future<Pessoa?> obterPessoaDoMemorial(int memorialId) async {
+    if (!isConfigured) return null;
+    try {
+      final rows = await _supabase
+          .from('memorial_pessoas')
+          .select('pessoa_id')
+          .eq('memorial_id', memorialId)
+          .limit(1);
+      if (rows.isEmpty || rows.first['pessoa_id'] == null) return null;
+      final pid = (rows.first['pessoa_id'] as num).toInt();
+      final p = await _supabase
+          .from('pessoas')
+          .select('id, nome, sobrenome, tipo, falecido')
+          .eq('id', pid)
+          .limit(1);
+      if (p.isEmpty) return null;
+      return Pessoa.fromMap(p.first as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<void> salvarUsuario(Map<String, dynamic> data) async {
     if (!isConfigured) return;
     try {

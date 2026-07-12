@@ -6,6 +6,7 @@ import '../models/contribuicao.dart';
 import '../models/convite_familiar.dart';
 import '../models/memoria.dart';
 import '../models/pessoa.dart';
+import 'adicionar_relacionamento_screen.dart';
 import '../services/pessoa_relacionamento_service.dart';
 import '../services/supabase_service.dart';
 import '../services/legacy_curator_service.dart';
@@ -22,6 +23,31 @@ class MemorialDetalheScreen extends StatefulWidget {
 }
 
 class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with SingleTickerProviderStateMixin {
+  // S.9.4d (Item 8) — pessoa humana vinculada: permite definir relações
+  // familiares de quem só existe no memorial (jamais pets).
+  Pessoa? _pessoaVinculada;
+
+  Future<void> _carregarPessoaVinculada() async {
+    if (widget.memorial.id == null) return;
+    final p = await PessoaRepository.obterPessoaDoMemorial(widget.memorial.id!);
+    if (mounted && p != null && !p.isPet) {
+      setState(() => _pessoaVinculada = p);
+    }
+  }
+
+  Future<void> _definirRelacoes() async {
+    final p = _pessoaVinculada;
+    if (p == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AdicionarRelacionamentoScreen(
+          pessoaOrigemId: p.id,
+          pessoaOrigemNome: p.nome,
+        ),
+      ),
+    );
+  }
+
   late TabController _tabController;
   final _service = SupabaseService.instance;
 
@@ -54,6 +80,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
   @override
   void initState() {
     super.initState();
+    _carregarPessoaVinculada();
     _tabController = TabController(length: 4, vsync: this);
     _carregarDados();
     _inicializarMensagemCurador();
@@ -404,6 +431,14 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     return Scaffold(
       backgroundColor: AppColors.fundo,
       appBar: AppBar(
+        actions: [
+          if (_pessoaVinculada != null)
+            IconButton(
+              tooltip: 'Definir relações familiares',
+              icon: const Icon(Icons.diversity_3),
+              onPressed: _definirRelacoes,
+            ),
+        ],
         title: Text(widget.memorial.nome,
             style: const TextStyle(
                 color: AppColors.roxo,

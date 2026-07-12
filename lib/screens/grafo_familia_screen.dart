@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/pessoa.dart';
 import '../services/pessoa_relacionamento_service.dart';
 import '../theme/app_theme.dart';
+import '../services/supabase_service.dart';
+import 'memorial_detalhe_screen.dart';
 import 'pessoa_detalhe_screen.dart';
 
 /// Sprint L — Mapa da Família (esqueleto).
@@ -27,6 +29,10 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   /// S.9.3.2 — pets dos quais o usuário logado é tutor (seção separada,
   /// nunca nas gerações humanas).
   List<Pessoa> _meusPets = const [];
+
+  /// S.9.4d — pessoa_id → memorial_id (fita preta no mapa; toque abre
+  /// o memorial).
+  Map<int, int> _memorialPorPessoa = const {};
   bool _carregando = true;
   String? _erro;
 
@@ -61,8 +67,8 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
       };
       // S.9.4c — pet falecido com memorial vive no memorial (regra igual
       // à da lista Pets).
-      final comMemorial =
-          await PessoaRepository.listarPessoasComMemorial();
+      final memorialPorPessoa = await PessoaRepository.mapaPessoaMemorial();
+      final comMemorial = memorialPorPessoa.keys.toSet();
       final meusPets = pessoas
           .where((p) =>
               p.isPet &&
@@ -75,6 +81,7 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
           _pessoas = pessoas;
           _grafo = grafo;
           _meusPets = meusPets;
+          _memorialPorPessoa = memorialPorPessoa;
           _carregando = false;
         });
       }
@@ -218,6 +225,18 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
     ];
   }
 
+  /// S.9.4d — abre o memorial da pessoa (fita preta).
+  Future<void> _abrirMemorialDe(Pessoa pessoa) async {
+    final memorialId = _memorialPorPessoa[pessoa.id];
+    if (memorialId == null) return;
+    final memoriais = await SupabaseService.instance.listarMemoriais();
+    final m = memoriais.where((x) => x.id == memorialId).firstOrNull;
+    if (m == null || !mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => MemorialDetalheScreen(memorial: m)),
+    );
+  }
+
   Widget _buildErro() {
     return Padding(
       padding: const EdgeInsets.all(32),
@@ -344,15 +363,18 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
           borderRadius: BorderRadius.circular(10),
           onTap: pessoa == null
               ? null
-              : () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => PessoaDetalheScreen(
-                        pessoa: pessoa,
-                        onAbrirMemoria: (_) {},
-                        titulosMemorias: const {},
+              // S.9.4d — falecido com memorial: toque abre o MEMORIAL.
+              : (_memorialPorPessoa.containsKey(pessoa.id) && pessoa.falecido)
+                  ? () => _abrirMemorialDe(pessoa)
+                  : () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => PessoaDetalheScreen(
+                            pessoa: pessoa,
+                            onAbrirMemoria: (_) {},
+                            titulosMemorias: const {},
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -360,7 +382,21 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
               border: Border.all(color: AppColors.borda),
             ),
             child: Row(
+              // S.9.4d — fita preta = tem memorial
               children: [
+                if (pessoa != null &&
+                    pessoa.falecido &&
+                    _memorialPorPessoa.containsKey(pessoa.id)) ...[
+                  Container(
+                    width: 4,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 const CircleAvatar(
                   radius: 16,
                   backgroundColor: Color(0xFFF0EAF5),
