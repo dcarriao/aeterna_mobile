@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
@@ -19,7 +20,87 @@ class NovaPessoaScreen extends StatefulWidget {
   State<NovaPessoaScreen> createState() => _NovaPessoaScreenState();
 }
 
+/// S.9.4 — URL oficial de cadastro enviada no convite.
+/// TODO(Darlan): confirmar/ajustar a URL pública oficial.
+const String kUrlConviteAeterna = 'https://aeternalegado.com.br';
+
 class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
+  // S.9.4 — Convite ao cadastrar/reutilizar pessoa humana.
+  bool _convidar = false;
+
+  bool get _emailValido {
+    final e = _emailController.text.trim();
+    return e.contains('@') && e.contains('.') && e.length >= 6;
+  }
+
+  String get _foneDigitos =>
+      _telefoneController.text.replaceAll(RegExp(r'\D'), '');
+
+  bool get _foneValido => _foneDigitos.length >= 10;
+
+  /// Checkbox habilita só com humano + (e-mail OU WhatsApp) válido.
+  /// (Conta existente e convite pendente são checados no salvar,
+  /// com feedback claro — evita query a cada tecla.)
+  bool get _podeConvidar =>
+      (widget.pessoa?.tipo ?? 'humano') == 'humano' &&
+      (_emailValido || _foneValido);
+
+  /// S.9.4 — executa o convite após salvar a pessoa. NUNCA afirma envio
+  /// pelo WhatsApp (o usuário confirma manualmente lá).
+  Future<void> _processarConvite(int? pessoaId) async {
+    final email = _emailController.text.trim().toLowerCase();
+    final nome = _nomeController.text.trim();
+
+    if (_emailValido) {
+      if (await PessoaRepository.temContaPorEmail(email)) {
+        _avisoConvite('$nome já possui conta na aEterna — convite desnecessário.');
+        return;
+      }
+      if (await PessoaRepository.convitePendenteParaEmail(email)) {
+        _avisoConvite('Já existe um convite pendente para $email.');
+        return;
+      }
+      try {
+        await PessoaRepository.enviarConviteFamiliar(
+            email: email, pessoaId: pessoaId);
+      } catch (e) {
+        _avisoConvite('Não foi possível registrar o convite: $e');
+        return;
+      }
+    }
+
+    if (_foneValido) {
+      var fone = _foneDigitos;
+      if (fone.length <= 11 && !fone.startsWith('55')) fone = '55$fone';
+      final msg = Uri.encodeComponent(
+          'Oi, $nome! Estou guardando as memórias da nossa família na '
+          'aEterna e criei um espaço para você. '
+          '${_emailValido ? 'Cadastre-se com o e-mail $email em ' : 'Cadastre-se em '}'
+          '$kUrlConviteAeterna');
+      final uri = Uri.parse('https://wa.me/$fone?text=$msg');
+      try {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        _avisoConvite(_emailValido
+            ? 'Convite registrado. Confirme o envio no WhatsApp.'
+            : 'WhatsApp aberto — confirme o envio por lá. '
+              '(Sem e-mail, o convite não fica registrado no app.)');
+      } catch (_) {
+        _avisoConvite(_emailValido
+            ? 'Convite registrado por e-mail; não foi possível abrir o WhatsApp.'
+            : 'Não foi possível abrir o WhatsApp.');
+      }
+    } else if (_emailValido) {
+      _avisoConvite('Convite registrado — $nome o verá ao se cadastrar com $email.');
+    }
+  }
+
+  void _avisoConvite(String m) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(m)));
+    }
+  }
+
   final _formKey = GlobalKey<FormState>();
   final _nomeController = TextEditingController();
   final _apelidoController = TextEditingController();
@@ -371,6 +452,11 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         );
       }
 
+      // S.9.4 — convite (se marcado); mensagens de status via SnackBar.
+      if (_convidar && _podeConvidar) {
+        await _processarConvite(novoId ?? widget.pessoa?.id);
+      }
+
       if (!mounted) return;
       setState(() => _salvando = false);
 
@@ -612,6 +698,7 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
                       labelText: 'E-mail',
                       hintText: 'exemplo@email.com',
                       prefixIcon: Icon(Icons.email_outlined),
+                    onChanged: (_) => setState(() {}),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -623,8 +710,29 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
                       hintText: '(00) 90000-0000',
                       prefixIcon: Icon(Icons.phone_outlined),
                     ),
+                    onChanged: (_) => setState(() {}),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
+                  // S.9.4 — Convite ao cadastrar
+                  CheckboxListTile(
+                    value: _convidar && _podeConvidar,
+                    onChanged: _podeConvidar
+                        ? (v) => setState(() => _convidar = v ?? false)
+                        : null,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: const Text('Convidar para a aEterna?',
+                        style: TextStyle(
+                            color: AppColors.roxo,
+                            fontWeight: FontWeight.w600)),
+                    subtitle: Text(
+                      _podeConvidar
+                          ? 'Envia convite por e-mail e/ou WhatsApp.'
+                          : 'Informe um e-mail ou WhatsApp válido para habilitar.',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   // Sprint L — seleção de relação com tipo estável.
                   // A UI mostra o rótulo humano (`rotuloA`), o app grava
                   // o id (`'PAI'`, `'IRMAO'`, `'CONJUGE'`, etc.) e mantém

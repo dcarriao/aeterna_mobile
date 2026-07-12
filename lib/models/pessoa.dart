@@ -1062,6 +1062,40 @@ class PessoaRepository {
   /// recebe automaticamente o [papelSugerido] (editor/colaborador/leitor)
   /// nesse conteúdo — ex.: convidar alguém direto para colaborar num
   /// memorial.
+  /// S.9.4 — a pessoa (por e-mail) já possui CONTA na aEterna?
+  /// Conta = auth_user_id preenchido (Supabase Auth) OU senha_hash
+  /// (login legado, ex.: Alice). Ter e-mail cadastrado NÃO é ter conta.
+  static Future<bool> temContaPorEmail(String email) async {
+    if (!isConfigured) return false;
+    try {
+      final rows = await _supabase
+          .from('pessoas')
+          .select('id, auth_user_id, senha_hash')
+          .eq('email', email.trim().toLowerCase());
+      return rows.any((r) =>
+          r['auth_user_id'] != null || r['senha_hash'] != null);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// S.9.4 — já existe convite pendente equivalente para este e-mail?
+  static Future<bool> convitePendenteParaEmail(String email) async {
+    if (!isConfigured) return false;
+    try {
+      final rows = await _supabase
+          .from('convites_familiares')
+          .select('id')
+          .eq('email_destino', email.trim().toLowerCase())
+          .eq('usuario_origem_id', usuarioId)
+          .eq('status', 'pendente')
+          .limit(1);
+      return rows.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<void> enviarConviteFamiliar({
     required String email,
     int? pessoaId,
