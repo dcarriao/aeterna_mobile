@@ -14,11 +14,17 @@ class AdicionarRelacionamentoScreen extends StatefulWidget {
   const AdicionarRelacionamentoScreen({
     required this.pessoaOrigemId,
     required this.pessoaOrigemNome,
+    this.tutorDePet = false,
     super.key,
   });
 
   final int pessoaOrigemId;
   final String pessoaOrigemNome;
+
+  /// S.9.3.2 — origem é um PET: a lista mostra só humanos e a única
+  /// relação possível é Tutor→Pet (sem etapa de escolher tipo).
+  /// Um pet pode ter VÁRIOS tutores (ex.: casal).
+  final bool tutorDePet;
 
   @override
   State<AdicionarRelacionamentoScreen> createState() =>
@@ -100,12 +106,46 @@ class _AdicionarRelacionamentoScreenState
   }
 
   void _selecionarPessoa(Map<String, dynamic> m) {
+    if (widget.tutorDePet) {
+      _salvarTutor((m['pessoa_b_id'] as int), m['nome'] as String? ?? '');
+      return;
+    }
     setState(() {
       _outraPessoaId = m['pessoa_b_id'] as int;
       _outraPessoaNome = m['nome'] as String? ?? '';
       _escolhendoPessoa = false;
       _tipoId = null;
     });
+  }
+
+  /// S.9.3.2 — salva humano como tutor do pet-origem, direto.
+  /// Convenção: linha humano→pet tem tipo='PET_DE' (papel de B);
+  /// criar() insere a inversa (pet→humano, TUTOR) automaticamente.
+  Future<void> _salvarTutor(int humanoId, String humanoNome) async {
+    setState(() => _salvando = true);
+    try {
+      await PessoaRelacionamentoService.instance.criar(
+        pessoaAId: humanoId,
+        pessoaBId: widget.pessoaOrigemId,
+        tipo: 'PET_DE',
+        relacaoA: 'Tutor',
+        relacaoB: 'Pet de',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$humanoNome agora é tutor(a).')),
+        );
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      print('[AdicionarRelacionamento] _salvarTutor ERRO: $e');
+      if (mounted) {
+        setState(() => _salvando = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Não foi possível adicionar o tutor.')),
+        );
+      }
+    }
   }
 
   @override

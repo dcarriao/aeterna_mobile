@@ -628,20 +628,19 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
           ];
         }),
         const SizedBox(height: 4),
-        // S.9.3.2 — pet não tem "Adicionar relação" (só tutores, criados
-        // pelo fluxo de Pets); humano segue normal.
-        if (!ehPet)
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: _abrirAdicionarRelacionamento,
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text(
-                'Adicionar relação',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
+        // S.9.3.2 — pet: só "Adicionar tutor" (vários tutores permitidos,
+        // tipo fixo Tutor→Pet). Humano: "Adicionar relação" normal.
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: _abrirAdicionarRelacionamento,
+            icon: const Icon(Icons.add, size: 16),
+            label: Text(
+              ehPet ? 'Adicionar tutor' : 'Adicionar relação',
+              style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
+        ),
       ],
     );
   }
@@ -688,7 +687,6 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          if (!ehPet)
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton.icon(
@@ -699,9 +697,9 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                 visualDensity: VisualDensity.compact,
               ),
               icon: const Icon(Icons.add, size: 16),
-              label: const Text(
-                'Adicionar primeira relação',
-                style: TextStyle(fontWeight: FontWeight.w700),
+              label: Text(
+                ehPet ? 'Adicionar tutor' : 'Adicionar primeira relação',
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
           ),
@@ -964,6 +962,8 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
         builder: (_) => AdicionarRelacionamentoScreen(
           pessoaOrigemId: pessoa.id!,
           pessoaOrigemNome: pessoa.nome,
+          // S.9.3.2 — do perfil do pet, só se adiciona TUTOR.
+          tutorDePet: pessoa.isPet,
         ),
       ),
     );
