@@ -94,10 +94,13 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       print('[FLUTTER_SHARE] payload_received=${path != null && path.isNotEmpty} path=$path');
       if (path != null && path.isNotEmpty) {
         _processarImagemCompartilhada(path);
+      } else {
+        PushNotificationService.registrarDiagnostico('share: pendencia=null (App Group vazio ou inacessivel)');
       }
     } catch (e) {
       // Canal pode não estar implementado em plataformas sem suporte (ex: web).
       print('[FLUTTER_SHARE] erro=$e');
+      PushNotificationService.registrarDiagnostico('share: erro=$e');
     }
   }
 
