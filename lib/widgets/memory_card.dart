@@ -1,12 +1,9 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../models/memoria.dart';
 import '../theme/app_theme.dart';
-
-final _thumbnailCache = <String, Uint8List?>{};
 
 class MemoryCard extends StatefulWidget {
   const MemoryCard({
@@ -25,75 +22,26 @@ class MemoryCard extends StatefulWidget {
 }
 
 class _MemoryCardState extends State<MemoryCard> {
-  Uint8List? _thumbnail;
-  bool _thumbnailLoading = false;
-  String? _thumbnailError;
-
-  @override
-  void initState() {
-    super.initState();
-    _gerarThumbnail();
-  }
-
-  @override
-  void didUpdateWidget(MemoryCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.memoria.videoUrl != widget.memoria.videoUrl) {
-      _thumbnail = null;
-      _thumbnailError = null;
-      _gerarThumbnail();
-    }
-  }
-
-  Future<void> _gerarThumbnail() async {
-    final url = widget.memoria.videoUrl;
-    if (url == null || url.isEmpty) return;
-    if (_thumbnailLoading) return;
-
-    if (_thumbnailCache.containsKey(url)) {
-      final cached = _thumbnailCache[url];
-      if (mounted) setState(() { _thumbnail = cached; _thumbnailError = cached == null ? 'cache null' : null; });
-      return;
-    }
-
-    setState(() => _thumbnailLoading = true);
-    try {
-      final thumb = await VideoThumbnail.thumbnailData(
-        video: url,
-        imageFormat: ImageFormat.JPEG,
-        maxWidth: 400,
-        quality: 70,
-      );
-      if (mounted) {
-        setState(() {
-          _thumbnail = thumb;
-          _thumbnailLoading = false;
-        });
-        _thumbnailCache[url] = thumb;
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _thumbnailError = e.toString();
-          _thumbnailLoading = false;
-        });
-        _thumbnailCache[url] = null;
-      }
-      print('[HOME_MEDIA] thumbnail erro=$e url=$url');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     final m = widget.memoria;
+
+    final renderer = m.foto != null || m.fotoUrl != null
+        ? 'foto'
+        : (m.temVideo && m.videoUrl != null)
+            ? 'video'
+            : (m.temVideo)
+                ? 'video_sem_url'
+                : 'sem_midia';
 
     print('[HOME_MEDIA] memoria_id=${m.id ?? -1} '
         'titulo="${m.titulo}" '
         'fotos=${m.fotoUrl != null ? 1 : 0} '
         'videos=${m.temVideo ? 1 : 0} '
         'video_url=${m.videoUrl ?? "NULL"} '
-        'thumbnail=${_thumbnail != null ? "ok(${_thumbnail!.length}b)" : (_thumbnailError ?? "NULL")} '
-        'renderer=${m.foto != null || m.fotoUrl != null ? "foto" : (m.temVideo && m.videoUrl != null ? "video" : (m.temVideo ? "video_sem_url" : "sem_midia"))}');
+        'thumbnail=NULL '
+        'renderer=$renderer');
 
     return GestureDetector(
       onTap: widget.onLer,
@@ -220,30 +168,15 @@ class _MemoryCardState extends State<MemoryCard> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (_thumbnail != null)
-              Image.memory(_thumbnail!, fit: BoxFit.cover)
-            else
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFF3D1D6A), Color(0xFF1A0A2E)],
-                  ),
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF3D1D6A), Color(0xFF1A0A2E)],
                 ),
-                child: _thumbnailLoading
-                    ? const Center(
-                        child: SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            color: Colors.white54,
-                          ),
-                        ),
-                      )
-                    : null,
               ),
+            ),
             Center(
               child: Container(
                 width: 56,
@@ -278,7 +211,7 @@ class _MemoryCardState extends State<MemoryCard> {
             children: [
               Icon(Icons.videocam_outlined, color: Colors.white38, size: 32),
               SizedBox(height: 8),
-              Text('Vídeo indisponível',
+              Text('Video indisponivel',
                   style: TextStyle(color: Colors.white38, fontSize: 12)),
             ],
           ),
@@ -293,10 +226,10 @@ class _CategoriaChip extends StatelessWidget {
   final String categoria;
 
   String get _label => switch (categoria) {
-        'familia' => 'Família',
+        'familia' => 'Familia',
         'aprendizados' => 'Aprendizados',
         'viagens' => 'Viagens',
-        'tradicoes' => 'Tradições',
+        'tradicoes' => 'Tradicoes',
         _ => 'Momentos',
       };
 
