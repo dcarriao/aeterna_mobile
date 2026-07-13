@@ -262,8 +262,8 @@ class PessoaRepository {
     required String senha,
   }) async {
     if (!isConfigured) return null;
+    final emailLimpo = email.trim().toLowerCase();
     try {
-      final emailLimpo = email.trim().toLowerCase();
       // Verifica se o e-mail já existe em `pessoas`.
       final existentes = await _supabase
           .from('pessoas')
@@ -297,8 +297,8 @@ class PessoaRepository {
         }
 
         // CONTATO PENDENTE (humano, SEM senha): ATIVA definindo a senha —
-        // sem SQL, sem e-mail. Mantém o MESMO id, então relacionamentos e
-        // compartilhamentos já criados aparecem ao entrar.
+        // sem e-mail de confirmação. Mantém o MESMO id, então relacionamentos
+        // e compartilhamentos já criados aparecem ao entrar.
         final salt = _gerarSalt();
         final hash = sha256.convert(utf8.encode(senha + salt)).toString();
         final dados = <String, dynamic>{
@@ -313,25 +313,40 @@ class PessoaRepository {
         return id;
       }
 
-      final response = await _supabase.auth.signUp(
-        email: emailLimpo,
-        password: senha,
-      );
-      if (response.user == null) return null;
+      // ── E-mail NÃO encontrado em `pessoas` — tenta signUp ──
+      try {
+        final response = await _supabase.auth.signUp(
+          email: emailLimpo,
+          password: senha,
+        );
+        if (response.user == null) return null;
 
-      final salt = _gerarSalt();
-      final hash = sha256.convert(utf8.encode(senha + salt)).toString();
-
-      final resp = await _supabase.from('pessoas').insert({
-        'nome': nome.trim(),
-        'sobrenome': sobrenome.trim(),
-        'email': emailLimpo,
-        'auth_user_id': response.user!.id,
-        'senha_hash': hash,
-        'salt': salt,
-        'situacao': 'ativo',
-      }).select('id').single();
-      return resp['id'] as int?;
+        final salt = _gerarSalt();
+        final hash = sha256.convert(utf8.encode(senha + salt)).toString();
+        final resp = await _supabase.from('pessoas').insert({
+          'nome': nome.trim(),
+          'sobrenome': sobrenome.trim(),
+          'email': emailLimpo,
+          'auth_user_id': response.user!.id,
+          'senha_hash': hash,
+          'salt': salt,
+          'situacao': 'ativo',
+        }).select('id').single();
+        return resp['id'] as int?;
+      } catch (signUpError) {
+        // signUp falhou (ex.: e-mail já registrado no Auth mas sem
+        // correspondência em pessoas). Trata como login transparente:
+        // tenta autenticar com a senha digitada.
+        print('[PessoaRepo] criarUsuario -> signUp falhou, tentando login: $signUpError');
+        final uid = await autenticarUsuario(emailLimpo, senha);
+        if (uid != null && uid > 0) {
+          print('[PessoaRepo] criarUsuario -> login transparente via fallback id=$uid');
+          return uid;
+        }
+        // Se nem o login funcionou, retorna -2 (senha incorreta)
+        // para não expor se a conta existe ou não.
+        return -2;
+      }
     } catch (e) {
       print('[PessoaRepo] criarUsuario ERRO: $e');
       return null;
