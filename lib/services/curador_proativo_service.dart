@@ -18,25 +18,18 @@ class CuradorProativoService {
   static const _maxPerWeek = 2;
 
   Future<ProactiveOpportunity?> obterMelhorOportunidade() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (_atingiuLimiteDiario(prefs)) return null;
-    if (_atingiuLimiteSemanal(prefs)) return null;
-
-    final dismissed = _carregarDispensados(prefs);
     final oportunidades = <ProactiveOpportunity>[];
 
     // Prioridade 1: videos novos
     final momentoVideo = await _buscarMomentoComVideo();
-    if (momentoVideo != null &&
-        !dismissed.contains(momentoVideo.oportunidadeId)) {
+    if (momentoVideo != null) {
       oportunidades.add(momentoVideo);
     }
 
     // Prioridade 2: grupo de fotos
     if (oportunidades.isEmpty) {
       final grupoFotos = await _buscarGrupoDeFotos();
-      if (grupoFotos != null &&
-          !dismissed.contains(grupoFotos.oportunidadeId)) {
+      if (grupoFotos != null) {
         oportunidades.add(grupoFotos);
       }
     }
@@ -44,8 +37,7 @@ class CuradorProativoService {
     // Prioridade 3: varias midias em curto intervalo
     if (oportunidades.isEmpty) {
       final intervalo = await _buscarIntervaloCurto();
-      if (intervalo != null &&
-          !dismissed.contains(intervalo.oportunidadeId)) {
+      if (intervalo != null) {
         oportunidades.add(intervalo);
       }
     }
@@ -53,7 +45,7 @@ class CuradorProativoService {
     // Prioridade 5: memoria do dia
     if (oportunidades.isEmpty) {
       final diaria = await _buscarMemoriaDoDia();
-      if (diaria != null && !dismissed.contains(diaria.oportunidadeId)) {
+      if (diaria != null) {
         oportunidades.add(diaria);
       }
     }
@@ -65,22 +57,18 @@ class CuradorProativoService {
     final momentos = await MomentDetectionService.instance.obterMomentosDetectados();
     for (final m in momentos) {
       if (m.quantidadeVideos > 0) {
-        final agora = DateTime.now();
-        final diff = agora.difference(m.fim);
-        if (diff.inHours <= 48) {
-          return ProactiveOpportunity(
-            type: ProactiveOpportunityType.videoNovo,
-            priority: 1,
-            titulo: 'Vídeo encontrado',
-            descricao: 'Vídeo ${_formatarTempo(m.inicio)}',
-            icone: Icons.videocam_outlined,
-            detectedMoment: m,
-            quantidadeFotos: m.quantidadeFotos,
-            quantidadeVideos: m.quantidadeVideos,
-            dataRef: m.inicio,
-            temVideo: true,
-          );
-        }
+        return ProactiveOpportunity(
+          type: ProactiveOpportunityType.videoNovo,
+          priority: 1,
+          titulo: 'Video encontrado',
+          descricao: 'Video ${_formatarTempo(m.inicio)}',
+          icone: Icons.videocam_outlined,
+          detectedMoment: m,
+          quantidadeFotos: m.quantidadeFotos,
+          quantidadeVideos: m.quantidadeVideos,
+          dataRef: m.inicio,
+          temVideo: true,
+        );
       }
     }
     return null;
