@@ -454,28 +454,42 @@ class SupabaseService {
       'tipo_contribuicao, texto, arquivo_url, audio_url, status, criado_em, '
       'avaliado_em, avaliado_por';
 
-  /// Memoriais em que o usuário logado NÃO é dono, mas tem permissão de
-  /// colaboração concedida via `conteudo_colaboradores` (tipo_conteudo =
-  /// 'memorial'). Complementa `listarMemoriais()` (que só traz os próprios).
+  /// Memoriais em que o usuário logado NÃO é dono, mas tem acesso de
+  /// visualização ou colaboração. Duas fontes:
+  ///   1) `conteudo_colaboradores` — colaboradores explícitos (editor/colaborador/leitor)
+  ///   2) `memorial_pessoas` — pessoas vinculadas ao memorial (visualização)
+  /// Complementa `listarMemoriais()` (que só traz os próprios).
   Future<List<Memorial>> listarMemoriaisColaborativos() async {
     if (!isConfigured) return const [];
     try {
+      final ids = <int>{};
+
+      // 1) Permissões explícitas via conteudo_colaboradores
       final vinculos = await _client
           .from('conteudo_colaboradores')
           .select('conteudo_id')
           .eq('tipo_conteudo', 'memorial')
           .eq('usuario_id', usuarioId);
-      if (vinculos.isEmpty) return const [];
+      for (final r in vinculos) {
+        ids.add((r['conteudo_id'] as num).toInt());
+      }
 
-      final ids = vinculos
-          .map<int>((r) => (r['conteudo_id'] as num).toInt())
-          .toSet()
-          .toList();
+      // 2) Memoriais compartilhados via memorial_pessoas (visualização)
+      final vinculosMp = await _client
+          .from('memorial_pessoas')
+          .select('memorial_id')
+          .eq('pessoa_id', usuarioId);
+      for (final r in vinculosMp) {
+        ids.add((r['memorial_id'] as num).toInt());
+      }
+
+      if (ids.isEmpty) return const [];
 
       final rows = await _client
           .from('memoriais')
-        .select('id, nome, parentesco, data_nascimento, data_falecimento, biografia, foto_perfil, usuario_id, criado_em')
-          .inFilter('id', ids)
+          .select('id, nome, parentesco, data_nascimento, data_falecimento, biografia, foto_perfil, usuario_id, criado_em')
+          .inFilter('id', ids.toList())
+          .neq('usuario_id', usuarioId)
           .order('criado_em', ascending: false);
       return rows.map<Memorial>((row) => Memorial.fromMap(row)).toList();
     } catch (e) {
