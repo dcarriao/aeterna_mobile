@@ -17,21 +17,18 @@ import UserNotifications
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-        registerShareChannel(registry: engineBridge.pluginRegistry)
+        guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AeternaSharePlugin") else {
+            NSLog("[IOS_SHARE] registerShareChannel FALHOU: registrar nil")
+            return
+        }
+        registerShareChannel(messenger: registrar.messenger())
     }
 
     // MARK: — MethodChannel "com.aeterna.app/share"
 
-    private func registerShareChannel(registry: FlutterPluginRegistry) {
-        guard let registrar = registry.registrar(forPlugin: "AeternaSharePlugin") else {
-            NSLog("[IOS_SHARE] registerShareChannel FALHOU: registrar nil")
-            return
-        }
+    func registerShareChannel(messenger: FlutterBinaryMessenger) {
         NSLog("[IOS_SHARE] canal com.aeterna.app/share registrado")
-        let channel = FlutterMethodChannel(
-            name: "com.aeterna.app/share",
-            binaryMessenger: registrar.messenger()
-        )
+        let channel = FlutterMethodChannel(name: "com.aeterna.app/share", binaryMessenger: messenger)
         channel.setMethodCallHandler { [weak self] call, result in
             if call.method == "getSharedImage" {
                 let path = self?.consumePendingShare()
