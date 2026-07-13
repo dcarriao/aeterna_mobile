@@ -230,17 +230,23 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
                       color: const Color(0xFFF0EAF5),
                       borderRadius: BorderRadius.circular(36),
                       border: Border.all(color: AppColors.borda, width: 2),
-                      image: memorial.fotoUrl != null && memorial.fotoUrl!.isNotEmpty
-                          ? DecorationImage(
-                              image: NetworkImage(memorial.fotoUrl!),
-                              fit: BoxFit.cover,
-                            )
-                          : null,
                     ),
-                    child: memorial.fotoUrl == null || memorial.fotoUrl!.isEmpty
-                        ? const Icon(Icons.favorite_outline,
-                            color: AppColors.roxo, size: 28)
-                        : null,
+                    child: ClipOval(
+                      child: memorial.fotoUrl != null && memorial.fotoUrl!.isNotEmpty
+                          ? Image.network(
+                              memorial.fotoUrl!,
+                              fit: BoxFit.cover,
+                              width: 72,
+                              height: 72,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                Icons.favorite_outline,
+                                color: AppColors.roxo,
+                                size: 28,
+                              ),
+                            )
+                          : const Icon(Icons.favorite_outline,
+                              color: AppColors.roxo, size: 28),
+                    ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
