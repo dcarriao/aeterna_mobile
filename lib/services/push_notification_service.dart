@@ -59,8 +59,9 @@ class PushNotificationService {
   Future<void> importarDiagnosticoNativo() async {
     if (!Platform.isIOS) return;
     try {
-      final linhas =
-          await _shareChannel.invokeMethod<List<dynamic>>('getPushDiag');
+      final linhas = await _shareChannel
+          .invokeMethod<List<dynamic>>('getPushDiag')
+          .timeout(const Duration(seconds: 2), onTimeout: () => <dynamic>[]);
       if (linhas != null) {
         for (final l in linhas) {
           final s = 'iOS: $l';
@@ -169,7 +170,6 @@ class PushNotificationService {
 
       _inicializado = true;
       print('[PUSH_TOKEN] Serviço inicializado com sucesso');
-      await importarDiagnosticoNativo();
     } catch (e) {
       print('[PUSH_TOKEN] Erro ao inicializar: $e');
     }
@@ -252,7 +252,7 @@ class PushNotificationService {
     } else {
       _diag('persistido=false (sem token após retries)');
     }
-    await importarDiagnosticoNativo();
+    importarDiagnosticoNativo();
   }
 
   /// Desativa o dispositivo atual no banco ao fazer logout.
