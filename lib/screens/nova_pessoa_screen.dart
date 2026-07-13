@@ -89,7 +89,7 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
             : 'Não foi possível abrir o WhatsApp.');
       }
     } else if (_emailValido) {
-      _avisoConvite('Convite registrado — $nome o verá ao se cadastrar com $email.');
+      _avisoConvite('Convite enviado por e-mail para $email.');
     }
   }
 
@@ -136,6 +136,12 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
       _fotoBase64 = p.fotoBase64;
       _fotoBytes = p.fotoBytes;
       _fotoUrl = p.fotoUrl;
+      // Pré-seleciona o tipo pelo parentesco salvo (catálogo local), para o
+      // dropdown não vir vazio ao EDITAR e travar o "Salvar".
+      final par = p.parentesco.toLowerCase();
+      final idx = TIPOS_RELACIONAMENTO_INICIAIS
+          .indexWhere((t) => t.rotuloA.toLowerCase() == par);
+      if (idx >= 0) _tipoId = TIPOS_RELACIONAMENTO_INICIAIS[idx].id;
     }
     // Carrega o catálogo do servidor (com fallback client-side já em
     // TIPOS_RELACIONAMENTO_INICIAIS).
@@ -148,6 +154,12 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
           _tipos = (tipos.isNotEmpty ? tipos : TIPOS_RELACIONAMENTO_INICIAIS)
               .where((t) => t.id != 'TUTOR' && t.id != 'PET_DE' && t.categoria != 'pet')
               .toList();
+          if (_editando && _tipoId == null) {
+            final par = widget.pessoa!.parentesco.toLowerCase();
+            for (final t in _tipos) {
+              if (t.rotuloA.toLowerCase() == par) { _tipoId = t.id; break; }
+            }
+          }
         });
       }
     });
@@ -652,7 +664,8 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
                       }
                     },
                     validator: (valor) {
-                      if (valor == null || valor.isEmpty) {
+                      // Ao editar, a relação já existe — não re-exige.
+                      if (!_editando && (valor == null || valor.isEmpty)) {
                         return 'Selecione a relação.';
                       }
                       return null;

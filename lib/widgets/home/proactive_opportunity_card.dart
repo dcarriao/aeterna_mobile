@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../models/proactive_opportunity.dart';
@@ -17,6 +19,8 @@ class ProactiveOpportunityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Miniatura já pronta em DetectedMoment.capa (thumbnail do vídeo/foto).
+    final Uint8List? capa = opportunity.detectedMoment?.capa;
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
@@ -75,6 +79,29 @@ class ProactiveOpportunityCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (capa != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Image.memory(capa,
+                        height: 160, width: double.infinity, fit: BoxFit.cover),
+                    if (opportunity.temVideo)
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.play_arrow_rounded,
+                            color: Colors.white, size: 34),
+                      ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             Row(
               children: [

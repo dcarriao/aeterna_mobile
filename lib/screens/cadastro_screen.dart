@@ -50,7 +50,11 @@ class _CadastroScreenState extends State<CadastroScreen> {
         return;
       }
       if (uid == -1) {
-        if (mounted) _mostrarErro('Este e-mail já está cadastrado.');
+        // Conta humana JÁ ativa (com senha). Orienta ao login — nunca à
+        // recuperação de senha. Contato pendente NÃO cai aqui (é ativado).
+        if (mounted) {
+          _mostrarErro('Este e-mail já possui conta. Toque em "Já tenho conta" e entre com sua senha.');
+        }
         return;
       }
       PessoaRepository.usuarioId = uid;

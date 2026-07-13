@@ -264,11 +264,42 @@ class PessoaRepository {
     if (!isConfigured) return null;
     try {
       final emailLimpo = email.trim().toLowerCase();
+      // Verifica se o e-mail já existe em `pessoas`.
       final existentes = await _supabase
           .from('pessoas')
-          .select('id')
-          .eq('email', emailLimpo);
-      if (existentes.isNotEmpty) return -1;
+          .select('id, senha_hash, tipo')
+          .eq('email', emailLimpo)
+          .limit(1);
+
+      if (existentes.isNotEmpty) {
+        final row = existentes.first;
+        final jaTemSenha =
+            ((row['senha_hash'] as String?) ?? '').isNotEmpty;
+        final tipo = (row['tipo'] as String?) ?? 'humano';
+
+        // Conta humana JÁ ativa (tem senha) ou registro de pet: não recria.
+        if (jaTemSenha || tipo != 'humano') {
+          return -1;
+        }
+
+        // CONTATO PENDENTE (existe, humano, SEM senha): ATIVA a conta
+        // existente definindo a senha — sem SQL manual, sem e-mail. Mantém
+        // o MESMO id, então relacionamentos e compartilhamentos já criados
+        // continuam válidos (mapa e conteúdos aparecem ao entrar).
+        final id = (row['id'] as num).toInt();
+        final salt = _gerarSalt();
+        final hash = sha256.convert(utf8.encode(senha + salt)).toString();
+        final dados = <String, dynamic>{
+          'senha_hash': hash,
+          'salt': salt,
+          'situacao': 'ativo',
+        };
+        if (nome.trim().isNotEmpty) dados['nome'] = nome.trim();
+        if (sobrenome.trim().isNotEmpty) dados['sobrenome'] = sobrenome.trim();
+        await _supabase.from('pessoas').update(dados).eq('id', id);
+        print('[PessoaRepo] criarUsuario -> ATIVOU contato pendente id=$id');
+        return id;
+      }
 
       final response = await _supabase.auth.signUp(
         email: emailLimpo,
@@ -625,6 +656,43 @@ class PessoaRepository {
     } catch (e) {
       print('[PessoaRepo] listarPessoasComMemorial ERRO: $e');
       return {};
+    }
+  }
+
+  /// Busca uma única pessoa pelo ID (evita carregar toda a lista).
+  static Future<Pessoa?> obterPorId(int id) async {
+    if (!isConfigured) return null;
+    try {
+      final rows = await _supabase
+          .from('pessoas')
+          .select(
+              'id, nome, sobrenome, email, telefone, tipo, especie, raca, '
+              'data_nascimento, foto_perfil, situacao, falecido, created_at')
+          .eq('id', id)
+          .limit(1);
+      if (rows.isEmpty) return null;
+      return Pessoa.fromMap(rows.first as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// IDs das memórias em que [pessoaId] é participante — query direta e
+  /// filtrada (substitui listarVinculos() + filtro client-side, que é lento).
+  static Future<List<int>> listarMemoriasVinculadas(int pessoaId) async {
+    if (!isConfigured) return [];
+    try {
+      final rows = await _supabase
+          .from('conteudo_permissoes')
+          .select('conteudo_id')
+          .eq('tipo_conteudo', 'memoria')
+          .eq('papel', 'participante')
+          .eq('pessoa_id', pessoaId);
+      return rows
+          .map<int>((r) => (r['conteudo_id'] as num).toInt())
+          .toList();
+    } catch (_) {
+      return [];
     }
   }
 

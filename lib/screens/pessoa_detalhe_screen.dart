@@ -69,16 +69,14 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
 
   Future<void> _carregar() async {
     try {
-      final todas = await PessoaRepository.listar();
-      final atualizada = todas.firstWhere(
-        (p) => p.id == widget.pessoa.id,
-        orElse: () => widget.pessoa,
-      );
-      final vinculos = await PessoaRepository.listarVinculos();
-      final ids = vinculos.entries
-          .where((e) => e.value.contains(widget.pessoa.id))
-          .map((e) => e.key)
-          .toList();
+      // Duas queries diretas e filtradas em paralelo (antes: listar() todas
+      // as pessoas + listarVinculos() toda a tabela de permissões, em série).
+      final results = await Future.wait([
+        PessoaRepository.obterPorId(widget.pessoa.id),
+        PessoaRepository.listarMemoriasVinculadas(widget.pessoa.id),
+      ]);
+      final atualizada = (results[0] as Pessoa?) ?? widget.pessoa;
+      final ids = results[1] as List<int>;
       if (mounted) {
         setState(() {
           _pessoa = atualizada;

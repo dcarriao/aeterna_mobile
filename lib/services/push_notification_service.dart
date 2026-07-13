@@ -10,6 +10,7 @@
 //   - Logs: [PUSH_TOKEN] e [PUSH_OPEN] para rastreamento
 
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -48,6 +49,32 @@ class PushNotificationService {
   /// (ex.: falha da consulta de vídeos em lote) registrem no MESMO painel
   /// visível do Perfil, sem expor _diag.
   static void registrarDiagnostico(String m) => _diag(m);
+
+  /// Canal com o AppDelegate (iOS). "getPushDiag" devolve a trilha de
+  /// registro APNs e de share capturada NO NATIVO (inclui o erro real do
+  /// didFailToRegisterForRemoteNotifications, antes invisível).
+  static const _shareChannel = MethodChannel('com.aeterna.app/share');
+
+  /// Traz os logs nativos de push/share (iOS) para o painel do Perfil.
+  Future<void> importarDiagnosticoNativo() async {
+    if (!Platform.isIOS) return;
+    try {
+      final linhas =
+          await _shareChannel.invokeMethod<List<dynamic>>('getPushDiag');
+      if (linhas != null) {
+        for (final l in linhas) {
+          final s = 'iOS: $l';
+          if (!diagnostico.contains(s)) diagnostico.add(s);
+        }
+        while (diagnostico.length > 30) {
+          diagnostico.removeAt(0);
+        }
+      }
+    } catch (e) {
+      _diag('getPushDiag erro: $e');
+    }
+  }
+
   String? _currentToken;
   PushNavigationCallback? _navigationCallback;
   final _localNotifications = FlutterLocalNotificationsPlugin();
@@ -142,6 +169,7 @@ class PushNotificationService {
 
       _inicializado = true;
       print('[PUSH_TOKEN] Serviço inicializado com sucesso');
+      await importarDiagnosticoNativo();
     } catch (e) {
       print('[PUSH_TOKEN] Erro ao inicializar: $e');
     }
@@ -224,6 +252,7 @@ class PushNotificationService {
     } else {
       _diag('persistido=false (sem token após retries)');
     }
+    await importarDiagnosticoNativo();
   }
 
   /// Desativa o dispositivo atual no banco ao fazer logout.
