@@ -220,12 +220,65 @@ class SupabaseService {
       }
     }
 
+    final videoPorMemoria = <int, String>{};
+    final temVideoPorMemoria = <int>{};
+    try {
+      final vidVinculos = await _client
+          .from('memoria_videos')
+          .select('memoria_id, video_id')
+          .inFilter('memoria_id', memoriaIds);
+      if (vidVinculos.isNotEmpty) {
+        for (final v in vidVinculos) {
+          temVideoPorMemoria.add(v['memoria_id'] as int);
+        }
+        final videoIds = vidVinculos
+            .map<int>((r) => r['video_id'] as int)
+            .toSet()
+            .toList();
+        final videoRows = await _client
+            .from('videos')
+            .select('id, caminho_arquivo')
+            .inFilter('id', videoIds);
+        final urlPorVideo = <int, String>{
+          for (final r in videoRows)
+            if (r['caminho_arquivo'] != null)
+              r['id'] as int: r['caminho_arquivo'] as String,
+        };
+        for (final v in vidVinculos) {
+          final url = urlPorVideo[v['video_id'] as int];
+          if (url != null) {
+            videoPorMemoria.putIfAbsent(v['memoria_id'] as int, () => url);
+          }
+        }
+      }
+    } catch (e) {
+      print('[SupabaseService] videos recebidas ERRO: $e');
+    }
+
     return memoriaRows.map<Memoria>((row) {
       final id = row['id'] as int;
       final info = vinculos[id];
+      final videoUrl = videoPorMemoria[id];
+      final temVideo = temVideoPorMemoria.contains(id);
+      final fotoUrl = fotoPorMemoria[id];
+      final tipoPreview = fotoUrl != null
+          ? 'foto'
+          : (temVideo && videoUrl != null)
+              ? 'video'
+              : 'nenhum';
+      final preview = fotoUrl ?? videoUrl;
+      print('[SHARED_MEDIA] memoria_id=$id '
+          'compartilhada_por=${info?['usuario_id'] ?? '?'} '
+          'fotos=${fotoUrl != null ? 1 : 0} '
+          'videos=${temVideo ? 1 : 0} '
+          'preview=${preview ?? "NULL"} '
+          'tipo_preview=$tipoPreview '
+          'erro=${(temVideo && videoUrl == null) ? "video_sem_url" : "null"}');
       return Memoria.fromMap(
         row,
-        fotoUrl: fotoPorMemoria[id],
+        fotoUrl: fotoUrl,
+        videoUrl: videoUrl,
+        temVideo: temVideo,
         donoUsuarioId: info?['usuario_id'] as int?,
         compartilhadaPorNome: info?['nome'] as String?,
       );

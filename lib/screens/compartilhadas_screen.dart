@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/memoria.dart';
 import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
+import '../widgets/memory_card.dart';
 
 class CompartilhadasScreen extends StatefulWidget {
   const CompartilhadasScreen({
@@ -261,61 +262,10 @@ class _CompartilhadasScreenState extends State<CompartilhadasScreen> {
       separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final m = recebidas[index];
-        return Material(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          child: InkWell(
-            onTap: () => widget.onAbrirMemoria(m),
-            borderRadius: BorderRadius.circular(14),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.borda),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.people_alt_outlined,
-                          size: 16, color: AppColors.roxo),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Compartilhada por '
-                        '${m.compartilhadaPorNome ?? 'Familiar'}',
-                        style: const TextStyle(
-                          color: AppColors.roxo,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    m.titulo,
-                    style: const TextStyle(
-                      color: AppColors.roxo,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    m.contexto,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFF625B67),
-                      fontSize: 14,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        return MemoryCard(
+          memoria: m,
+          compartilhadaPorNome: m.compartilhadaPorNome,
+          onLer: () => widget.onAbrirMemoria(m),
         );
       },
     );

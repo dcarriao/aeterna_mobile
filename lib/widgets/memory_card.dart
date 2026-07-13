@@ -12,11 +12,13 @@ class MemoryCard extends StatefulWidget {
   const MemoryCard({
     required this.memoria,
     this.onLer,
+    this.compartilhadaPorNome,
     super.key,
   });
 
   final Memoria memoria;
   final VoidCallback? onLer;
+  final String? compartilhadaPorNome;
 
   @override
   State<MemoryCard> createState() => _MemoryCardState();
@@ -112,6 +114,27 @@ class _MemoryCardState extends State<MemoryCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (widget.compartilhadaPorNome != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                child: Row(
+                  children: [
+                    const Icon(Icons.people_alt_outlined,
+                        size: 14, color: AppColors.roxo),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Compartilhada por ${widget.compartilhadaPorNome}',
+                      style: const TextStyle(
+                        color: AppColors.roxo,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (widget.compartilhadaPorNome != null)
+              const SizedBox(height: 10),
             if (m.foto != null)
               _buildFotoMemory(m.foto!)
             else if (m.fotoUrl != null)
