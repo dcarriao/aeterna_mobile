@@ -454,12 +454,6 @@ class _PerfilScreenState extends State<PerfilScreen> {
                               color: AppColors.roxo,
                               fontSize: 14,
                               fontWeight: FontWeight.w600)),
-                      onExpansionChanged: (expanded) {
-                        if (expanded) {
-                          PushNotificationService.instance
-                              .importarDiagnosticoNativo();
-                        }
-                      },
                       children: [
                         if (PushNotificationService.diagnostico.isEmpty)
                           const Padding(
