@@ -1,67 +1,18 @@
 import Flutter
 import UIKit
 import UserNotifications
-import FirebaseCore
-import FirebaseMessaging
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
 
     private let appGroupId = "group.com.aeterna.app"
 
-    /// Trilha de diagnóstico de push/share capturada no NATIVO e entregue ao
-    /// Flutter via "getPushDiag" (canal de share) → painel do Perfil.
-    static var pushDiag: [String] = []
-    static func diagPush(_ m: String) {
-        let ts = ISO8601DateFormatter().string(from: Date())
-        pushDiag.append("\(ts.suffix(9).prefix(8)) \(m)")
-        if pushDiag.count > 30 { pushDiag.removeFirst() }
-        NSLog("[PUSH_NATIVE] %@", m)
-    }
-
     override func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        // Sprint R.4 — registra delegate para notificações push
         UNUserNotificationCenter.current().delegate = self
-        let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
-
-        // APNs = NULL era invisível: o app só dependia do swizzling do Firebase
-        // e não capturava o erro. Força o registro e captura ambos os desfechos.
-        DispatchQueue.main.async {
-            AppDelegate.diagPush("registerForRemoteNotifications() chamado")
-            application.registerForRemoteNotifications()
-        }
-        // S.9.3.2 (Item 8) — FALLBACK de registro do canal de share.
-        // didInitializeImplicitFlutterEngine pode não disparar em todos os
-        // ciclos de vida; sem canal registrado, o Flutter recebe
-        // MissingPluginException e o compartilhamento "some".
-        // Registrar duas vezes é inofensivo (o segundo handler substitui).
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            if let controller = self.window?.rootViewController as? FlutterViewController {
-                NSLog("[IOS_SHARE] fallback: registrando canal via rootViewController")
-                let channel = FlutterMethodChannel(
-                    name: "com.aeterna.app/share",
-                    binaryMessenger: controller.binaryMessenger
-                )
-                channel.setMethodCallHandler { [weak self] call, resultCb in
-                    if call.method == "getSharedImage" {
-                        let path = self?.consumePendingShare()
-                        NSLog("[IOS_SHARE] getSharedImage(fallback) -> %@", path ?? "nil (sem pendência)")
-                        resultCb(path)
-                    } else if call.method == "getPushDiag" {
-                        resultCb(AppDelegate.pushDiag)
-                    } else {
-                        resultCb(FlutterMethodNotImplemented)
-                    }
-                }
-            } else {
-                NSLog("[IOS_SHARE] fallback: rootViewController não é FlutterViewController")
-            }
-        }
-        return result
+        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -69,56 +20,7 @@ import FirebaseMessaging
         registerShareChannel(registry: engineBridge.pluginRegistry)
     }
 
-    override func application(
-        _ application: UIApplication,
-        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
-    ) {
-        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
-        AppDelegate.diagPush("didRegister APNs ok len=\(deviceToken.count) ...\(hex.suffix(8))")
-        if FirebaseApp.app() != nil {
-            Messaging.messaging().apnsToken = deviceToken
-            AppDelegate.diagPush("apnsToken repassado ao Firebase")
-        } else {
-            AppDelegate.diagPush("Firebase ainda nao configurado ao receber token")
-        }
-        super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
-    }
-
-    override func application(
-        _ application: UIApplication,
-        didFailToRegisterForRemoteNotificationsWithError error: Error
-    ) {
-        // O log que faltava: mostra a CAUSA real do APNs NULL.
-        AppDelegate.diagPush("didFail APNs: \(error.localizedDescription)")
-        super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
-    }
-
     // MARK: — MethodChannel "com.aeterna.app/share"
-    //
-    // Mesmo canal usado pelo Android (MainActivity.kt → getSharedImage).
-    // O Flutter já chama esse canal em cold start e ao voltar ao foreground
-    // (_verificarCompartilhamentoPendente em main.dart).
-
-    /// S.9.4c — registro reutilizável do canal (chamado pelo caminho da
-    /// engine implícita E pelo SceneDelegate — o que chegar primeiro).
-    func registerShareChannel(messenger: FlutterBinaryMessenger) {
-        NSLog("[IOS_SHARE] canal com.aeterna.app/share registrado (messenger)")
-        let channel = FlutterMethodChannel(
-            name: "com.aeterna.app/share",
-            binaryMessenger: messenger
-        )
-        channel.setMethodCallHandler { [weak self] call, result in
-            if call.method == "getSharedImage" {
-                let path = self?.consumePendingShare()
-                NSLog("[IOS_SHARE] getSharedImage -> %@", path ?? "nil (sem pendência)")
-                result(path)
-            } else if call.method == "getPushDiag" {
-                result(AppDelegate.pushDiag)
-            } else {
-                result(FlutterMethodNotImplemented)
-            }
-        }
-    }
 
     private func registerShareChannel(registry: FlutterPluginRegistry) {
         guard let registrar = registry.registrar(forPlugin: "AeternaSharePlugin") else {
@@ -135,8 +37,6 @@ import FirebaseMessaging
                 let path = self?.consumePendingShare()
                 NSLog("[IOS_SHARE] getSharedImage -> %@", path ?? "nil (sem pendência)")
                 result(path)
-            } else if call.method == "getPushDiag" {
-                result(AppDelegate.pushDiag)
             } else {
                 result(FlutterMethodNotImplemented)
             }
@@ -152,7 +52,6 @@ import FirebaseMessaging
             forSecurityApplicationGroupIdentifier: appGroupId
         ) else {
             NSLog("[IOS_SHARE] APP: container do App Group NULO — o profile do app não inclui group.com.aeterna.app")
-            AppDelegate.diagPush("share: container App Group NULO (profile sem group.com.aeterna.app)")
             return nil
         }
         NSLog("[IOS_SHARE] APP: lendo pendências em %@", container.path)
