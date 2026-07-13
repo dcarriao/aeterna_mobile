@@ -98,12 +98,20 @@ class SupabaseService {
     // S.9.4b (Item 3) — vídeos em lote: cards/timeline sabem que a
     // memória tem vídeo sem N+1.
     final videoPorMemoria = <int, String>{};
+    final temVideoPorMemoria = <int>{};
+    int totalFotos = 0;
+    int totalVideos = 0;
     try {
       final vidVinculos = await _client
           .from('memoria_videos')
           .select('memoria_id, video_id')
           .inFilter('memoria_id', memoriaIds);
       if (vidVinculos.isNotEmpty) {
+        // Marca memórias que têm vínculo (mesmo que depois o URL falte)
+        for (final v in vidVinculos) {
+          temVideoPorMemoria.add(v['memoria_id'] as int);
+        }
+        totalVideos = vidVinculos.length;
         final videoIds = vidVinculos
             .map<int>((r) => r['video_id'] as int)
             .toSet()
@@ -129,15 +137,37 @@ class SupabaseService {
       PushNotificationService.registrarDiagnostico(
           'videos lote: ${vidVinculos.length} vinculo(s), '
           '${videoPorMemoria.length} card(s) com vídeo');
+      // Log específico: Gol no Morumbi (memoria 52)
+      if (temVideoPorMemoria.contains(52)) {
+        final url52 = videoPorMemoria[52];
+        print('[HOME_MEDIA] memoria_id=52 titulo="Gol no Morumbi" '
+            'tem_vinculo=true video_url=${url52 ?? "NULL"}');
+      } else {
+        print('[HOME_MEDIA] memoria_id=52 titulo="Gol no Morumbi" '
+            'tem_vinculo=false (sem registro em memoria_videos)');
+      }
     } catch (e) {
       print('[SupabaseService] videos em lote ERRO: $e');
       PushNotificationService.registrarDiagnostico('videos lote ERRO: $e');
     }
 
+    // Conta fotos para log
+    totalFotos = vinculoRows.length;
+
     return memoriaRows.map<Memoria>((row) {
       final id = row['id'] as int;
+      final fotoUrl = fotoPorMemoria[id];
+      final videoUrl = videoPorMemoria[id];
+      final temVideo = temVideoPorMemoria.contains(id);
+      print('[HOME_MEDIA] memoria_id=$id '
+          'titulo="${row['titulo']}" '
+          'fotos=${fotoUrl != null ? 1 : 0} '
+          'videos=${temVideo ? 1 : 0} '
+          'video_url=${videoUrl ?? "NULL"} '
+          'thumbnail=NULL '
+          'renderer=${fotoUrl != null ? "foto" : (temVideo ? "video" : "sem_midia")}');
       return Memoria.fromMap(row,
-          fotoUrl: fotoPorMemoria[id], videoUrl: videoPorMemoria[id]);
+          fotoUrl: fotoUrl, videoUrl: videoUrl, temVideo: temVideo);
     }).toList();
   }
 

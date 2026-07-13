@@ -277,6 +277,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
           id: m.id,
           foto: m.foto,
           fotoUrl: m.fotoUrl,
+          videoUrl: m.videoUrl,
+          temVideo: m.temVideo,
           pessoasIds: hasPessoas ? ids : null,
           isCompartilhada: hasFamiliares,
           familiaresIds: hasFamiliares ? famIds : null,

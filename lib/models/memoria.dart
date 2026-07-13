@@ -15,6 +15,7 @@ class Memoria {
     this.dataMemoria,
     this.video,
     this.videoUrl,
+    this.temVideo = false,
     this.donoUsuarioId,
     this.compartilhadaPorNome,
   });
@@ -32,6 +33,7 @@ class Memoria {
   final DateTime? dataMemoria;
   final Uint8List? video;
   final String? videoUrl;
+  final bool temVideo;
 
   // Preenchidos apenas para memórias RECEBIDAS de outra conta (Bug 1):
   // identifica o dono real da memória (pessoas.id) e seu nome, para exibir
@@ -45,6 +47,7 @@ class Memoria {
     Map<String, dynamic> map, {
     String? fotoUrl,
     String? videoUrl,
+    bool temVideo = false,
     int? donoUsuarioId,
     String? compartilhadaPorNome,
   }) {
@@ -62,6 +65,7 @@ class Memoria {
       criadaEm: criadaEm,
       fotoUrl: fotoUrl,
       videoUrl: videoUrl,
+      temVideo: temVideo,
       dataMemoria: dataEvento,
       donoUsuarioId: donoUsuarioId,
       compartilhadaPorNome: compartilhadaPorNome,
