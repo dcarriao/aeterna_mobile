@@ -110,12 +110,19 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       if (await file.exists()) {
         final bytes = await file.readAsBytes();
         final filename = path.split('/').last;
+        final isVideo = filename.endsWith('.mp4') ||
+            filename.endsWith('.mov') ||
+            filename.endsWith('.avi') ||
+            filename.endsWith('.mkv') ||
+            filename.endsWith('.webm');
         _navigatorKey.currentState?.push(
           MaterialPageRoute(
             builder: (_) => NovaMemoriaScreen(
               onSalvar: _service.salvarMemoriaComFoto,
-              fotoBytes: bytes,
-              fotoNome: filename,
+              fotoBytes: isVideo ? null : bytes,
+              fotoNome: isVideo ? null : filename,
+              videoBytes: isVideo ? bytes : null,
+              videoNome: isVideo ? filename : null,
             ),
           ),
         );
