@@ -79,15 +79,25 @@ class ProactiveOpportunityCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (capa != null) ...[
+            // Miniatura: se houver capa, mostra o thumbnail; se for vídeo SEM
+            // thumbnail (capa nula — pode falhar ao gerar), mostra mesmo assim
+            // um bloco de vídeo com ícone de play, para NUNCA ficar só texto.
+            if (capa != null || opportunity.temVideo) ...[
               const SizedBox(height: 12),
               ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    Image.memory(capa,
-                        height: 160, width: double.infinity, fit: BoxFit.cover),
+                    if (capa != null)
+                      Image.memory(capa,
+                          height: 160, width: double.infinity, fit: BoxFit.cover)
+                    else
+                      Container(
+                        height: 160,
+                        width: double.infinity,
+                        color: const Color(0xFF201535),
+                      ),
                     if (opportunity.temVideo)
                       Container(
                         padding: const EdgeInsets.all(10),

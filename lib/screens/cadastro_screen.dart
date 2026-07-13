@@ -49,12 +49,18 @@ class _CadastroScreenState extends State<CadastroScreen> {
         if (mounted) _mostrarErro('Erro ao criar conta. Tente novamente.');
         return;
       }
-      if (uid == -1) {
-        // Conta humana JÁ ativa (com senha). Orienta ao login — nunca à
-        // recuperação de senha. Contato pendente NÃO cai aqui (é ativado).
+      // FLUXO TRANSPARENTE: o usuário nunca é mandado para outra tela nem
+      // descobre se já tinha conta. Novo/pendente/senha-certa => entra aqui.
+      if (uid == -2) {
+        // E-mail já existe e a senha digitada não confere. Mensagem mínima,
+        // sem revelar a existência da conta nem empurrar para o login.
         if (mounted) {
-          _mostrarErro('Este e-mail já possui conta. Toque em "Já tenho conta" e entre com sua senha.');
+          _mostrarErro('Senha incorreta. Se você já criou uma senha antes, use a mesma.');
         }
+        return;
+      }
+      if (uid == -1 || uid <= 0) {
+        if (mounted) _mostrarErro('Não foi possível entrar. Tente novamente.');
         return;
       }
       PessoaRepository.usuarioId = uid;

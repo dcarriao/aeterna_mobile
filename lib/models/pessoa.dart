@@ -267,26 +267,38 @@ class PessoaRepository {
       // Verifica se o e-mail já existe em `pessoas`.
       final existentes = await _supabase
           .from('pessoas')
-          .select('id, senha_hash, tipo')
+          .select('id, senha_hash, salt, tipo')
           .eq('email', emailLimpo)
           .limit(1);
 
       if (existentes.isNotEmpty) {
         final row = existentes.first;
-        final jaTemSenha =
-            ((row['senha_hash'] as String?) ?? '').isNotEmpty;
+        final hashExistente = (row['senha_hash'] as String?) ?? '';
+        final saltExistente = (row['salt'] as String?) ?? '';
+        final jaTemSenha = hashExistente.isNotEmpty;
         final tipo = (row['tipo'] as String?) ?? 'humano';
+        final id = (row['id'] as num).toInt();
 
-        // Conta humana JÁ ativa (tem senha) ou registro de pet: não recria.
-        if (jaTemSenha || tipo != 'humano') {
-          return -1;
+        // Pet nunca autentica.
+        if (tipo != 'humano') return -1;
+
+        // FLUXO TRANSPARENTE (regra do Darlan): o usuário só preenche e ENTRA,
+        // sem precisar saber se já tinha conta nem ser mandado para o login.
+        if (jaTemSenha) {
+          // Conta já ativa: se a senha digitada confere, ENTRA (mesmo id);
+          // se não confere, devolve -2 (senha incorreta) — sem revelar nada.
+          final hashDigitado =
+              sha256.convert(utf8.encode(senha + saltExistente)).toString();
+          if (hashDigitado == hashExistente) {
+            print('[PessoaRepo] criarUsuario -> login transparente id=$id');
+            return id;
+          }
+          return -2; // e-mail existe, senha não confere
         }
 
-        // CONTATO PENDENTE (existe, humano, SEM senha): ATIVA a conta
-        // existente definindo a senha — sem SQL manual, sem e-mail. Mantém
-        // o MESMO id, então relacionamentos e compartilhamentos já criados
-        // continuam válidos (mapa e conteúdos aparecem ao entrar).
-        final id = (row['id'] as num).toInt();
+        // CONTATO PENDENTE (humano, SEM senha): ATIVA definindo a senha —
+        // sem SQL, sem e-mail. Mantém o MESMO id, então relacionamentos e
+        // compartilhamentos já criados aparecem ao entrar.
         final salt = _gerarSalt();
         final hash = sha256.convert(utf8.encode(senha + salt)).toString();
         final dados = <String, dynamic>{
@@ -718,20 +730,56 @@ class PessoaRepository {
   static Future<Pessoa?> obterPessoaDoMemorial(int memorialId) async {
     if (!isConfigured) return null;
     try {
-      final rows = await _supabase
+      // memorial_pessoas pode ter VÁRIAS pessoas (o falecido que o memorial
+      // representa + participantes). Antes usávamos .limit(1) sem ordem e
+      // pegávamos uma pessoa ARBITRÁRIA (bug: "Conectando Beatriz..." no
+      // memorial do Douglas). Agora escolhemos a pessoa que o memorial
+      // REPRESENTA: nome igual ao do memorial > falecida > primeira.
+      final memRows = await _supabase
+          .from('memoriais')
+          .select('nome')
+          .eq('id', memorialId)
+          .limit(1);
+      final memNome = memRows.isNotEmpty
+          ? ((memRows.first['nome'] as String?) ?? '').trim().toLowerCase()
+          : '';
+
+      final vinc = await _supabase
           .from('memorial_pessoas')
           .select('pessoa_id')
-          .eq('memorial_id', memorialId)
-          .limit(1);
-      if (rows.isEmpty || rows.first['pessoa_id'] == null) return null;
-      final pid = (rows.first['pessoa_id'] as num).toInt();
-      final p = await _supabase
+          .eq('memorial_id', memorialId);
+      if (vinc.isEmpty) return null;
+      final ids = vinc
+          .where((r) => r['pessoa_id'] != null)
+          .map<int>((r) => (r['pessoa_id'] as num).toInt())
+          .toList();
+      if (ids.isEmpty) return null;
+
+      final pRows = await _supabase
           .from('pessoas')
           .select('id, nome, sobrenome, tipo, falecido')
-          .eq('id', pid)
-          .limit(1);
-      if (p.isEmpty) return null;
-      return Pessoa.fromMap(p.first as Map<String, dynamic>);
+          .inFilter('id', ids);
+      if (pRows.isEmpty) return null;
+      final pessoas = pRows
+          .map((r) => Pessoa.fromMap(r as Map<String, dynamic>))
+          .where((p) => !p.isPet)
+          .toList();
+      if (pessoas.isEmpty) return null;
+
+      Pessoa? escolhida;
+      if (memNome.isNotEmpty) {
+        for (final p in pessoas) {
+          if (p.nome.trim().toLowerCase() == memNome) {
+            escolhida = p;
+            break;
+          }
+        }
+      }
+      escolhida ??= pessoas.firstWhere(
+        (p) => p.falecido,
+        orElse: () => pessoas.first,
+      );
+      return escolhida;
     } catch (_) {
       return null;
     }
