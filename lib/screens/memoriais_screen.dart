@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/memorial.dart';
+import '../models/pessoa.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import 'novo_memorial_screen.dart';
@@ -17,6 +18,7 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
   List<Memorial> _memoriais = [];
   Set<int> _memorialIdsPets = {};
   List<Memorial> _memoriaisColaborativos = [];
+  Map<int, String> _parentescoColaborativo = {};
   bool _carregando = false;
 
   @override
@@ -35,11 +37,22 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
       final lista = await _service.listarMemoriais();
       final colaborativos = await _service.listarMemoriaisColaborativos();
       final idsPets = await _service.listarMemorialIdsDePets();
+
+      // Resolve parentesco para memoriais colaborativos (batch)
+      final idsColab = colaborativos
+          .where((m) => m.id != null)
+          .map((m) => m.id!)
+          .toList();
+      final parentescoMap = idsColab.isNotEmpty
+          ? await PessoaRepository.parentescoMemoriaisColaborativos(idsColab)
+          : <int, String>{};
+
       if (mounted) {
         setState(() {
           _memoriais = lista;
           _memoriaisColaborativos = colaborativos;
           _memorialIdsPets = idsPets;
+          _parentescoColaborativo = parentescoMap;
         });
       }
       print('[PERF] tela=Memoriais pronta_em_ms=${sw.elapsedMilliseconds}');
@@ -245,14 +258,24 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          memorial.parentesco,
-                          style: const TextStyle(
-                            color: AppColors.dourado,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
+                        if (_parentescoColaborativo.containsKey(memorial.id))
+                          Text(
+                            _parentescoColaborativo[memorial.id]!,
+                            style: const TextStyle(
+                              color: AppColors.dourado,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          )
+                        else if (memorial.parentesco.isNotEmpty)
+                          Text(
+                            memorial.parentesco,
+                            style: const TextStyle(
+                              color: AppColors.dourado,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
                         const SizedBox(height: 6),
                         Row(
                           children: [

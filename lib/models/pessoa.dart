@@ -775,6 +775,128 @@ class PessoaRepository {
     }
   }
 
+  /// Resolve o parentesco de exibição para uma lista de memoriais colaborativos
+  /// (que o usuário logado NÃO é dono). Retorna mapa memorial_id → label.
+  ///
+  /// Para cada memorial, identifica a pessoa representada (mesma lógica de
+  /// `obterPessoaDoMemorial`) e busca o relacionamento entre o usuário logado
+  /// e essa pessoa em `pessoas_relacionamentos`. Se não houver relacionamento,
+  /// o memorial não aparece no mapa (sem label).
+  static Future<Map<int, String>> parentescoMemoriaisColaborativos(
+    List<int> memorialIds,
+  ) async {
+    final resultado = <int, String>{};
+    if (!isConfigured || memorialIds.isEmpty) return resultado;
+
+    try {
+      // 1) Nomes dos memoriais + pessoas vinculadas (2 queries)
+      final memRows = await _supabase
+          .from('memoriais')
+          .select('id, nome')
+          .inFilter('id', memorialIds);
+      final nomePorMemorial = <int, String>{};
+      for (final r in memRows) {
+        nomePorMemorial[(r['id'] as num).toInt()] =
+            (r['nome'] as String?)?.trim().toLowerCase() ?? '';
+      }
+
+      final mpRows = await _supabase
+          .from('memorial_pessoas')
+          .select('memorial_id, pessoa_id')
+          .inFilter('memorial_id', memorialIds);
+      if (mpRows.isEmpty) return resultado;
+
+      final todosPessoaIds = mpRows
+          .map<int>((r) => (r['pessoa_id'] as num).toInt())
+          .toSet()
+          .toList();
+
+      final pRows = await _supabase
+          .from('pessoas')
+          .select('id, nome, sobrenome, tipo, falecido')
+          .inFilter('id', todosPessoaIds);
+      final pessoasPorId = <int, Map<String, dynamic>>{};
+      for (final r in pRows) {
+        pessoasPorId[(r['id'] as num).toInt()] =
+            r as Map<String, dynamic>;
+      }
+
+      // 2) Para cada memorial, escolhe a pessoa representada
+      final pessoaPorMemorial = <int, int>{};
+      final pessoasDoMemorial = <int, List<int>>{};
+      for (final r in mpRows) {
+        final mId = (r['memorial_id'] as num).toInt();
+        final pId = (r['pessoa_id'] as num).toInt();
+        pessoasDoMemorial.putIfAbsent(mId, () => []).add(pId);
+      }
+
+      for (final mId in memorialIds) {
+        final pIds = pessoasDoMemorial[mId];
+        if (pIds == null || pIds.isEmpty) continue;
+        final memNome = nomePorMemorial[mId] ?? '';
+
+        // Filtra pets
+        final humanos = pIds
+            .where((id) => pessoasPorId[id]?['tipo'] != 'pet')
+            .toList();
+        if (humanos.isEmpty) continue;
+
+        int escolhida;
+        // Nome igual ao memorial > falecido > primeiro
+        if (memNome.isNotEmpty) {
+          final match = humanos.firstWhere(
+            (id) {
+              final p = pessoasPorId[id];
+              final nome = '${p?['nome'] ?? ''} ${p?['sobrenome'] ?? ''}'
+                  .trim()
+                  .toLowerCase();
+              return nome == memNome;
+            },
+            orElse: () => -1,
+          );
+          if (match > 0) {
+            escolhida = match;
+            pessoaPorMemorial[mId] = escolhida;
+            continue;
+          }
+        }
+        final falecido = humanos.firstWhere(
+          (id) => pessoasPorId[id]?['falecido'] == true,
+          orElse: () => humanos.first,
+        );
+        pessoaPorMemorial[mId] = falecido;
+      }
+
+      // 3) Relacionamentos do usuário logado com essas pessoas
+      final pessoaIds = pessoaPorMemorial.values.toSet().toList();
+      if (pessoaIds.isEmpty) return resultado;
+
+      final relRows = await _supabase
+          .from('pessoas_relacionamentos')
+          .select('pessoa_b_id, relacao_b_para_a')
+          .eq('pessoa_a_id', usuarioId)
+          .inFilter('pessoa_b_id', pessoaIds);
+      final relPorPessoa = <int, String>{};
+      for (final r in relRows) {
+        final pId = (r['pessoa_b_id'] as num).toInt();
+        final label = r['relacao_b_para_a'] as String?;
+        if (label != null && label.isNotEmpty) {
+          relPorPessoa[pId] = label;
+        }
+      }
+
+      for (final mId in memorialIds) {
+        final pId = pessoaPorMemorial[mId];
+        if (pId != null && relPorPessoa.containsKey(pId)) {
+          resultado[mId] = relPorPessoa[pId]!;
+        }
+      }
+    } catch (e) {
+      print('[PessoaRepo] parentescoMemoriaisColaborativos ERRO: $e');
+    }
+    return resultado;
+  }
+
   static Future<void> salvarUsuario(Map<String, dynamic> data) async {
     if (!isConfigured) return;
     try {
