@@ -35,6 +35,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
   Map<String, dynamic> _usuario = {};
   bool _carregando = true;
   bool _salvandoFoto = false;
+  bool _diagnosticoImportado = false;
 
   // Preferências e Segurança
   bool _notificacoes = true;
@@ -447,6 +448,12 @@ class _PerfilScreenState extends State<PerfilScreen> {
                     ExpansionTile(
                       tilePadding: EdgeInsets.zero,
                       childrenPadding: EdgeInsets.zero,
+                      onExpansionChanged: (_) {
+                        if (!_diagnosticoImportado) {
+                          _diagnosticoImportado = true;
+                          PushNotificationService.importarDiagnosticoNativo();
+                        }
+                      },
                       leading: const Icon(Icons.bug_report_outlined,
                           color: AppColors.dourado, size: 20),
                       title: const Text('Diagnóstico de notificações',
