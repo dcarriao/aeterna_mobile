@@ -12,7 +12,6 @@
 import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../firebase_options.dart';
 import '../models/pessoa.dart';
@@ -49,30 +48,6 @@ class PushNotificationService {
   /// (ex.: falha da consulta de vídeos em lote) registrem no MESMO painel
   /// visível do Perfil, sem expor _diag.
   static void registrarDiagnostico(String m) => _diag(m);
-
-  /// V2.2.3 — importa diagnóstico nativo do AppDelegate (APNs callbacks).
-  /// Chamado SOMENTE quando o painel de diagnóstico é aberto (Perfil),
-  /// NUNCA durante o startup. Timeout de 2s para nunca travar.
-  static const _shareChannel = MethodChannel('com.aeterna.app/share');
-  static Future<void> importarDiagnosticoNativo() async {
-    if (!Platform.isIOS) return;
-    try {
-      final linhas = await _shareChannel
-          .invokeMethod<List<dynamic>>('getPushDiagnostico')
-          .timeout(const Duration(seconds: 2), onTimeout: () => <dynamic>[]);
-      if (linhas != null) {
-        for (final l in linhas) {
-          final s = 'iOS: $l';
-          if (!diagnostico.contains(s)) diagnostico.add(s);
-        }
-        while (diagnostico.length > 30) {
-          diagnostico.removeAt(0);
-        }
-      }
-    } catch (e) {
-      _diag('getPushDiagnostico erro: $e');
-    }
-  }
 
   String? _currentToken;
   PushNavigationCallback? _navigationCallback;
@@ -125,28 +100,25 @@ class PushNotificationService {
       if (Platform.isIOS) {
         try {
           String? apns = await messaging.getAPNSToken();
-          _diag('apns_token(init)=${apns == null ? 'NULL' : 'ok(${apns.length}b)'}');
+          // O APNs token pode demorar alguns instantes após o registro.
           for (var i = 0; apns == null && i < 5; i++) {
             await Future.delayed(const Duration(seconds: 1));
             apns = await messaging.getAPNSToken();
           }
-          _diag('apns_token(final)=${apns == null ? 'NULL' : 'ok(${apns.length}b)'}');
+          _diag('apns_token(init)=${apns == null ? 'NULL' : 'ok'}');
         } catch (e) {
-          _diag('get_apns_error=$e');
+          _diag('apns_token(init) erro: $e');
         }
       }
 
       // Captura o token atual
-      try {
-        _currentToken = await messaging.getToken();
-        if (_currentToken != null) {
-          _diag('fcm_token=...${_currentToken!.substring(_currentToken!.length - 8)}');
-          await _salvarTokenSeLogado();
-        } else {
-          _diag('fcm_token=NULL');
-        }
-      } catch (e) {
-        _diag('get_fcm_error=$e');
+      _currentToken = await messaging.getToken();
+      if (_currentToken != null) {
+        print('[PUSH_TOKEN] Token FCM obtido: ...${_currentToken!.substring(_currentToken!.length - 8)}');
+        _diag('fcm_token=...${_currentToken!.substring(_currentToken!.length - 8)}');
+        await _salvarTokenSeLogado();
+      } else {
+        _diag('fcm_token(init)=NULL');
       }
 
       // Escuta renovação de token
