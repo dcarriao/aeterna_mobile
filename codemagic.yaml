@@ -52,22 +52,7 @@ workflows:
             --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY \
             --dart-define=OPENAI_API_KEY=$OPENAI_API_KEY
           xcode-project use-profiles --project ios/Runner.xcodeproj
-          # Garante CODE_SIGN_ENTITLEMENTS no Runner apos flutter build
-          PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
-          ruby -e "
-            lines = File.read('$PBXPROJ')
-            unless lines.include?('CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements')
-              content = File.read('$PBXPROJ')
-              content.gsub!(/INFOPLIST_FILE = Runner\/Info.plist;/) do |m|
-                \"CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;\n\t\t\t\t#{m}\"
-              end
-              File.write('$PBXPROJ', content)
-              puts 'OK: CODE_SIGN_ENTITLEMENTS injected'
-            else
-              puts 'OK: CODE_SIGN_ENTITLEMENTS ja presente'
-            end
-          "
-          grep -q 'CODE_SIGN_ENTITLEMENTS' "$PBXPROJ" && echo "OK: confirmado" || { echo "FATAL"; exit 1; }
+          # Primeiro o Xcodeproj gem (ENABLE_USER_SCRIPT_SANDBOXING)
           ruby -e "
             require 'xcodeproj'
             project = Xcodeproj::Project.open('ios/Runner.xcodeproj')
@@ -78,6 +63,21 @@ workflows:
             project.save
             puts 'ENABLE_USER_SCRIPT_SANDBOXING=NO applied to Runner target'
           "
+          # Depois injeta CODE_SIGN_ENTITLEMENTS (sem gem, preserva formato)
+          ruby -e "
+            pbx = 'ios/Runner.xcodeproj/project.pbxproj'
+            content = File.read(pbx)
+            unless content.include?('CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements')
+              content.gsub!(/INFOPLIST_FILE = Runner\\/Info.plist;/) { |m|
+                \"CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;\n\t\t\t\t#{m}\"
+              }
+              File.write(pbx, content)
+              puts 'OK: CODE_SIGN_ENTITLEMENTS injected'
+            else
+              puts 'OK: CODE_SIGN_ENTITLEMENTS ja presente'
+            end
+          "
+          grep -q 'CODE_SIGN_ENTITLEMENTS' ios/Runner.xcodeproj/project.pbxproj && echo "OK: confirmado" || { echo "FATAL"; exit 1; }
           ARCHIVE_PATH="build/ios/xcarchive/Runner.xcarchive"
           mkdir -p "$(dirname "$ARCHIVE_PATH")" /tmp/xcodebuild_logs
           set -o pipefail
