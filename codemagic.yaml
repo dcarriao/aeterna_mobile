@@ -113,8 +113,9 @@ workflows:
             2>&1 | tee /tmp/xcodebuild_logs/archive.log
 
           echo "=== Archive PlugIns (deve ter ShareExtension.appex) ==="
-          find "$ARCHIVE_PATH/Products/Applications" -type d -name '*.appex' 2>/dev/null | tee /tmp/xcodebuild_logs/archive_appex.txt
-          if ! find "$ARCHIVE_PATH/Products/Applications" -type d -name '*.appex' 2>/dev/null | grep -q '.'; then
+          find "$ARCHIVE_PATH/Products/Applications" -type d -name '*.appex' 2>/dev/null > /tmp/xcodebuild_logs/archive_appex.txt || true
+          cat /tmp/xcodebuild_logs/archive_appex.txt
+          if [ ! -s /tmp/xcodebuild_logs/archive_appex.txt ]; then
             echo "FATAL: archive sem .appex — ShareExtension nao foi embutida no Runner.app"
             echo "--- ultimas linhas do archive.log ---"
             tail -80 /tmp/xcodebuild_logs/archive.log || true
@@ -138,41 +139,43 @@ workflows:
             exit 1
           fi
           echo "Validating IPA: $IPA"
-          echo "=== IPA contents (PlugIns / appex) ==="
-          unzip -l "$IPA" | grep -E 'PlugIns|\.appex|Payload/' | head -40 || true
-          unzip -l "$IPA" | grep -q '\.appex/' && {
-            echo "OK: .appex found in IPA"
-            unzip -l "$IPA" | grep '\.appex/' | head -5
-          } || {
-            echo "FATAL: No .appex bundle found in IPA — Share Extension will not appear in share sheet!"
-            echo "Se o archive tinha .appex mas o IPA nao, o export_options.plist provavelmente nao mapeia o profile da extensao."
-            cat "$HOME/export_options.plist" || true
-            exit 1
-          }
-          unzip -p "$IPA" 'Payload/*.app/PlugIns/*.appex/Info.plist' 2>/dev/null | \
-            grep -q 'NSExtension' && {
-            echo "OK: NSExtension entry found in extension Info.plist"
-          } || {
-            echo "FATAL: NSExtension key missing from extension Info.plist"
-            exit 1
-          }
 
-          # --- Extrai IPA e audita entitlements / profile (roda no Mac do CI) ---
-          # Sem Mac local: o Darlan lê estes dumps nos artifacts/logs do Codemagic.
+          # Extrai primeiro — evita falso negativo de pipefail+grep -q no unzip -l
+          # (no build anterior o ShareExtension.appex ESTAVA no IPA e o grep falhou mesmo assim)
           WORK=/tmp/ipa_entitlements_check
           rm -rf "$WORK"
           mkdir -p "$WORK" /tmp/xcodebuild_logs
           unzip -q "$IPA" -d "$WORK"
+          unzip -l "$IPA" > /tmp/xcodebuild_logs/ipa_listing.txt
+          echo "=== IPA contents (PlugIns / appex) ==="
+          grep -E 'PlugIns|\.appex' /tmp/xcodebuild_logs/ipa_listing.txt | head -40 || true
+
           APP=$(find "$WORK/Payload" -maxdepth 1 -name '*.app' | head -1)
-          APEX=$(find "$APP/PlugIns" -maxdepth 1 -name '*.appex' 2>/dev/null | head -1)
           if [ -z "$APP" ]; then
             echo "FATAL: Runner .app nao encontrado no Payload"
             exit 1
           fi
+          APEX=$(find "$APP/PlugIns" -maxdepth 1 -name '*.appex' 2>/dev/null | head -1 || true)
           echo "APP=$APP"
           echo "APEX=${APEX:-<none>}"
 
-          # codesign escreve o plist direto em arquivo (mais confiavel que :- + redirect)
+          if [ -z "${APEX}" ]; then
+            echo "FATAL: No .appex bundle found in IPA — Share Extension will not appear in share sheet!"
+            echo "Se o archive tinha .appex mas o IPA nao, o export_options.plist provavelmente nao mapeia o profile da extensao."
+            cat "$HOME/export_options.plist" || true
+            exit 1
+          fi
+          echo "OK: .appex found in IPA: $APEX"
+
+          if grep -q 'NSExtension' "$APEX/Info.plist" 2>/dev/null; then
+            echo "OK: NSExtension entry found in extension Info.plist"
+          else
+            echo "FATAL: NSExtension key missing from extension Info.plist"
+            exit 1
+          fi
+
+          # --- Audita entitlements / profile (roda no Mac do CI) ---
+          # Sem Mac local: dumps nos artifacts/logs do Codemagic.
           codesign -d --entitlements=/tmp/xcodebuild_logs/runner_entitlements.plist "$APP" 2>/dev/null || true
           echo "=== Runner codesign entitlements ==="
           cat /tmp/xcodebuild_logs/runner_entitlements.plist 2>/dev/null || echo "(vazio)"
