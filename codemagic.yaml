@@ -89,7 +89,6 @@ workflows:
             DEVELOPMENT_TEAM=R2KU8Q68QG \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             CODE_SIGN_STYLE=Manual \
-            PROVISIONING_PROFILE_SPECIFIER="aeterna_appstore" \
             ENABLE_USER_SCRIPT_SANDBOXING=NO \
             2>&1 | tee /tmp/xcodebuild_logs/archive.log
           mkdir -p build/ios/ipa
