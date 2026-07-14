@@ -48,12 +48,28 @@ workflows:
 
       - name: Build IPA
         script: |
+          set -euo pipefail
           flutter build ios --release --no-codesign \
             --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY \
             --dart-define=OPENAI_API_KEY=$OPENAI_API_KEY
+
+          # flutter build pode regenerar o pbxproj e derrubar Embed App Extensions.
+          # SEMPRE revalida/repara ANTES do use-profiles (Xcodeproj gem depois corrompe o profile).
+          PBX=ios/Runner.xcodeproj/project.pbxproj
+          echo "=== Revalidando ShareExtension apos flutter build ==="
+          gem install xcodeproj
+          ruby ios/add_share_extension.rb
+          if ! grep -q 'ShareExtension.appex in Embed App Extensions' "$PBX"; then
+            echo "FATAL: ShareExtension.appex nao esta no Embed App Extensions apos reinjecao"
+            grep -n 'ShareExtension\|Embed App' "$PBX" | head -40 || true
+            exit 1
+          fi
+          echo "OK: ShareExtension.appex no Embed App Extensions"
+          grep -n 'SKIP_INSTALL' "$PBX" | head -10 || true
+
           xcode-project use-profiles --project ios/Runner.xcodeproj
-          # Injeta CODE_SIGN_ENTITLEMENTS e SANDBOXING sem Xcodeproj gem
-          # (a gem corrompe PROVISIONING_PROFILE_SPECIFIER setado pelo use-profiles)
+
+          # Injeta settings do Runner SEM Xcodeproj gem (protege PROVISIONING_PROFILE_SPECIFIER)
           ruby -e "
             pbx = 'ios/Runner.xcodeproj/project.pbxproj'
             content = File.read(pbx)
@@ -76,10 +92,14 @@ workflows:
             end
             File.write(pbx, content) if changed
           "
-          grep -q 'CODE_SIGN_ENTITLEMENTS' ios/Runner.xcodeproj/project.pbxproj && echo "OK: confirmado" || { echo "FATAL"; exit 1; }
+          grep -q 'CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements' "$PBX" && echo "OK: Runner entitlements confirmado" || { echo "FATAL: Runner CODE_SIGN_ENTITLEMENTS"; exit 1; }
+          grep -q 'ShareExtension.appex in Embed App Extensions' "$PBX" && echo "OK: embed confirmado apos patch" || { echo "FATAL: embed perdido apos patch"; exit 1; }
+
+          echo "=== export_options.plist ==="
+          cat "$HOME/export_options.plist" || true
+
           ARCHIVE_PATH="build/ios/xcarchive/Runner.xcarchive"
           mkdir -p "$(dirname "$ARCHIVE_PATH")" /tmp/xcodebuild_logs
-          set -o pipefail
           xcodebuild \
             -workspace ios/Runner.xcworkspace \
             -scheme Runner \
@@ -91,11 +111,23 @@ workflows:
             CODE_SIGN_STYLE=Manual \
             ENABLE_USER_SCRIPT_SANDBOXING=NO \
             2>&1 | tee /tmp/xcodebuild_logs/archive.log
+
+          echo "=== Archive PlugIns (deve ter ShareExtension.appex) ==="
+          find "$ARCHIVE_PATH/Products/Applications" -type d -name '*.appex' 2>/dev/null | tee /tmp/xcodebuild_logs/archive_appex.txt
+          if ! find "$ARCHIVE_PATH/Products/Applications" -type d -name '*.appex' 2>/dev/null | grep -q '.'; then
+            echo "FATAL: archive sem .appex — ShareExtension nao foi embutida no Runner.app"
+            echo "--- ultimas linhas do archive.log ---"
+            tail -80 /tmp/xcodebuild_logs/archive.log || true
+            exit 1
+          fi
+          echo "OK: .appex presente no archive"
+
           mkdir -p build/ios/ipa
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath build/ios/ipa \
-            -exportOptionsPlist "$HOME/export_options.plist"
+            -exportOptionsPlist "$HOME/export_options.plist" \
+            2>&1 | tee /tmp/xcodebuild_logs/export.log
 
       - name: Validate IPA Share Extension + entitlements (Push + App Group)
         script: |
@@ -106,11 +138,15 @@ workflows:
             exit 1
           fi
           echo "Validating IPA: $IPA"
+          echo "=== IPA contents (PlugIns / appex) ==="
+          unzip -l "$IPA" | grep -E 'PlugIns|\.appex|Payload/' | head -40 || true
           unzip -l "$IPA" | grep -q '\.appex/' && {
             echo "OK: .appex found in IPA"
             unzip -l "$IPA" | grep '\.appex/' | head -5
           } || {
             echo "FATAL: No .appex bundle found in IPA — Share Extension will not appear in share sheet!"
+            echo "Se o archive tinha .appex mas o IPA nao, o export_options.plist provavelmente nao mapeia o profile da extensao."
+            cat "$HOME/export_options.plist" || true
             exit 1
           }
           unzip -p "$IPA" 'Payload/*.app/PlugIns/*.appex/Info.plist' 2>/dev/null | \
