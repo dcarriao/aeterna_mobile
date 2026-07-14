@@ -113,22 +113,38 @@ class PushNotificationService {
       // App aberto ao tocar em notificação (app estava em BACKGROUND)
       FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpenedApp);
 
-      // Notificação que abriu o app a partir do estado TERMINADO
-      final initialMessage = await messaging.getInitialMessage();
-      if (initialMessage != null) {
-        print('[PUSH_OPEN] App iniciado via notificação: tipo=${initialMessage.data['tipo']}');
-        _invocarCallback(initialMessage.data);
+      // Notificação que abriu o app a partir do estado TERMINADO.
+      // Timeout: nunca bloquear runApp se o plugin não responder.
+      try {
+        final initialMessage = await messaging
+            .getInitialMessage()
+            .timeout(const Duration(seconds: 2));
+        if (initialMessage != null) {
+          print(
+              '[PUSH_OPEN] App iniciado via notificação: tipo=${initialMessage.data['tipo']}');
+          _invocarCallback(initialMessage.data);
+        }
+      } on TimeoutException {
+        _diag('getInitialMessage timeout');
       }
 
       _inicializado = true;
       print('[PUSH_TOKEN] Serviço inicializado com sucesso');
-
-      // Ordem correta: pedir registro APNs ANTES de esperar getAPNSToken.
-      // Sem await — não bloqueia runApp() / MethodChannel no caminho do main.
-      unawaited(_obterTokenAposRegistro());
+      // NÃO chamar MethodChannel / APNs wait aqui.
+      // main() ainda tem awaits (Supabase etc.) antes de runApp(); um
+      // unawaited com delay curto (ex. 300ms) dispara o canal ANTES da UI
+      // e pode travar em tela branca. Token: agendarAposUi() pós-runApp.
     } catch (e) {
       print('[PUSH_TOKEN] Erro ao inicializar: $e');
     }
+  }
+
+  /// Agenda obtenção de token APNs/FCM DEPOIS de runApp().
+  /// Chamar de main() logo após runApp — sem await. Nunca no initialize().
+  void agendarAposUi({Duration delay = const Duration(seconds: 3)}) {
+    Future.delayed(delay, () {
+      unawaited(_obterTokenAposRegistro());
+    });
   }
 
   /// Solicita registro APNs nativo → espera token APNs → obtém FCM → persiste.
@@ -165,13 +181,12 @@ class PushNotificationService {
 
   /// Pede ao AppDelegate que chame registerForRemoteNotifications.
   /// Timeout obrigatório — nunca travar se o canal não responder.
+  /// Só chamar depois da UI (agendarAposUi / salvarTokenParaUsuario).
   Future<void> _solicitarRegistroPushIos() async {
     try {
-      // Delay mínimo: deixa o engine/messenger estabilizar após runApp.
-      await Future.delayed(const Duration(milliseconds: 300));
       await _shareChannel
           .invokeMethod('requestPushRegistration')
-          .timeout(const Duration(seconds: 2));
+          .timeout(const Duration(seconds: 2), onTimeout: () => null);
       _diag('requestPushRegistration=ok');
     } catch (e) {
       _diag('requestPushRegistration erro: $e');

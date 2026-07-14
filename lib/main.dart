@@ -40,6 +40,9 @@ Future<void> main() async {
   await MemoryGrowthInvitationService.instance.inicializar();
   await MemoryGrowthInvitationService.instance.registrarVerificacaoPeriodica();
   runApp(const AeternaApp());
+  // Push APNs/FCM só depois da UI — nunca await MethodChannel antes de runApp
+  // (unawaited com delay curto dentro de initialize() causou tela branca).
+  PushNotificationService.instance.agendarAposUi();
 }
 
 class AeternaApp extends StatefulWidget {
