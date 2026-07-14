@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:supabase/supabase.dart';
@@ -267,13 +268,18 @@ class SupabaseService {
               ? 'video'
               : 'nenhum';
       final preview = fotoUrl ?? videoUrl;
-      print('[SHARED_MEDIA] memoria_id=$id '
+      final logTag = Platform.isAndroid ? 'SHARED_MEDIA_ANDROID' : 'SHARED_MEDIA';
+      final logMsg = '[$logTag] memoria_id=$id '
           'compartilhada_por=${info?['usuario_id'] ?? '?'} '
           'fotos=${fotoUrl != null ? 1 : 0} '
           'videos=${temVideo ? 1 : 0} '
-          'preview=${preview ?? "NULL"} '
-          'tipo_preview=$tipoPreview '
-          'erro=${(temVideo && videoUrl == null) ? "video_sem_url" : "null"}');
+          'foto_url=${fotoUrl ?? "NULL"} '
+          'video_url=${videoUrl ?? "NULL"} '
+          'thumbnail=NULL '
+          'renderer=$tipoPreview '
+          'erro=${(temVideo && videoUrl == null) ? "video_sem_url" : "null"}';
+      print(logMsg);
+      PushNotificationService.registrarDiagnostico(logMsg);
       return Memoria.fromMap(
         row,
         fotoUrl: fotoUrl,
