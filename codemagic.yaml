@@ -52,15 +52,20 @@ workflows:
             --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY \
             --dart-define=OPENAI_API_KEY=$OPENAI_API_KEY
           xcode-project use-profiles --project ios/Runner.xcodeproj
+          # V2.2.3 — garante CODE_SIGN_ENTITLEMENTS no target Runner
+          # apos flutter build, que pode sobrescrever o pbxproj.
           ruby -e "
             require 'xcodeproj'
             project = Xcodeproj::Project.open('ios/Runner.xcodeproj')
             project.targets.each do |t|
               next unless t.name == 'Runner'
-              t.build_configurations.each { |c| c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO' }
+              t.build_configurations.each do |c|
+                c.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'Runner/Runner.entitlements'
+                c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+              end
             end
             project.save
-            puts 'ENABLE_USER_SCRIPT_SANDBOXING=NO applied to Runner target'
+            puts 'Runner target: CODE_SIGN_ENTITLEMENTS + SANDBOXING applied'
           "
           ARCHIVE_PATH="build/ios/xcarchive/Runner.xcarchive"
           mkdir -p "$(dirname "$ARCHIVE_PATH")" /tmp/xcodebuild_logs
@@ -74,7 +79,6 @@ workflows:
             DEVELOPMENT_TEAM=R2KU8Q68QG \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_ENTITLEMENTS=Runner/Runner.entitlements \
             ENABLE_USER_SCRIPT_SANDBOXING=NO \
             2>&1 | tee /tmp/xcodebuild_logs/archive.log
           mkdir -p build/ios/ipa
