@@ -87,12 +87,15 @@ import UserNotifications
     }
 
     /// Consome o compartilhamento pendente mais antigo do App Group.
+    /// Copia para o temp do app ANTES de apagar o App Group — o Flutter
+    /// lê o path retornado; apagar antes fazia `File.exists()` falhar.
     func consumePendingShare() -> String? {
         let fm = FileManager.default
         guard let container = fm.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupId
         ) else {
             NSLog("[IOS_SHARE] APP: container do App Group NULO")
+            AppDelegate.diagPush("share: container App Group NULO")
             return nil
         }
         NSLog("[IOS_SHARE] APP: lendo pendencias em %@", container.path)
@@ -115,12 +118,39 @@ import UserNotifications
               let data = try? Data(contentsOf: manifestURL),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
               let filePath = json["file_path"]
-        else { return nil }
+        else {
+            return nil
+        }
+
+        let sourceListed = URL(fileURLWithPath: filePath)
+        let fileName = sourceListed.lastPathComponent
+        var sourceURL = sourceListed
+        if !fm.fileExists(atPath: sourceURL.path) {
+            let alt = container.appendingPathComponent(fileName)
+            if fm.fileExists(atPath: alt.path) {
+                sourceURL = alt
+            } else {
+                NSLog("[IOS_SHARE] APP: arquivo ausente %@", fileName)
+                AppDelegate.diagPush("share: arquivo_ausente \(fileName)")
+                try? fm.removeItem(at: manifestURL)
+                return nil
+            }
+        }
+
+        let dest = fm.temporaryDirectory.appendingPathComponent("aeterna_\(fileName)")
+        try? fm.removeItem(at: dest)
+        do {
+            try fm.copyItem(at: sourceURL, to: dest)
+        } catch {
+            NSLog("[IOS_SHARE] APP: copy falhou %@", error.localizedDescription)
+            AppDelegate.diagPush("share: copy_falhou \(error.localizedDescription)")
+            return nil
+        }
 
         try? fm.removeItem(at: manifestURL)
-        let imageName = URL(fileURLWithPath: filePath).lastPathComponent
-        try? fm.removeItem(at: container.appendingPathComponent(imageName))
-
-        return filePath
+        try? fm.removeItem(at: sourceURL)
+        AppDelegate.diagPush("share: pendencia_lida \(fileName)")
+        NSLog("[IOS_SHARE] APP: pendencia_lida -> %@", dest.path)
+        return dest.path
     }
 }

@@ -6,6 +6,7 @@ import '../models/pessoa_relacionamento.dart';
 import '../services/pessoa_relacionamento_service.dart';
 import '../services/pessoa_timeline_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pessoa_avatar.dart';
 import 'convites_screen.dart';
 import 'grafo_familia_screen.dart';
 import 'nova_pessoa_screen.dart';
@@ -28,7 +29,8 @@ class PessoasScreen extends StatefulWidget {
 
 class _PessoasScreenState extends State<PessoasScreen> {
   List<Pessoa> _pessoas = [];
-  Map<int, List<int>> _vinculos = {};
+  /// Contagem de memórias PUBLICADAS (`memorias.usuario_id`) — não aparições.
+  Map<int, int> _memoriasPublicadas = {};
   bool _carregando = true;
   List<PessoaSugerida> _sugestoes = const [];
   Map<int, String> _parentescoMap = {};
@@ -79,34 +81,34 @@ class _PessoasScreenState extends State<PessoasScreen> {
       // paraleliza sem alterar nenhuma regra funcional.
       final resultados = await Future.wait([
         PessoaRepository.listar(),
-        PessoaRepository.listarVinculos(),
         PessoaRelacionamentoService.instance
             .listarRelacionamentos(PessoaRepository.usuarioId),
         PessoaRepository.listarPessoasComMemorial(),
       ]);
       final pessoas = resultados[0] as List<Pessoa>;
-      final vinculos = resultados[1] as Map<int, List<int>>;
-      final rels = resultados[2] as List<OutraPessoaNaFamilia>;
-      final comMemorial = resultados[3] as Set<int>;
+      final rels = resultados[1] as List<OutraPessoaNaFamilia>;
+      final comMemorial = resultados[2] as Set<int>;
       final parentescoMap = <int, String>{};
       for (final r in rels) {
         parentescoMap[r.outraPessoaId] = r.rotuloDaOutraParaMim;
       }
+      // S.9.3: exclui o próprio usuário E pets (pets têm seção própria)
+      // S.9.3.2 — FALECIDO com memorial vive no memorial, não na lista.
+      final filtradas = pessoas
+          .where((p) =>
+              p.id != PessoaRepository.usuarioId &&
+              !p.isPet &&
+              !(p.falecido && comMemorial.contains(p.id)))
+          .toList();
+      // Ownership: só memórias que a pessoa PUBLICOU (não participações).
+      final counts = await PessoaRepository.contarMemoriasPublicadas(
+          filtradas.map((p) => p.id));
       print(
           '[PessoasScreen] _carregar() recebeu ${pessoas.length} pessoas. mounted=$mounted');
       if (mounted) {
         setState(() {
-          // S.9.3: exclui o próprio usuário E pets (pets têm seção própria)
-          // S.9.3.2 — FALECIDO com memorial vive no memorial, não na
-          // lista. (Correção: memorial_pessoas também tem colaboradores
-          // vivos — o filtro anterior escondia gente viva da lista.)
-          _pessoas = pessoas
-              .where((p) =>
-                  p.id != PessoaRepository.usuarioId &&
-                  !p.isPet &&
-                  !(p.falecido && comMemorial.contains(p.id)))
-              .toList();
-          _vinculos = vinculos;
+          _pessoas = filtradas;
+          _memoriasPublicadas = counts;
           _parentescoMap = parentescoMap;
           _carregando = false;
         });
@@ -139,9 +141,7 @@ class _PessoasScreenState extends State<PessoasScreen> {
     ).then((_) => _carregar());
   }
 
-  int _contarMemorias(int id) {
-    return _vinculos.entries.where((e) => e.value.contains(id)).length;
-  }
+  int _contarMemorias(int id) => _memoriasPublicadas[id] ?? 0;
 
   void _abrirConvites() {
     Navigator.of(context).push<void>(
@@ -408,15 +408,11 @@ class _PessoaCard extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                CircleAvatar(
+                PessoaAvatar(
                   radius: 30,
-                  backgroundColor: const Color(0xFFF0EAF5),
-                  backgroundImage: pessoa.fotoBytes != null
-                      ? MemoryImage(pessoa.fotoBytes!)
-                      : null,
-                  child: pessoa.fotoBytes == null
-                      ? const Icon(Icons.person, color: AppColors.roxo, size: 26)
-                      : null,
+                  fotoUrl: pessoa.fotoUrl,
+                  fotoBytes: pessoa.fotoBytes,
+                  falecido: pessoa.falecido,
                 ),
                 const SizedBox(width: 14),
                 Expanded(

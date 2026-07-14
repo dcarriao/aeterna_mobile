@@ -73,7 +73,11 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
     _verificarOnboarding();
     _carregarSessao();
     _configurarDeepLinks();
-    _verificarCompartilhamentoPendente();
+    // Delay + retries: canal iOS / escrita da Share Extension podem
+    // não estar prontos no primeiro frame do initState.
+    Future.delayed(const Duration(milliseconds: 400), () {
+      _verificarCompartilhamentoPendente(tentativas: 4);
+    });
   }
 
   @override
@@ -85,54 +89,74 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _verificarCompartilhamentoPendente();
+      _verificarCompartilhamentoPendente(tentativas: 4);
     }
   }
 
   /// Verifica compartilhamento pendente no Android (Intent) e no iOS (App Group).
-  /// Em ambas as plataformas a native side deleta a pendência após retornar o path.
-  Future<void> _verificarCompartilhamentoPendente() async {
-    try {
-      final String? path = await _shareChannel.invokeMethod('getSharedImage');
-      print('[FLUTTER_SHARE] payload_received=${path != null && path.isNotEmpty} path=$path');
-      if (path != null && path.isNotEmpty) {
-        _processarImagemCompartilhada(path);
-      } else {
-        // path null = sem compartilhamento pendente (NÃO prova App Group inacessível)
-        PushNotificationService.registrarDiagnostico('share: sem_pendencia');
+  /// Em ambas as plataformas a native side consome a pendência ao retornar o path.
+  Future<void> _verificarCompartilhamentoPendente({int tentativas = 1}) async {
+    for (var i = 0; i < tentativas; i++) {
+      try {
+        final String? path = await _shareChannel
+            .invokeMethod<String>('getSharedImage')
+            .timeout(const Duration(seconds: 2), onTimeout: () => null);
+        print(
+            '[FLUTTER_SHARE] tent=${i + 1}/$tentativas payload=${path != null && path.isNotEmpty} path=$path');
+        if (path != null && path.isNotEmpty) {
+          PushNotificationService.registrarDiagnostico('share: pendencia_lida');
+          await _processarImagemCompartilhada(path);
+          return;
+        }
+      } catch (e) {
+        print('[FLUTTER_SHARE] erro=$e');
+        PushNotificationService.registrarDiagnostico('share: erro=$e');
+        return;
       }
-    } catch (e) {
-      // Canal pode não estar implementado em plataformas sem suporte (ex: web).
-      print('[FLUTTER_SHARE] erro=$e');
-      PushNotificationService.registrarDiagnostico('share: erro=$e');
+      if (i < tentativas - 1) {
+        await Future.delayed(const Duration(milliseconds: 700));
+      }
     }
+    PushNotificationService.registrarDiagnostico('share: sem_pendencia');
   }
 
   Future<void> _processarImagemCompartilhada(String path) async {
     try {
       final file = File(path);
-      if (await file.exists()) {
-        final bytes = await file.readAsBytes();
-        final filename = path.split('/').last;
-        final isVideo = filename.endsWith('.mp4') ||
-            filename.endsWith('.mov') ||
-            filename.endsWith('.avi') ||
-            filename.endsWith('.mkv') ||
-            filename.endsWith('.webm');
-        _navigatorKey.currentState?.push(
-          MaterialPageRoute(
-            builder: (_) => NovaMemoriaScreen(
-              onSalvar: _service.salvarMemoriaComFoto,
-              fotoBytes: isVideo ? null : bytes,
-              fotoNome: isVideo ? null : filename,
-              videoBytes: isVideo ? bytes : null,
-              videoNome: isVideo ? filename : null,
-            ),
-          ),
-        );
+      if (!await file.exists()) {
+        print('[FLUTTER_SHARE] arquivo inexistente path=$path');
+        PushNotificationService.registrarDiagnostico(
+            'share: arquivo_inexistente');
+        return;
       }
+      final bytes = await file.readAsBytes();
+      final filename = path.split('/').last;
+      final lower = filename.toLowerCase();
+      final isVideo = lower.endsWith('.mp4') ||
+          lower.endsWith('.mov') ||
+          lower.endsWith('.avi') ||
+          lower.endsWith('.mkv') ||
+          lower.endsWith('.webm') ||
+          lower.endsWith('.m4v');
+      final nav = _navigatorKey.currentState;
+      if (nav == null) {
+        // Navigator ainda não pronto — tenta de novo em breve.
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      _navigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => NovaMemoriaScreen(
+            onSalvar: _service.salvarMemoriaComFoto,
+            fotoBytes: isVideo ? null : bytes,
+            fotoNome: isVideo ? null : filename,
+            videoBytes: isVideo ? bytes : null,
+            videoNome: isVideo ? filename : null,
+          ),
+        ),
+      );
     } catch (e) {
       print('[Share] Erro ao carregar imagem compartilhada: $e');
+      PushNotificationService.registrarDiagnostico('share: processar_erro=$e');
     }
   }
 

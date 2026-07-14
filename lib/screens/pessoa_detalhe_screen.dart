@@ -11,6 +11,7 @@ import '../services/pessoa_relacionamento_service.dart';
 import '../services/pessoa_timeline_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pessoa_avatar.dart';
 import 'adicionar_relacionamento_screen.dart';
 import 'memorial_detalhe_screen.dart';
 import 'nova_memoria_screen.dart';
@@ -252,24 +253,12 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                       children: [
                         // ── HEADER ──
                         Center(
-                          child: CircleAvatar(
+                          child: PessoaAvatar(
                             radius: 52,
-                            backgroundColor: const Color(0xFFF0EAF5),
-                            // S.9.3.1 — suporta foto por URL (Storage) além
-                            // de base64; fallback de pata para pets.
-                            backgroundImage: pessoa.fotoBytes != null
-                                ? MemoryImage(pessoa.fotoBytes!)
-                                : (pessoa.fotoUrl != null
-                                    ? NetworkImage(pessoa.fotoUrl!)
-                                        as ImageProvider
-                                    : null),
-                            child: (pessoa.fotoBytes == null &&
-                                    pessoa.fotoUrl == null)
-                                ? Icon(
-                                    pessoa.isPet ? Icons.pets : Icons.person,
-                                    size: 52,
-                                    color: AppColors.roxo)
-                                : null,
+                            fotoUrl: pessoa.fotoUrl,
+                            fotoBytes: pessoa.fotoBytes,
+                            falecido: pessoa.falecido,
+                            isPet: pessoa.isPet,
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -950,19 +939,10 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
       ),
       child: Row(
         children: [
-          CircleAvatar(
+          PessoaAvatar(
             radius: 16,
-            backgroundColor: const Color(0xFFF0EAF5),
-            backgroundImage:
-                f.fotoUrl != null ? NetworkImage(f.fotoUrl!) : null,
-            child: f.fotoUrl == null
-                ? Icon(
-                    (f.tipo == 'TUTOR' || f.tipo == 'PET_DE')
-                        ? Icons.pets
-                        : Icons.person,
-                    size: 16,
-                    color: AppColors.roxo)
-                : null,
+            fotoUrl: f.fotoUrl,
+            isPet: f.tipo == 'TUTOR' || f.tipo == 'PET_DE',
           ),
           const SizedBox(width: 12),
           Expanded(

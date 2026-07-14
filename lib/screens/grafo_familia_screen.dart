@@ -5,6 +5,7 @@ import '../models/memorial.dart';
 import '../services/pessoa_relacionamento_service.dart';
 import '../theme/app_theme.dart';
 import '../services/supabase_service.dart';
+import '../widgets/pessoa_avatar.dart';
 import 'memorial_detalhe_screen.dart';
 import 'pessoa_detalhe_screen.dart';
 
@@ -212,18 +213,12 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
                   ),
                   child: Row(
                     children: [
-                      CircleAvatar(
+                      PessoaAvatar(
                         radius: 20,
-                        backgroundColor: const Color(0xFFF0EAF5),
-                        backgroundImage: pet.fotoBytes != null
-                            ? MemoryImage(pet.fotoBytes!)
-                            : (pet.fotoUrl != null
-                                ? NetworkImage(pet.fotoUrl!) as ImageProvider
-                                : null),
-                        child: (pet.fotoBytes == null && pet.fotoUrl == null)
-                            ? const Icon(Icons.pets,
-                                size: 20, color: AppColors.dourado)
-                            : null,
+                        fotoUrl: pet.fotoUrl,
+                        fotoBytes: pet.fotoBytes,
+                        falecido: pet.falecido,
+                        isPet: true,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -441,23 +436,10 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
             ),
             child: Row(
               children: [
-                Container(
-                  width: 4,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: Colors.black87,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                CircleAvatar(
+                PessoaAvatar(
                   radius: 16,
-                  backgroundColor: const Color(0xFFF0EAF5),
-                  backgroundImage:
-                      m.fotoUrl != null ? NetworkImage(m.fotoUrl!) : null,
-                  child: m.fotoUrl == null
-                      ? const Icon(Icons.person, size: 16, color: AppColors.roxo)
-                      : null,
+                  fotoUrl: m.fotoUrl,
+                  falecido: true,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -534,25 +516,13 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
               border: Border.all(color: AppColors.borda),
             ),
             child: Row(
-              // S.9.4d — fita preta = tem memorial
               children: [
-                if (pessoa != null &&
-                    pessoa.falecido &&
-                    _memorialPorPessoa.containsKey(pessoa.id)) ...[
-                  Container(
-                    width: 4,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: Colors.black87,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                const CircleAvatar(
+                PessoaAvatar(
                   radius: 16,
-                  backgroundColor: Color(0xFFF0EAF5),
-                  child: Icon(Icons.person, size: 16, color: AppColors.roxo),
+                  fotoUrl: pessoa?.fotoUrl,
+                  fotoBytes: pessoa?.fotoBytes,
+                  falecido: pessoa?.falecido ?? false,
+                  isPet: pessoa?.isPet ?? false,
                 ),
                 const SizedBox(width: 10),
                 Expanded(

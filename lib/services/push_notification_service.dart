@@ -15,6 +15,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../firebase_options.dart';
 import '../models/pessoa.dart';
 
@@ -327,15 +328,38 @@ class PushNotificationService {
 
   Future<void> _salvarTokenSeLogado() async {
     if (_currentToken == null) return;
-    final uid = PessoaRepository.usuarioId;
-    if (uid <= 0) return;
+    final uid = await _pessoaIdSessaoAtiva();
+    if (uid == null) {
+      _diag('persistido=false (aguardando login real)');
+      return;
+    }
     await _salvarToken(_currentToken!);
+  }
+
+  /// Só persiste com o id da sessão restaurada/logada — nunca o default
+  /// legado `usuarioId=2` pré-login (FK push_dispositivos_pessoa_id_fkey).
+  Future<int?> _pessoaIdSessaoAtiva() async {
+    final uid = PessoaRepository.usuarioId;
+    if (uid <= 0) return null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final logado = prefs.getBool('is_logged_in') ?? false;
+      if (!logado) return null;
+      final sessionId = prefs.getInt('session_pessoa_id');
+      if (sessionId == null || sessionId != uid) return null;
+      return uid;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _salvarToken(String token) async {
     if (!PessoaRepository.isConfigured) return;
-    final pessoaId = PessoaRepository.usuarioId;
-    if (pessoaId <= 0) return;
+    final pessoaId = await _pessoaIdSessaoAtiva();
+    if (pessoaId == null) {
+      _diag('persistido=false (aguardando login real)');
+      return;
+    }
 
     try {
       final plataforma = Platform.isIOS ? 'ios' : 'android';

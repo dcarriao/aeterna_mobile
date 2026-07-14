@@ -10,6 +10,7 @@ import '../models/memoria_do_dia.dart';
 import '../models/memoria_relacionamento.dart';
 import '../models/pessoa.dart';
 import '../models/pessoa_linha_tempo.dart';
+import '../models/pessoa_relacionamento.dart';
 import '../models/proactive_opportunity.dart';
 import '../services/curator_decision_log_service.dart';
 import '../services/curator_invitation_scoring_service.dart';
@@ -25,6 +26,7 @@ import '../services/pessoa_timeline_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/memory_card.dart';
+import '../widgets/pessoa_avatar.dart';
 import '../widgets/home/curador_continuar_card.dart';
 import '../widgets/home/detected_moment_card.dart';
 import '../widgets/home/memoria_do_dia_card.dart';
@@ -257,28 +259,106 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _carregarPessoasVivas() async {
-    // S.9.3.2 — pets fora do card de pessoas da Home.
-    final resultadosPV = await Future.wait([
-      PessoaTimelineService.instance.obterPessoasRecentes(limite: 6),
-      PessoaRepository.listar(),
-    ]);
-    final idsPets = {
-      for (final p in (resultadosPV[1] as List<Pessoa>))
-        if (p.isPet) p.id,
-    };
-    final pessoas = (resultadosPV[0] as List<PessoaVivaResumo>)
-        .where((p) => !idsPets.contains(p.id))
-        .toList();
-    // Query oficial: pessoa_a_id = usuarioId → relacao_b_para_a
-    final contatos = await PessoaRelacionamentoService.instance
-        .listarContatos(pessoaId: PessoaRepository.usuarioId);
-    final parentescoMap = <int, String>{};
-    for (final c in contatos) {
-      final id = c['pessoa_b_id'] as int;
-      final rotulo = c['relacao_b_para_a'] as String? ?? '';
-      if (rotulo.isNotEmpty) parentescoMap[id] = rotulo;
+  /// Prioridade de exibição em "Pessoas importantes":
+  /// 1 companheiro/esposo · 2 filhos/enteados · 3 pai/mãe ·
+  /// 4 irmãos/avós · 5 amigos · 6 demais.
+  int _prioridadePessoaImportante(String tipo, String rotulo) {
+    final t = tipo.toUpperCase();
+    final r = rotulo.toLowerCase();
+    if (t == 'CONJUGE' ||
+        t == 'COMPANHEIRO' ||
+        r.contains('companheir') ||
+        r.contains('espos') ||
+        r.contains('marido') ||
+        r.contains('cônjuge') ||
+        r.contains('conjuge')) {
+      return 1;
     }
+    if (t == 'FILHO' ||
+        t == 'FILHA' ||
+        t == 'ENTEADO' ||
+        t == 'ENTEADA' ||
+        r.contains('filh') ||
+        r.contains('entead')) {
+      return 2;
+    }
+    if (t == 'PAI' ||
+        t == 'MAE' ||
+        t == 'PADRASTO' ||
+        t == 'MADRASTA' ||
+        r == 'pai' ||
+        r == 'mãe' ||
+        r == 'mae' ||
+        r.contains('padrast') ||
+        r.contains('madrast')) {
+      return 3;
+    }
+    if (t == 'IRMAO' ||
+        t == 'AVO' ||
+        t == 'NETO' ||
+        t == 'BISAVO' ||
+        t == 'BISNETO' ||
+        r.contains('irm') ||
+        r.contains('avô') ||
+        r.contains('avó') ||
+        r.contains('avo') ||
+        r.contains('neto') ||
+        r.contains('neta')) {
+      return 4;
+    }
+    if (t == 'AMIGO' || r.contains('amig')) return 5;
+    return 6;
+  }
+
+  Future<void> _carregarPessoasVivas() async {
+    // Ativos humanos (nunca pet/falecido), ordenados por proximidade
+    // familiar. Contagem = memórias que ELES publicaram (ownership).
+    final resultadosPV = await Future.wait([
+      PessoaRepository.listar(),
+      PessoaRelacionamentoService.instance
+          .listarRelacionamentos(PessoaRepository.usuarioId),
+    ]);
+    final todas = resultadosPV[0] as List<Pessoa>;
+    final rels = resultadosPV[1] as List<OutraPessoaNaFamilia>;
+    final parentescoMap = <int, String>{};
+    final tipoPorId = <int, String>{};
+    for (final r in rels) {
+      if (r.rotuloDaOutraParaMim.isNotEmpty) {
+        parentescoMap[r.outraPessoaId] = r.rotuloDaOutraParaMim;
+      }
+      if (r.tipo.isNotEmpty) tipoPorId[r.outraPessoaId] = r.tipo;
+    }
+
+    final elegiveis = todas
+        .where((p) =>
+            p.id != PessoaRepository.usuarioId &&
+            p.isHumano &&
+            !p.falecido &&
+            p.situacao == 'ativo')
+        .toList();
+    elegiveis.sort((a, b) {
+      final pa = _prioridadePessoaImportante(
+          tipoPorId[a.id] ?? '', parentescoMap[a.id] ?? a.parentesco);
+      final pb = _prioridadePessoaImportante(
+          tipoPorId[b.id] ?? '', parentescoMap[b.id] ?? b.parentesco);
+      if (pa != pb) return pa.compareTo(pb);
+      return a.nome.toLowerCase().compareTo(b.nome.toLowerCase());
+    });
+
+    final top = elegiveis.take(6).toList();
+    final counts =
+        await PessoaRepository.contarMemoriasPublicadas(top.map((p) => p.id));
+    final pessoas = top
+        .map((p) => PessoaVivaResumo(
+              id: p.id,
+              nome: p.nome,
+              parentesco: parentescoMap[p.id] ?? p.parentesco,
+              fotoUrl: p.fotoUrl,
+              ultimaInteracao: null,
+              totalEventos: counts[p.id] ?? 0,
+            ))
+        .toList();
+
     if (mounted) {
       setState(() {
         _pessoasVivas = pessoas;
@@ -289,11 +369,10 @@ class _HomeScreenState extends State<HomeScreen> {
     // se HOJE é aniversário de uma memória (tempo juntos).
     final resultado = <int, int>{};
     for (final p in pessoas) {
-      if (p.id == null) continue;
-      final r = await PessoaTimelineService.instance
-          .calcularAniversario(p.id!);
+      final r =
+          await PessoaTimelineService.instance.calcularAniversario(p.id);
       if (r.anos != null) {
-        resultado[p.id!] = r.anos!;
+        resultado[p.id] = r.anos!;
       }
     }
     if (mounted) {
@@ -524,7 +603,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Padding(
                     padding: EdgeInsets.only(left: 4, bottom: 12),
                     child: Text(
-                      'As pessoas da sua família que apareceram em memórias ou ganharam novas lembranças recentemente.',
+                      'Familiares ativos, ordenados por proximidade. O número é de memórias que cada um publicou.',
                       style: TextStyle(
                         color: Color(0xFF7A7280),
                         fontSize: 13,
@@ -561,7 +640,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   ..._pessoasVivas
-                      .where((p) => p.id != null && _aniversarioHoje.containsKey(p.id))
+                      .where((p) => _aniversarioHoje.containsKey(p.id))
                       .map((p) => _buildCardAniversario(p)),
                 ],
 
@@ -871,15 +950,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             child: Row(
               children: [
-                CircleAvatar(
+                PessoaAvatar(
                   radius: 24,
-                  backgroundColor: const Color(0xFFF0EAF5),
-                  backgroundImage: p.fotoUrl != null && p.fotoUrl!.isNotEmpty
-                      ? NetworkImage(p.fotoUrl!)
-                      : null,
-                  child: (p.fotoUrl == null || p.fotoUrl!.isEmpty)
-                      ? const Icon(Icons.person, color: AppColors.roxo, size: 22)
-                      : null,
+                  fotoUrl: p.fotoUrl,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -906,9 +979,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       const SizedBox(height: 4),
                       Text(
-                        p.ultimaInteracao == null
-                            ? 'Nenhuma memória'
-                            : 'Última memória ${p.ultimaInteracaoHumana}${p.totalEventos > 0 ? ' · ${p.totalEventos} ${p.totalEventos == 1 ? "registro" : "registros"}' : ''}',
+                        p.totalEventos == 0
+                            ? 'Nenhuma memória publicada'
+                            : '${p.totalEventos} ${p.totalEventos == 1 ? "memória" : "memórias"} publicadas',
                         style: const TextStyle(
                           color: Color(0xFF7A7280),
                           fontSize: 12,
@@ -1070,7 +1143,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${p.totalEventos} memórias e contribuições juntos${(_parentescoMap[p.id] ?? '').isNotEmpty ? ' · ${_parentescoMap[p.id]}' : ''}',
+                  '${p.totalEventos} ${p.totalEventos == 1 ? "memória" : "memórias"} publicadas'
+                  '${(_parentescoMap[p.id] ?? '').isNotEmpty ? ' · ${_parentescoMap[p.id]}' : ''}',
                   style: const TextStyle(
                     color: Color(0xFF7A7280),
                     fontSize: 12,

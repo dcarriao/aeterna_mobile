@@ -681,6 +681,7 @@ class PessoaRepository {
 
   /// IDs das memórias em que [pessoaId] é participante — query direta e
   /// filtrada (substitui listarVinculos() + filtro client-side, que é lento).
+  /// NÃO é patrimônio: aparição ≠ ownership (use [contarMemoriasPublicadas]).
   static Future<List<int>> listarMemoriasVinculadas(int pessoaId) async {
     if (!isConfigured) return [];
     try {
@@ -695,6 +696,31 @@ class PessoaRepository {
           .toList();
     } catch (_) {
       return [];
+    }
+  }
+
+  /// Contagem de memórias que cada pessoa PUBLICOU (`memorias.usuario_id`).
+  /// Participar/receber share NÃO conta. Pendente sem publicações → 0.
+  static Future<Map<int, int>> contarMemoriasPublicadas(
+      Iterable<int> pessoaIds) async {
+    if (!isConfigured) return {};
+    final ids = pessoaIds.where((id) => id > 0).toSet().toList();
+    if (ids.isEmpty) return {};
+    try {
+      final rows = await _supabase
+          .from('memorias')
+          .select('usuario_id')
+          .inFilter('usuario_id', ids);
+      final map = <int, int>{};
+      for (final r in rows) {
+        final uid = (r['usuario_id'] as num?)?.toInt();
+        if (uid == null) continue;
+        map[uid] = (map[uid] ?? 0) + 1;
+      }
+      return map;
+    } catch (e) {
+      print('[PessoaRepo] contarMemoriasPublicadas ERRO: $e');
+      return {};
     }
   }
 

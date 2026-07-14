@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/memoria.dart';
 import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
+import '../widgets/memory_card.dart';
 
 class TimelineScreen extends StatefulWidget {
   const TimelineScreen({
@@ -513,6 +514,19 @@ class _TimelineEvent extends StatelessWidget {
                               fit: BoxFit.cover,
                               errorBuilder: (_, _, _) => const SizedBox.shrink(),
                             ),
+                          ),
+                        )
+                      else if (memoria.temVideo && memoria.videoUrl != null)
+                        VideoFramePreview(
+                            url: memoria.videoUrl!, height: 180)
+                      else if (memoria.temVideo)
+                        Container(
+                          height: 180,
+                          width: double.infinity,
+                          color: const Color(0xFF2B1747),
+                          child: const Center(
+                            child: Icon(Icons.videocam_outlined,
+                                color: Colors.white38, size: 32),
                           ),
                         ),
                       Padding(

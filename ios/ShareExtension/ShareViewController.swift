@@ -54,15 +54,23 @@ class ShareViewController: UIViewController {
                     UTType.heic.identifier,
                     UTType.heif.identifier,
                 ]
+                let videoTypes = [
+                    UTType.movie.identifier,
+                    UTType.mpeg4Movie.identifier,
+                    UTType.quickTimeMovie.identifier,
+                    UTType.video.identifier,
+                ]
                 iosShareLog("uti=\(attachment.registeredTypeIdentifiers.joined(separator: ","))")
-                guard imageTypes.contains(where: { attachment.hasItemConformingToTypeIdentifier($0) })
-                else {
-                    iosShareLog("attachment ignorado (não conforma a imagem)")
+                let isImage = imageTypes.contains(where: { attachment.hasItemConformingToTypeIdentifier($0) })
+                let isVideo = videoTypes.contains(where: { attachment.hasItemConformingToTypeIdentifier($0) })
+                guard isImage || isVideo else {
+                    iosShareLog("attachment ignorado (não conforma a imagem/vídeo)")
                     continue
                 }
 
+                let typeId = isVideo ? UTType.movie.identifier : UTType.image.identifier
                 group.enter()
-                attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] data, error in
+                attachment.loadItem(forTypeIdentifier: typeId, options: nil) { [weak self] data, error in
                     defer { group.leave() }
                     if let error { iosShareLog("loadItem erro=\(error.localizedDescription)") }
                     guard let self, !self.salvou else { return }
@@ -71,11 +79,14 @@ class ShareViewController: UIViewController {
                     var filePath: String?
 
                     if let url = data as? URL {
-                        filePath = self.copyToAppGroup(url, shareId: shareId)
+                        filePath = self.copyToAppGroup(url, shareId: shareId, isVideo: isVideo)
                         iosShareLog("origem=URL copied_path=\(filePath ?? "FALHOU")")
                     } else if let image = data as? UIImage {
                         filePath = self.saveImageToAppGroup(image, shareId: shareId)
                         iosShareLog("origem=UIImage copied_path=\(filePath ?? "FALHOU")")
+                    } else if let raw = data as? Data {
+                        filePath = self.saveDataToAppGroup(raw, shareId: shareId, isVideo: isVideo)
+                        iosShareLog("origem=Data copied_path=\(filePath ?? "FALHOU")")
                     } else {
                         iosShareLog("origem=tipo inesperado \(String(describing: data))")
                     }
@@ -109,12 +120,28 @@ class ShareViewController: UIViewController {
     }
 
     /// Copia um arquivo de URL já existente para o App Group.
-    private func copyToAppGroup(_ url: URL, shareId: String) -> String? {
+    private func copyToAppGroup(_ url: URL, shareId: String, isVideo: Bool = false) -> String? {
         guard let container = containerURL() else { return nil }
-        let dest = container.appendingPathComponent("share_\(shareId).jpg")
+        let ext = isVideo
+            ? (url.pathExtension.isEmpty ? "mp4" : url.pathExtension.lowercased())
+            : "jpg"
+        let dest = container.appendingPathComponent("share_\(shareId).\(ext)")
         try? FileManager.default.removeItem(at: dest)
-        try? FileManager.default.copyItem(at: url, to: dest)
-        return dest.path
+        do {
+            try FileManager.default.copyItem(at: url, to: dest)
+            return dest.path
+        } catch {
+            // File provider / Photos às vezes exige security-scoped access.
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            do {
+                try FileManager.default.copyItem(at: url, to: dest)
+                return dest.path
+            } catch {
+                iosShareLog("copyItem falhou: \(error.localizedDescription)")
+                return nil
+            }
+        }
     }
 
     /// Comprime e salva um UIImage diretamente no App Group.
@@ -125,6 +152,20 @@ class ShareViewController: UIViewController {
         try? FileManager.default.removeItem(at: dest)
         try? jpegData.write(to: dest)
         return dest.path
+    }
+
+    private func saveDataToAppGroup(_ data: Data, shareId: String, isVideo: Bool) -> String? {
+        guard let container = containerURL() else { return nil }
+        let dest = container.appendingPathComponent(
+            "share_\(shareId).\(isVideo ? "mp4" : "jpg")")
+        try? FileManager.default.removeItem(at: dest)
+        do {
+            try data.write(to: dest)
+            return dest.path
+        } catch {
+            iosShareLog("saveData falhou: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// Grava um manifesto JSON individual por compartilhamento.

@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 
 import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pessoa_avatar.dart';
 import 'nova_pet_screen.dart';
 import 'pessoa_detalhe_screen.dart';
 
@@ -207,21 +208,12 @@ class _PetCard extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                // Avatar
-                CircleAvatar(
+                PessoaAvatar(
                   radius: 30,
-                  backgroundColor: const Color(0xFFF0EAF5),
-                  // S.9.3.1 — a foto do pet é salva como URL do Storage;
-                  // antes só base64 era exibido e a foto "não aparecia".
-                  backgroundImage: pet.fotoBytes != null
-                      ? MemoryImage(pet.fotoBytes!)
-                      : (pet.fotoUrl != null
-                          ? NetworkImage(pet.fotoUrl!) as ImageProvider
-                          : null),
-                  child: (pet.fotoBytes == null && pet.fotoUrl == null)
-                      ? const Icon(Icons.pets,
-                          color: AppColors.dourado, size: 26)
-                      : null,
+                  fotoUrl: pet.fotoUrl,
+                  fotoBytes: pet.fotoBytes,
+                  falecido: pet.falecido,
+                  isPet: true,
                 ),
                 const SizedBox(width: 14),
                 Expanded(

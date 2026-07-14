@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:video_player/video_player.dart';
 
 import '../models/memoria.dart';
 import '../theme/app_theme.dart';
@@ -22,7 +23,6 @@ class MemoryCard extends StatefulWidget {
 }
 
 class _MemoryCardState extends State<MemoryCard> {
-
   @override
   Widget build(BuildContext context) {
     final m = widget.memoria;
@@ -40,7 +40,7 @@ class _MemoryCardState extends State<MemoryCard> {
         'fotos=${m.fotoUrl != null ? 1 : 0} '
         'videos=${m.temVideo ? 1 : 0} '
         'video_url=${m.videoUrl ?? "NULL"} '
-        'thumbnail=NULL '
+        'thumbnail=${m.temVideo && m.videoUrl != null ? "video_player" : "NULL"} '
         'renderer=$renderer');
 
     return GestureDetector(
@@ -88,7 +88,7 @@ class _MemoryCardState extends State<MemoryCard> {
             else if (m.fotoUrl != null)
               _buildFotoNetwork(m.fotoUrl!)
             else if (m.temVideo && m.videoUrl != null)
-              _buildVideoPreview()
+              VideoFramePreview(url: m.videoUrl!, height: 200)
             else if (m.temVideo)
               _buildVideoSemUrl()
             else
@@ -159,45 +159,6 @@ class _MemoryCardState extends State<MemoryCard> {
     );
   }
 
-  Widget _buildVideoPreview() {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
-      child: SizedBox(
-        height: 200,
-        width: double.infinity,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFF3D1D6A), Color(0xFF1A0A2E)],
-                ),
-              ),
-            ),
-            Center(
-              child: Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: Colors.black45,
-                  borderRadius: BorderRadius.circular(28),
-                ),
-                child: const Icon(
-                  Icons.play_arrow_rounded,
-                  color: Colors.white,
-                  size: 36,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildVideoSemUrl() {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
@@ -215,6 +176,108 @@ class _MemoryCardState extends State<MemoryCard> {
                   style: TextStyle(color: Colors.white38, fontSize: 12)),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Preview de vídeo sem `video_thumbnail` (quebrado no Gradle 9):
+/// carrega o primeiro frame via [video_player] e pausa.
+class VideoFramePreview extends StatefulWidget {
+  const VideoFramePreview({
+    required this.url,
+    this.height = 200,
+    super.key,
+  });
+
+  final String url;
+  final double height;
+
+  @override
+  State<VideoFramePreview> createState() => _VideoFramePreviewState();
+}
+
+class _VideoFramePreviewState extends State<VideoFramePreview> {
+  VideoPlayerController? _ctrl;
+  bool _erro = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _iniciar();
+  }
+
+  Future<void> _iniciar() async {
+    try {
+      final c = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+      await c.initialize();
+      await c.seekTo(Duration.zero);
+      await c.pause();
+      if (!mounted) {
+        await c.dispose();
+        return;
+      }
+      setState(() => _ctrl = c);
+    } catch (e) {
+      print('[HOME_MEDIA] video_preview erro=$e url=${widget.url}');
+      if (mounted) setState(() => _erro = true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+      child: SizedBox(
+        height: widget.height,
+        width: double.infinity,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (_ctrl != null && _ctrl!.value.isInitialized)
+              FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: _ctrl!.value.size.width,
+                  height: _ctrl!.value.size.height,
+                  child: VideoPlayer(_ctrl!),
+                ),
+              )
+            else if (_erro)
+              Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF3D1D6A), Color(0xFF1A0A2E)],
+                  ),
+                ),
+              )
+            else
+              Container(color: const Color(0xFFF0EAF5)),
+            Center(
+              child: Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.black45,
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                child: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 36,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
