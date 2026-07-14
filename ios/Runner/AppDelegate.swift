@@ -7,53 +7,13 @@ import UserNotifications
 
     private let appGroupId = "group.com.aeterna.app"
 
-    // MARK: — Push diagnóstico nativo (visível via MethodChannel, sem travar startup)
-
-    static var pushDiagnosticoNativo: [String] = []
-    private static func diagPush(_ msg: String) {
-        let linha = "\(ISO8601DateFormatter().string(from: Date())) \(msg)"
-        pushDiagnosticoNativo.append(linha)
-        if pushDiagnosticoNativo.count > 20 { pushDiagnosticoNativo.removeFirst() }
-        NSLog("[PUSH_IOS_NATIVE] %@", msg)
-    }
-
     override func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-        let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
-
-        // S.2.2.3 — registro explícito: swizzling do Firebase pode não funcionar
-        // com FlutterAppDelegate + FlutterImplicitEngineDelegate.
-        // Chamado APÓS super para o engine Flutter já estar configurado.
-        Self.diagPush("registerForRemoteNotifications chamado")
-        application.registerForRemoteNotifications()
-
-        return result
+        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
-
-    // MARK: — APNs callbacks (com super para manter swizzling do Firebase)
-
-    override func application(
-        _ application: UIApplication,
-        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
-    ) {
-        let tokenStr = deviceToken.map { String(format: "%02x", $0) }.joined()
-        let parcial = String(tokenStr.prefix(8))
-        Self.diagPush("didRegister APNs ok token=\(parcial)...")
-        super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
-    }
-
-    override func application(
-        _ application: UIApplication,
-        didFailToRegisterForRemoteNotificationsWithError error: Error
-    ) {
-        Self.diagPush("didFail APNs: \(error.localizedDescription)")
-        super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
-    }
-
-    // MARK: — Implicit engine
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
@@ -72,27 +32,26 @@ import UserNotifications
         channel.setMethodCallHandler { [weak self] call, result in
             if call.method == "getSharedImage" {
                 let path = self?.consumePendingShare()
-                NSLog("[IOS_SHARE] getSharedImage -> %@", path ?? "nil (sem pendência)")
+                NSLog("[IOS_SHARE] getSharedImage -> %@", path ?? "nil (sem pendencia)")
                 result(path)
-            } else if call.method == "getPushDiagnostico" {
-                result(Self.pushDiagnosticoNativo)
             } else {
                 result(FlutterMethodNotImplemented)
             }
         }
     }
 
-    // MARK: — Share
-
+    /// Consome o compartilhamento pendente mais antigo do App Group.
+    /// Deleta o manifesto JSON e a imagem apos leitura.
+    /// Retorna o caminho do arquivo de imagem, ou nil se nao houver pendencias.
     func consumePendingShare() -> String? {
         let fm = FileManager.default
         guard let container = fm.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupId
         ) else {
-            NSLog("[IOS_SHARE] APP: container do App Group NULO — o profile do app não inclui group.com.aeterna.app")
+            NSLog("[IOS_SHARE] APP: container do App Group NULO — o profile do app nao inclui group.com.aeterna.app")
             return nil
         }
-        NSLog("[IOS_SHARE] APP: lendo pendências em %@", container.path)
+        NSLog("[IOS_SHARE] APP: lendo pendencias em %@", container.path)
 
         guard let contents = try? fm.contentsOfDirectory(
             at: container,
