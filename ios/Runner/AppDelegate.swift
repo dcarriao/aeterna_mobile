@@ -12,7 +12,16 @@ import UserNotifications
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+        let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+
+        // V2.2.3 — registro APNs atrasado: evita conflito com swizzling
+        // do Firebase durante o didFinishLaunchingWithOptions (causa tela branca).
+        // Disparado 1s após o launch, quando runApp() já completou.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            application.registerForRemoteNotifications()
+        }
+
+        return result
     }
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
