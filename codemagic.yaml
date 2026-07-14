@@ -52,6 +52,22 @@ workflows:
             --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY \
             --dart-define=OPENAI_API_KEY=$OPENAI_API_KEY
           xcode-project use-profiles --project ios/Runner.xcodeproj
+          # Garante CODE_SIGN_ENTITLEMENTS no Runner apos flutter build
+          PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
+          ruby -e "
+            lines = File.read('$PBXPROJ')
+            unless lines.include?('CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements')
+              content = File.read('$PBXPROJ')
+              content.gsub!(/INFOPLIST_FILE = Runner\/Info.plist;/) do |m|
+                \"CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;\n\t\t\t\t#{m}\"
+              end
+              File.write('$PBXPROJ', content)
+              puts 'OK: CODE_SIGN_ENTITLEMENTS injected'
+            else
+              puts 'OK: CODE_SIGN_ENTITLEMENTS ja presente'
+            end
+          "
+          grep -q 'CODE_SIGN_ENTITLEMENTS' "$PBXPROJ" && echo "OK: confirmado" || { echo "FATAL"; exit 1; }
           ruby -e "
             require 'xcodeproj'
             project = Xcodeproj::Project.open('ios/Runner.xcodeproj')
