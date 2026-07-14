@@ -12,6 +12,7 @@
 import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../firebase_options.dart';
 import '../models/pessoa.dart';
@@ -143,6 +144,19 @@ class PushNotificationService {
 
       _inicializado = true;
       print('[PUSH_TOKEN] Serviço inicializado com sucesso');
+
+      // V2.2.3 — dispara registro APNs pelo MethodChannel, após engine pronto.
+      // Chamar registerForRemoteNotifications() diretamente no AppDelegate
+      // causa tela branca; pelo canal, com o engine já rodando, é seguro.
+      Future.delayed(const Duration(seconds: 3), () async {
+        try {
+          const channel = MethodChannel('com.aeterna.app/share');
+          await channel.invokeMethod('requestPushRegistration');
+          print('[PUSH_TOKEN] requestPushRegistration enviado ao native');
+        } catch (e) {
+          print('[PUSH_TOKEN] requestPushRegistration erro: $e');
+        }
+      });
     } catch (e) {
       print('[PUSH_TOKEN] Erro ao inicializar: $e');
     }

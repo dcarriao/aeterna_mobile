@@ -34,6 +34,11 @@ import UserNotifications
                 let path = self?.consumePendingShare()
                 NSLog("[IOS_SHARE] getSharedImage -> %@", path ?? "nil (sem pendencia)")
                 result(path)
+            } else if call.method == "requestPushRegistration" {
+                DispatchQueue.main.async {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+                result(true)
             } else {
                 result(FlutterMethodNotImplemented)
             }
@@ -41,14 +46,12 @@ import UserNotifications
     }
 
     /// Consome o compartilhamento pendente mais antigo do App Group.
-    /// Deleta o manifesto JSON e a imagem apos leitura.
-    /// Retorna o caminho do arquivo de imagem, ou nil se nao houver pendencias.
     func consumePendingShare() -> String? {
         let fm = FileManager.default
         guard let container = fm.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupId
         ) else {
-            NSLog("[IOS_SHARE] APP: container do App Group NULO — o profile do app nao inclui group.com.aeterna.app")
+            NSLog("[IOS_SHARE] APP: container do App Group NULO")
             return nil
         }
         NSLog("[IOS_SHARE] APP: lendo pendencias em %@", container.path)
