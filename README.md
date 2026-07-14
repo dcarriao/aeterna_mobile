@@ -1,51 +1,82 @@
 # aEterna Mobile
 
-MVP Flutter para captura rápida de memórias vivas.
+App Flutter do **aEterna** — produto de memórias familiares (pessoas, pets, timeline, memoriais e compartilhamentos).
 
-## Executar em modo local
+Complementa o site Streamlit. Ambos usam o **mesmo projeto Supabase**.
 
-Sem a chave pública, o app continua funcionando durante a sessão e identifica
-claramente o modo local:
+| | |
+|---|---|
+| Bundle | `br.com.aeternalegado.app` |
+| iOS | Codemagic → TestFlight |
+| Android | AAB → Google Play |
 
-```powershell
-D:\flutter\bin\flutter.bat run -d chrome
+## Stack
+
+Flutter (Dart), Supabase (`supabase` Dart), Firebase Cloud Messaging, `photo_manager`, `image_picker`, `video_player`, `app_links`, `workmanager`, `local_auth`, entre outros (ver `pubspec.yaml`).
+
+No iOS há Share Extension e push via APNs/FCM. No Android, o app aceita compartilhamento de foto/vídeo via intent.
+
+## Estrutura
+
+```
+lib/
+  main.dart          # bootstrap
+  models/            # entidades + PessoaRepository
+  screens/           # telas
+  services/          # Supabase, push, curador, timeline, etc.
+  widgets/           # UI reutilizável
+supabase/            # scripts SQL por sprint (migrations / policies)
+ios/                 # Runner + Share Extension
+android/             # app Android
+codemagic.yaml       # CI iOS TestFlight
 ```
 
-## Executar com Supabase
+## Rodar localmente
 
-Use somente a chave pública `anon`. Nunca use `service_role` no aplicativo.
-A URL do projeto já está configurada no serviço.
+Requisitos: [Flutter](https://docs.flutter.dev/get-started/install) estável, dispositivo/emulador iOS ou Android (ou Chrome para smoke test).
 
-```powershell
-D:\flutter\bin\flutter.bat run -d chrome `
+```bash
+flutter pub get
+```
+
+Sem chave, o app sobe em modo limitado (sem backend):
+
+```bash
+flutter run
+```
+
+Com Supabase (use **somente** a chave pública `anon`):
+
+```bash
+flutter run \
   --dart-define=SUPABASE_ANON_KEY=SUA_CHAVE_PUBLICA_ANON
 ```
 
-Também é possível substituir a URL:
+Opcionais:
 
-```powershell
---dart-define=SUPABASE_URL=https://zfpvfljmnlgsqiqdxmka.supabase.co
+```bash
+--dart-define=SUPABASE_URL=https://SEU_PROJETO.supabase.co
+--dart-define=OPENAI_API_KEY=SUA_CHAVE   # curador / IA
 ```
 
-O serviço usa temporariamente `usuario_id = 2`, com um `TODO` explícito para
-substituição pelo usuário autenticado.
+No Windows (PowerShell), o equivalente usa `` ` `` para quebra de linha ou passe tudo numa linha.
 
-## Fluxo de gravação
+## Repositório público — não commitar segredos
 
-1. Insere em `memorias`.
-2. Envia a imagem ao bucket público `fotos`, quando houver.
-3. Insere os metadados em `fotos`.
-4. Cria o vínculo em `memoria_fotos`.
-5. Abre `Minha História` e lista os dados do Supabase.
+Este repositório é **público**.
 
-As políticas RLS precisam permitir `select`, `insert` e a eventual limpeza de
-rollback para o usuário temporário. O bucket precisa permitir upload com a
-chave pública usada no MVP.
+- Nunca versionar `service_role`, chaves OpenAI, tokens Codemagic, `.env` com segredos, nem provisioning profiles.
+- `SUPABASE_ANON_KEY` e `OPENAI_API_KEY` entram só via `--dart-define` (local) ou secrets do CI (Codemagic) — **não** hardcoded no código.
+- No app, use apenas a chave **anon**. A `service_role` não pertence ao cliente mobile.
+- Prefira `git add` com lista explícita de arquivos; evite `git add -A`.
 
-O SQL temporário do MVP está em:
+## Contribuição rápida
 
-`supabase/mvp_anon_policies.sql`
+1. `flutter pub get`
+2. Rodar com `--dart-define=SUPABASE_ANON_KEY=...` apontando ao mesmo Supabase do site.
+3. `flutter analyze` antes de abrir PR / disparar build.
+4. Builds de distribuição (TestFlight / Play) compilam do **GitHub** — commit + push antes do CI.
 
-Ele deve ser revisado e executado no SQL Editor do Supabase. Essas políticas
-são apenas para o protótipo sem login e devem ser removidas quando o Supabase
-Auth for implementado.
+## Licença / publicação
+
+`publish_to: 'none'` no `pubspec.yaml` — pacote não destinado ao pub.dev.
