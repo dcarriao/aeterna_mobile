@@ -74,6 +74,7 @@ workflows:
             DEVELOPMENT_TEAM=R2KU8Q68QG \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_ENTITLEMENTS=Runner/Runner.entitlements \
             ENABLE_USER_SCRIPT_SANDBOXING=NO \
             2>&1 | tee /tmp/xcodebuild_logs/archive.log
           mkdir -p build/ios/ipa
@@ -81,6 +82,30 @@ workflows:
             -archivePath "$ARCHIVE_PATH" \
             -exportPath build/ios/ipa \
             -exportOptionsPlist "$HOME/export_options.plist"
+
+      - name: Validate entitlements in IPA
+        script: |
+          IPA=$(ls build/ios/ipa/*.ipa 2>/dev/null | head -1)
+          if [ -z "$IPA" ]; then
+            echo "FATAL: No IPA found"
+            exit 1
+          fi
+          TEMPDIR=$(mktemp -d)
+          unzip -q "$IPA" -d "$TEMPDIR"
+          APP=$(find "$TEMPDIR/Payload" -name "*.app" -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "FATAL: No .app in IPA"
+            rm -rf "$TEMPDIR"
+            exit 1
+          fi
+          echo "=== Entitlements efetivos do app ==="
+          codesign -d --entitlements - "$APP" 2>/dev/null | grep -E 'aps-environment|application-groups' || echo "FATAL: entitlements NAO encontrados no binario!"
+          echo "=== Provisioning profile embedded ==="
+          ls -la "$APP/embedded.mobileprovision" 2>/dev/null || echo "ERRO: profile nao embedded"
+          echo "=== Capabilities no profile ==="
+          security cms -D -i "$APP/embedded.mobileprovision" 2>/dev/null | grep -A1 -E 'aps-environment|com.apple.security.application-groups' || echo "ERRO: capabilities nao encontradas no profile!"
+          rm -rf "$TEMPDIR"
+          echo "Entitlements validation complete."
 
       - name: Validate IPA contains Share Extension .appex
         script: |
