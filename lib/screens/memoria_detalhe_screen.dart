@@ -152,6 +152,10 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
             fotoUrl: _memoria.fotoUrl,
             video: _memoria.video,
             videoUrl: videoUrl,
+            // Preservar temVideo: rebuild sem ele (default false) apagava
+            // o vídeo na Home/Timeline ao voltar do detalhe (pop(_memoria)).
+            temVideo: _memoria.temVideo ||
+                (videoUrl != null && videoUrl.isNotEmpty),
             pessoasIds: partIds,
             isCompartilhada: famIds.isNotEmpty,
             familiaresIds: famIds,

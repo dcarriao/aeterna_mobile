@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -530,9 +531,31 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
 
   Future<void> _salvar() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_salvando) return;
 
     setState(() => _salvando = true);
     try {
+      await _executarSalvar().timeout(
+        const Duration(seconds: 90),
+        onTimeout: () {
+          throw TimeoutException(
+            'O salvamento demorou demais. Verifique a conexão e tente de novo.',
+          );
+        },
+      );
+    } catch (erro) {
+      if (!mounted) return;
+      setState(() => _salvando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_mensagemDeErro(erro)),
+          action: SnackBarAction(label: 'Tentar novamente', onPressed: _salvar),
+        ),
+      );
+    }
+  }
+
+  Future<void> _executarSalvar() async {
       if (widget._editando && widget.onEditar != null) {
         final m = widget.memoria!;
         final rascunho = MemoriaRascunho(
@@ -614,6 +637,9 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
             dataMemoria: _dataMemoria,
             video: _videoBytes ?? (_videoRemovido ? null : m.video),
             videoUrl: novoVideoUrl,
+            temVideo: novoVideoUrl != null ||
+                (_videoBytes != null) ||
+                (m.temVideo && !_videoRemovido),
           );
           Navigator.of(context).pop(atualizada);
         }
@@ -706,6 +732,7 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
           dataMemoria: _dataMemoria,
           video: _videoBytes,
           videoUrl: criadoVideoUrl,
+          temVideo: criadoVideoUrl != null || _videoBytes != null,
         );
         // S.9.3.2 (Item 5) — CAUSA DA TELA PRETA: após este pop, a
         // execução CONTINUAVA e chegava ao pop() de fallback logo
@@ -731,19 +758,13 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
       // construção de finalMemoria não chegou a rodar, devolve só o
       // rascunho para que a navegação continue funcionando.
       Navigator.of(context).pop(memoria);
-    } catch (erro) {
-      if (!mounted) return;
-      setState(() => _salvando = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_mensagemDeErro(erro)),
-          action: SnackBarAction(label: 'Tentar novamente', onPressed: _salvar),
-        ),
-      );
-    }
   }
 
   String _mensagemDeErro(Object erro) {
+    if (erro is TimeoutException) {
+      return erro.message ??
+          'O salvamento demorou demais. Tente novamente.';
+    }
     if (erro is PostgrestException && erro.code == '42501') {
       return 'O Supabase bloqueou a gravação. Configure as políticas RLS do MVP.';
     }
@@ -753,6 +774,9 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
     }
     // Mostra erro real para diagnóstico
     final msg = erro.toString();
+    if (msg.contains('TimeoutException') || msg.contains('demorou demais')) {
+      return 'O salvamento demorou demais. Verifique a conexão e tente de novo.';
+    }
     if (msg.contains('unique') || msg.contains('duplicate')) {
       return 'Registro duplicado. Verifique se já existe.';
     }

@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:supabase/supabase.dart';
 
 import 'convite_familiar.dart';
+import 'memoria.dart';
 
 class Pessoa {
   Pessoa({
@@ -606,8 +607,9 @@ class PessoaRepository {
       });
 
       return publicUrl;
-    } catch (_) {
-      return null;
+    } catch (e) {
+      print('[PessoaRepo] uploadVideoMemoria ERRO: $e');
+      rethrow;
     }
   }
 
@@ -696,6 +698,52 @@ class PessoaRepository {
           .toList();
     } catch (_) {
       return [];
+    }
+  }
+
+  /// Busca uma memória por id (com foto/vídeo). Usado quando o id vem do
+  /// perfil/pet e NÃO está na lista em memória da Home — evita o fallback
+  /// errado para a primeira memória da lista (ex.: "Gol no Morumbi").
+  static Future<Memoria?> obterMemoriaPorId(int memoriaId) async {
+    if (!isConfigured || memoriaId <= 0) return null;
+    try {
+      final rows = await _supabase
+          .from('memorias')
+          .select(
+              'id, titulo, conteudo, categoria, data_criacao, data_evento, usuario_id')
+          .eq('id', memoriaId)
+          .limit(1);
+      if (rows.isEmpty) return null;
+      final row = rows.first as Map<String, dynamic>;
+
+      String? fotoUrl;
+      final vinculosFoto = await _supabase
+          .from('memoria_fotos')
+          .select('foto_id')
+          .eq('memoria_id', memoriaId)
+          .limit(1);
+      if (vinculosFoto.isNotEmpty) {
+        final fotoId = (vinculosFoto.first['foto_id'] as num).toInt();
+        final fotos = await _supabase
+            .from('fotos')
+            .select('caminho_arquivo')
+            .eq('id', fotoId)
+            .limit(1);
+        if (fotos.isNotEmpty) {
+          fotoUrl = fotos.first['caminho_arquivo'] as String?;
+        }
+      }
+
+      final videoUrl = await obterVideoDaMemoria(memoriaId);
+      return Memoria.fromMap(
+        row,
+        fotoUrl: fotoUrl,
+        videoUrl: videoUrl,
+        temVideo: videoUrl != null && videoUrl.isNotEmpty,
+      );
+    } catch (e) {
+      print('[PessoaRepo] obterMemoriaPorId($memoriaId) ERRO: $e');
+      return null;
     }
   }
 

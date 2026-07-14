@@ -304,11 +304,13 @@ class _CuradorScreenState extends State<CuradorScreen> {
 
   Future<void> _persistirPerguntaIA(String pergunta, bool deveEncerrar) async {
     final sessaoId = _sessaoId!;
+    // IA respondeu com despedida mas sem ENCERRAR:sim — trata como fim.
+    final encerrar = deveEncerrar || _ehDespedidaDaIa(pergunta);
     await _sessaoService.adicionarMensagem(
       sessaoId: sessaoId,
       role: CuradorMensagemRole.assistant,
       conteudo: pergunta,
-      tipo: deveEncerrar
+      tipo: encerrar
           ? CuradorMensagemTipo.finalizacao
           : CuradorMensagemTipo.pergunta,
     );
@@ -320,25 +322,89 @@ class _CuradorScreenState extends State<CuradorScreen> {
         role: CuradorMensagemRole.assistant,
         conteudo: pergunta,
         ordem: ordem,
-        tipo: deveEncerrar
+        tipo: encerrar
             ? CuradorMensagemTipo.finalizacao
             : CuradorMensagemTipo.pergunta,
       ));
       _perguntaAtual = pergunta;
-      _deveEncerrar = deveEncerrar;
+      _deveEncerrar = encerrar;
       _carregandoPergunta = false;
     });
+    // Despedida da IA → abre preview imediatamente (sem esperar outro "tchau").
+    if (encerrar && _ehDespedidaDaIa(pergunta)) {
+      await _confirmarEncerramento();
+    }
+  }
+
+  /// Usuário quer terminar (Tchau / Termina / Ok / …) — encerra de verdade
+  /// em vez de mandar outra despedida da IA (loop infinito).
+  bool _ehIntencaoEncerrar(String texto) {
+    final t = texto
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[!.?,;:]+$'), '')
+        .trim();
+    if (t.isEmpty) return false;
+    const exatos = {
+      'tchau',
+      'adeus',
+      'ate logo',
+      'até logo',
+      'ate mais',
+      'até mais',
+      'encerrar',
+      'terminar',
+      'termina',
+      'fim',
+      'ok',
+      'okay',
+      'certo',
+      'nao',
+      'não',
+      'nao obrigado',
+      'não obrigado',
+      'pode encerrar',
+      'pode terminar',
+      'chega',
+      'ja deu',
+      'já deu',
+      'pronto',
+      'feito',
+      'sair',
+    };
+    if (exatos.contains(t)) return true;
+    if (RegExp(r'^(tchau|adeus|até logo|ate logo)\b').hasMatch(t)) {
+      return true;
+    }
+    if (RegExp(r'\b(pode encerrar|pode terminar|encerrar|terminar)\b')
+        .hasMatch(t)) {
+      return true;
+    }
+    return false;
+  }
+
+  bool _ehDespedidaDaIa(String texto) {
+    final t = texto.trim().toLowerCase();
+    if (t.isEmpty) return false;
+    return RegExp(
+      r'\b(tchau|adeus|até logo|ate logo|até a próxima|ate a proxima|'
+      r'cuide-se|cuidese|foi um prazer|obrigad[oa] por compartilhar|'
+      r'até breve|ate breve)\b',
+    ).hasMatch(t);
   }
 
   Future<void> _responder(String texto) async {
     final sessaoId = _sessaoId!;
     final ordem = _historico.length + 1;
+    final intencaoEncerrar = _ehIntencaoEncerrar(texto);
     final msg = CuradorMensagem(
       sessaoId: sessaoId,
       role: CuradorMensagemRole.user,
       conteudo: texto,
       ordem: ordem,
-      tipo: CuradorMensagemTipo.resposta,
+      tipo: intencaoEncerrar
+          ? CuradorMensagemTipo.fechamento
+          : CuradorMensagemTipo.resposta,
     );
     setState(() {
       _historico.add(msg);
@@ -349,16 +415,18 @@ class _CuradorScreenState extends State<CuradorScreen> {
       sessaoId: sessaoId,
       role: CuradorMensagemRole.user,
       conteudo: texto,
-      tipo: CuradorMensagemTipo.resposta,
+      tipo: intencaoEncerrar
+          ? CuradorMensagemTipo.fechamento
+          : CuradorMensagemTipo.resposta,
     );
 
-    // Se a IA sinalizou que a conversa tem material suficiente,
-    // mostramos a pergunta de confirmação ao usuário.
-    if (_deveEncerrar) {
-      setState(() => _solicitandoFinalizacao = true);
-    } else {
-      await _gerarProximaPergunta();
+    // Farewell do usuário OU IA já pediu encerrar → vai para preview,
+    // NÃO gera mais uma pergunta/despedida (evita loop "Tchau!").
+    if (intencaoEncerrar || _deveEncerrar) {
+      await _confirmarEncerramento();
+      return;
     }
+    await _gerarProximaPergunta();
   }
 
   Future<void> _confirmarEncerramento() async {

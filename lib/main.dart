@@ -143,7 +143,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
         // Navigator ainda não pronto — tenta de novo em breve.
         await Future.delayed(const Duration(milliseconds: 500));
       }
-      _navigatorKey.currentState?.push(
+      final resultado =
+          await _navigatorKey.currentState?.push<Memoria>(
         MaterialPageRoute(
           builder: (_) => NovaMemoriaScreen(
             onSalvar: _service.salvarMemoriaComFoto,
@@ -154,6 +155,9 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
           ),
         ),
       );
+      if (resultado != null && mounted) {
+        setState(() => _memorias.insert(0, resultado));
+      }
     } catch (e) {
       print('[Share] Erro ao carregar imagem compartilhada: $e');
       PushNotificationService.registrarDiagnostico('share: processar_erro=$e');
@@ -418,7 +422,30 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       setState(() {
         final index = _memorias.indexWhere((m) => m.id == resultado.id);
         if (index >= 0) {
-          _memorias[index] = resultado;
+          final prev = _memorias[index];
+          // Nunca perder videoUrl/temVideo ao voltar do detalhe (rebuild
+          // incompleto no detalhe corrompia o cache da Home/Timeline).
+          _memorias[index] = Memoria(
+            id: resultado.id,
+            titulo: resultado.titulo,
+            contexto: resultado.contexto,
+            categoria: resultado.categoria,
+            criadaEm: resultado.criadaEm,
+            foto: resultado.foto ?? prev.foto,
+            fotoUrl: resultado.fotoUrl ?? prev.fotoUrl,
+            video: resultado.video ?? prev.video,
+            videoUrl: resultado.videoUrl ?? prev.videoUrl,
+            temVideo: resultado.temVideo ||
+                prev.temVideo ||
+                (resultado.videoUrl ?? prev.videoUrl) != null,
+            pessoasIds: resultado.pessoasIds ?? prev.pessoasIds,
+            isCompartilhada: resultado.isCompartilhada,
+            familiaresIds: resultado.familiaresIds ?? prev.familiaresIds,
+            dataMemoria: resultado.dataMemoria ?? prev.dataMemoria,
+            donoUsuarioId: resultado.donoUsuarioId ?? prev.donoUsuarioId,
+            compartilhadaPorNome:
+                resultado.compartilhadaPorNome ?? prev.compartilhadaPorNome,
+          );
         }
       });
     }
@@ -465,13 +492,7 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
             for (final m in _memorias.where((m) => m.id != null))
               m.id!: m.titulo,
           },
-          onAbrirMemoria: (memoriaId) {
-            final memoria = _memorias.firstWhere(
-              (m) => m.id == memoriaId,
-              orElse: () => _memorias.first,
-            );
-            _abrirDetalhe(context, memoria);
-          },
+          onAbrirMemoria: (memoriaId) => _abrirMemoriaPorId(context, memoriaId),
         ),
       ),
     );
@@ -485,16 +506,32 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
             for (final m in _memorias.where((m) => m.id != null))
               m.id!: m.titulo,
           },
-          onAbrirMemoria: (memoriaId) {
-            final memoria = _memorias.firstWhere(
-              (m) => m.id == memoriaId,
-              orElse: () => _memorias.first,
-            );
-            _abrirDetalhe(context, memoria);
-          },
+          onAbrirMemoria: (memoriaId) => _abrirMemoriaPorId(context, memoriaId),
         ),
       ),
     );
+  }
+
+  /// Abre memória pelo id do perfil/pet. NÃO usa `orElse: first` — isso
+  /// abria "Gol no Morumbi" (primeira da Home) quando o id do pet não
+  /// estava em `_memorias` e ainda corrompia o cache ao voltar.
+  Future<void> _abrirMemoriaPorId(BuildContext context, int memoriaId) async {
+    Memoria? memoria;
+    for (final m in _memorias) {
+      if (m.id == memoriaId) {
+        memoria = m;
+        break;
+      }
+    }
+    memoria ??= await PessoaRepository.obterMemoriaPorId(memoriaId);
+    if (!context.mounted) return;
+    if (memoria == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível abrir esta memória.')),
+      );
+      return;
+    }
+    await _abrirDetalhe(context, memoria);
   }
 
   void _abrirPerfil(BuildContext context) async {

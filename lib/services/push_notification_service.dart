@@ -40,6 +40,10 @@ class PushNotificationService {
 
   bool _inicializado = false;
   bool _obtendoToken = false;
+  /// Completer da obtenção de token em curso — quem chama enquanto
+  /// `_obtendoToken` espera o mesmo Future em vez de sair cedo (race
+  /// login × agendarAposUi deixava persistido=false com token ainda null).
+  Completer<void>? _obtendoTokenCompleter;
 
   /// S.9.4c — trilha de diagnóstico visível na tela Perfil (iPhone sem
   /// Mac não tem Console; isto substitui).
@@ -150,8 +154,15 @@ class PushNotificationService {
 
   /// Solicita registro APNs nativo → espera token APNs → obtém FCM → persiste.
   Future<void> _obterTokenAposRegistro() async {
-    if (_obtendoToken) return;
+    if (_obtendoToken) {
+      // Aguarda a obtenção em curso (não abortar — evita race com login).
+      final emCurso = _obtendoTokenCompleter;
+      if (emCurso != null) await emCurso.future;
+      return;
+    }
     _obtendoToken = true;
+    final completer = Completer<void>();
+    _obtendoTokenCompleter = completer;
     try {
       if (Platform.isIOS) {
         await _solicitarRegistroPushIos();
@@ -177,6 +188,10 @@ class PushNotificationService {
       _diag('obterToken erro: $e');
     } finally {
       _obtendoToken = false;
+      if (!completer.isCompleted) completer.complete();
+      if (_obtendoTokenCompleter == completer) {
+        _obtendoTokenCompleter = null;
+      }
     }
   }
 
@@ -289,9 +304,11 @@ class PushNotificationService {
   /// Chamado após login, restore de sessão e token refresh.
   Future<void> salvarTokenParaUsuario() async {
     // Mesma ordem do init: registrar APNs → esperar token → FCM → persistir.
+    // Se outra chamada já está obtendo o token, espera ela terminar.
     if (_currentToken == null) {
       await _obterTokenAposRegistro();
     }
+    // Re-checa sessão DEPOIS de await (pode ter logado enquanto APNs aguardava).
     if (_currentToken != null) {
       await _salvarToken(_currentToken!);
     } else {
