@@ -278,7 +278,8 @@ create trigger trg_push_convite_familiar
 -- ============================================================================
 -- Evento : AFTER INSERT em conteudo_permissoes
 -- Destino: NEW.pessoa_id (já é pessoas.id desde Sprint S.5.1)
--- Guard  : NEW.tipo = 'compartilhamento'
+-- Guard  : NEW.papel = 'compartilhado'  (NÃO existe coluna `tipo` nesta tabela;
+--          valor errado antigo era 'compartilhamento' — corrigido em S.9.3.2)
 
 create or replace function public.tg_push_memoria_compartilhada()
 returns trigger
@@ -287,11 +288,20 @@ as $$
 declare
     v_titulo_conteudo text;
 begin
-    if NEW.tipo is distinct from 'compartilhamento' then
+    -- Participante aparece na memória; só 'compartilhado' recebe push.
+    if NEW.papel is distinct from 'compartilhado' then
         return NEW;
     end if;
 
     if NEW.pessoa_id is null then
+        return NEW;
+    end if;
+
+    -- Pet nunca recebe notificação/push.
+    if exists (
+        select 1 from public.pessoas p
+        where p.id = NEW.pessoa_id and p.tipo = 'pet'
+    ) then
         return NEW;
     end if;
 

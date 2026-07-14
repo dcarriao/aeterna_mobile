@@ -1155,8 +1155,24 @@ class PessoaRepository {
   static Future<void> salvarCompartilhamento(
     int memoriaId,
     List<int> familiaresIds,
-  ) =>
-      _salvarPermissoes(memoriaId, familiaresIds, 'compartilhado');
+  ) async {
+    await _salvarPermissoes(memoriaId, familiaresIds, 'compartilhado');
+    // Trigger DB cria `notificacoes`; o app dispara send-push como fallback
+    // se o Database Webhook do Dashboard não estiver configurado.
+    if (familiaresIds.isNotEmpty && _pushDispatch != null) {
+      try {
+        await _pushDispatch!(familiaresIds);
+      } catch (_) {}
+    }
+  }
+
+  /// Registrado em `main.dart` após o bootstrap (evita import circular
+  /// pessoa.dart ↔ push_notification_service.dart).
+  static Future<void> Function(List<int> pessoaIds)? _pushDispatch;
+
+  static void setPushDispatch(Future<void> Function(List<int>) fn) {
+    _pushDispatch = fn;
+  }
 
   static Future<List<int>> obterFamiliaresDaMemoria(int? memoriaId) async {
     // S.9.3.2 — compartilhados têm papel próprio; não confundir com

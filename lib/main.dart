@@ -43,6 +43,11 @@ Future<void> main() async {
   // Push APNs/FCM só depois da UI — nunca await MethodChannel antes de runApp
   // (unawaited com delay curto dentro de initialize() causou tela branca).
   PushNotificationService.instance.agendarAposUi();
+  // Fallback de entrega: após compartilhar memória, o app invoca send-push
+  // se o Database Webhook não existir. Nunca no caminho antes do runApp.
+  PessoaRepository.setPushDispatch(
+    (ids) => PushNotificationService.instance.dispararPendentesParaPessoas(ids),
+  );
 }
 
 class AeternaApp extends StatefulWidget {

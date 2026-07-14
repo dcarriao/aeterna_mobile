@@ -1,19 +1,22 @@
 // supabase/functions/send-push/index.ts
 // Sprint S.9.2 — Push Notifications Transacionais
 //
-// Chamada via Database Webhook quando um registro é inserido em `notificacoes`.
-// Payload recebido: { type: "INSERT", table: "notificacoes", record: { ... }, schema: "public" }
+// Duas formas de chamada:
+//   A) Database Webhook (INSERT em `notificacoes`):
+//      { type: "INSERT", table: "notificacoes", record: { ... }, schema: "public" }
+//   B) Dispatch direto (app / teste SQL):
+//      { notificacao_id: <bigint> }
 //
 // Fluxo:
-//   1. Valida payload do webhook
+//   1. Resolve a linha em `notificacoes`
 //   2. Busca tokens ativos em push_dispositivos para o pessoa_id
 //   3. Obtém access_token do FCM via OAuth2 JWT (RS256) com FIREBASE_SERVICE_ACCOUNT_JSON
-//   4. Envia mensagem FCM HTTP v1 para cada token
+//   4. Envia mensagem FCM HTTP v1 para cada token (APNs priority 10)
 //   5. Atualiza notificacoes (enviada, enviada_at, tentativas, erro_envio)
 //   6. Desativa tokens inválidos via RPC desativar_token_invalido
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const FCM_PROJECT_ID = 'aeterna-94450';
 const FCM_SCOPE      = 'https://www.googleapis.com/auth/firebase.messaging';
@@ -30,10 +33,11 @@ const INVALID_TOKEN_CODES = new Set([
 // ---------------------------------------------------------------------------
 
 interface WebhookPayload {
-  type:   'INSERT' | 'UPDATE' | 'DELETE';
-  table:  string;
-  schema: string;
-  record: NotificacaoRecord;
+  type?:   'INSERT' | 'UPDATE' | 'DELETE';
+  table?:  string;
+  schema?: string;
+  record?: NotificacaoRecord;
+  notificacao_id?: number;
 }
 
 interface NotificacaoRecord {
@@ -47,6 +51,7 @@ interface NotificacaoRecord {
   conteudo_tipo: string | null;
   enviada:       boolean;
   tentativas:    number;
+  erro_envio?:   string | null;
 }
 
 interface PushDispositivo {
@@ -66,103 +71,137 @@ serve(async (req: Request) => {
 
     const payload: WebhookPayload = await req.json();
 
-    // Só processa INSERT em notificacoes
-    if (payload.type !== 'INSERT' || payload.table !== 'notificacoes') {
-      return new Response('ignored', { status: 200 });
-    }
-
-    const notif = payload.record;
-
-    // Não reprocessar se já foi enviada
-    if (notif.enviada) {
-      return new Response('already sent', { status: 200 });
-    }
-
     const supabaseUrl        = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey     = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const serviceAccountJson = Deno.env.get('FIREBASE_SERVICE_ACCOUNT_JSON');
 
     if (!serviceAccountJson) {
       console.error('[PUSH] FIREBASE_SERVICE_ACCOUNT_JSON não configurado');
-      return new Response('missing firebase config', { status: 500 });
+      return new Response(
+        JSON.stringify({
+          error: 'missing firebase config',
+          hint: 'Supabase → Edge Functions → Secrets → FIREBASE_SERVICE_ACCOUNT_JSON (JSON da service account Firebase com private_key)',
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      );
     }
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    // 1. Busca tokens ativos para o destinatário
-    const { data: dispositivos, error: errTokens } = await supabase
-      .from('push_dispositivos')
-      .select('token, plataforma')
-      .eq('pessoa_id', notif.pessoa_id)
-      .eq('ativo', true);
+    // Resolve a notificação: webhook INSERT ou dispatch { notificacao_id }
+    let notif: NotificacaoRecord | null = null;
 
-    if (errTokens) {
-      console.error('[PUSH] Erro ao buscar tokens:', errTokens.message);
-      await marcarErro(supabase, notif.id, errTokens.message, notif.tentativas);
-      return new Response('error fetching tokens', { status: 500 });
-    }
-
-    if (!dispositivos || dispositivos.length === 0) {
-      console.log(`[PUSH] Nenhum token ativo para pessoa_id=${notif.pessoa_id}`);
-      await marcarEnviada(supabase, notif.id, notif.tentativas);
-      return new Response('no active tokens', { status: 200 });
-    }
-
-    // 2. Obtém access_token do FCM
-    let accessToken: string;
-    try {
-      accessToken = await getFcmAccessToken(serviceAccountJson);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('[PUSH] Erro ao obter token FCM:', msg);
-      await marcarErro(supabase, notif.id, `FCM auth: ${msg}`, notif.tentativas);
-      return new Response('fcm auth error', { status: 500 });
-    }
-
-    // 3. Envia para cada token
-    const erros: string[] = [];
-    let enviouPeloMenos = false;
-
-    for (const disp of dispositivos as PushDispositivo[]) {
-      const result = await enviarFcm(accessToken, disp.token, {
-        titulo:        notif.titulo,
-        corpo:         notif.corpo,
-        dados:         notif.dados ?? {},
-        notificacaoId: notif.id,
-      });
-
-      if (result.ok) {
-        enviouPeloMenos = true;
-        console.log(`[PUSH] Enviado para token ...${disp.token.slice(-8)}`);
-      } else {
-        console.warn(`[PUSH] Falha token ...${disp.token.slice(-8)}: ${result.error}`);
-        erros.push(result.error ?? 'unknown');
-
-        if (result.invalidToken) {
-          await supabase.rpc('desativar_token_invalido', { p_token: disp.token });
-          console.log(`[PUSH] Token inválido desativado: ...${disp.token.slice(-8)}`);
-        }
+    if (typeof payload.notificacao_id === 'number') {
+      const { data, error } = await supabase
+        .from('notificacoes')
+        .select('id, pessoa_id, tipo, titulo, corpo, dados, conteudo_id, conteudo_tipo, enviada, tentativas, erro_envio')
+        .eq('id', payload.notificacao_id)
+        .maybeSingle();
+      if (error) {
+        console.error('[PUSH] Erro ao buscar notificacao_id:', error.message);
+        return new Response('error fetching notification', { status: 500 });
       }
-    }
-
-    // 4. Atualiza notificacoes
-    if (enviouPeloMenos || erros.length === 0) {
-      await marcarEnviada(supabase, notif.id, notif.tentativas);
+      notif = data as NotificacaoRecord | null;
+      if (!notif) {
+        return new Response('notification not found', { status: 404 });
+      }
+    } else if (payload.type === 'INSERT' && payload.table === 'notificacoes' && payload.record) {
+      notif = payload.record;
     } else {
-      await marcarErro(supabase, notif.id, erros.join('; '), notif.tentativas);
+      return new Response('ignored', { status: 200 });
     }
 
-    return new Response(JSON.stringify({ enviou: enviouPeloMenos, erros }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    if (notif.enviada) {
+      return new Response('already sent', { status: 200 });
+    }
 
+    return await processarNotificacao(supabase, serviceAccountJson, notif);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[PUSH] Erro inesperado:', msg);
     return new Response(`unexpected error: ${msg}`, { status: 500 });
   }
 });
+
+async function processarNotificacao(
+  supabase: SupabaseClient,
+  serviceAccountJson: string,
+  notif: NotificacaoRecord,
+): Promise<Response> {
+  // 1. Busca tokens ativos para o destinatário
+  const { data: dispositivos, error: errTokens } = await supabase
+    .from('push_dispositivos')
+    .select('token, plataforma')
+    .eq('pessoa_id', notif.pessoa_id)
+    .eq('ativo', true);
+
+  if (errTokens) {
+    console.error('[PUSH] Erro ao buscar tokens:', errTokens.message);
+    await marcarErro(supabase, notif.id, errTokens.message, notif.tentativas);
+    return new Response('error fetching tokens', { status: 500 });
+  }
+
+  if (!dispositivos || dispositivos.length === 0) {
+    const msg = `nenhum token ativo para pessoa_id=${notif.pessoa_id}`;
+    console.log(`[PUSH] ${msg}`);
+    // NÃO marcar enviada — deixa pendente para retry quando o token chegar
+    await marcarErro(supabase, notif.id, msg, notif.tentativas);
+    return new Response(JSON.stringify({ enviou: false, erros: [msg] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // 2. Obtém access_token do FCM
+  let accessToken: string;
+  try {
+    accessToken = await getFcmAccessToken(serviceAccountJson);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[PUSH] Erro ao obter token FCM:', msg);
+    await marcarErro(supabase, notif.id, `FCM auth: ${msg}`, notif.tentativas);
+    return new Response('fcm auth error', { status: 500 });
+  }
+
+  // 3. Envia para cada token
+  const erros: string[] = [];
+  let enviouPeloMenos = false;
+
+  for (const disp of dispositivos as PushDispositivo[]) {
+    const result = await enviarFcm(accessToken, disp.token, {
+      titulo:        notif.titulo,
+      corpo:         notif.corpo,
+      dados:         notif.dados ?? {},
+      notificacaoId: notif.id,
+      tipo:          notif.tipo,
+    });
+
+    if (result.ok) {
+      enviouPeloMenos = true;
+      console.log(`[PUSH] Enviado para token ...${disp.token.slice(-8)} plat=${disp.plataforma}`);
+    } else {
+      console.warn(`[PUSH] Falha token ...${disp.token.slice(-8)}: ${result.error}`);
+      erros.push(result.error ?? 'unknown');
+
+      if (result.invalidToken) {
+        await supabase.rpc('desativar_token_invalido', { p_token: disp.token });
+        console.log(`[PUSH] Token inválido desativado: ...${disp.token.slice(-8)}`);
+      }
+    }
+  }
+
+  // 4. Atualiza notificacoes
+  if (enviouPeloMenos) {
+    await marcarEnviada(supabase, notif.id, notif.tentativas);
+  } else {
+    await marcarErro(supabase, notif.id, erros.join('; ') || 'todos tokens falharam', notif.tentativas);
+  }
+
+  return new Response(JSON.stringify({ enviou: enviouPeloMenos, erros }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // FCM HTTP v1 — envio por token
@@ -176,11 +215,13 @@ async function enviarFcm(
     corpo:  string;
     dados:  Record<string, unknown>;
     notificacaoId: number;
+    tipo: string;
   }
 ): Promise<{ ok: boolean; error?: string; invalidToken?: boolean }> {
   // FCM exige que todos os valores em `data` sejam strings
   const dataPayload: Record<string, string> = {
     notificacao_id: String(payload.notificacaoId),
+    tipo: payload.tipo,
   };
   for (const [k, v] of Object.entries(payload.dados)) {
     dataPayload[k] = String(v);
@@ -199,10 +240,15 @@ async function enviarFcm(
         notification: { channel_id: 'aeterna_transacional' },
       },
       apns: {
+        headers: {
+          'apns-priority': '10',
+          'apns-push-type': 'alert',
+        },
         payload: {
           aps: {
             alert: { title: payload.titulo, body: payload.corpo },
             sound: 'default',
+            'content-available': 1,
           },
         },
       },
@@ -227,6 +273,8 @@ async function enviarFcm(
     ?? String(res.status)
   );
 
+  console.warn('[PUSH] FCM HTTP error:', JSON.stringify(errBody));
+
   return {
     ok:           false,
     error:        fcmCode,
@@ -241,6 +289,12 @@ async function enviarFcm(
 async function getFcmAccessToken(serviceAccountJson: string): Promise<string> {
   const sa  = JSON.parse(serviceAccountJson);
   const now = Math.floor(Date.now() / 1000);
+
+  // Secrets às vezes preservam \n literal na private_key
+  let privateKeyPem = String(sa.private_key ?? '');
+  if (privateKeyPem.includes('\\n')) {
+    privateKeyPem = privateKeyPem.replace(/\\n/g, '\n');
+  }
 
   const header  = { alg: 'RS256', typ: 'JWT' };
   const payload = {
@@ -257,7 +311,7 @@ async function getFcmAccessToken(serviceAccountJson: string): Promise<string> {
 
   const signingInput = `${encode(header)}.${encode(payload)}`;
 
-  const pemBody = sa.private_key
+  const pemBody = privateKeyPem
     .replace('-----BEGIN PRIVATE KEY-----', '')
     .replace('-----END PRIVATE KEY-----', '')
     .replace(/\s/g, '');
@@ -302,7 +356,7 @@ async function getFcmAccessToken(serviceAccountJson: string): Promise<string> {
 // ---------------------------------------------------------------------------
 
 async function marcarEnviada(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   id: number,
   tentativasAtuais: number
 ): Promise<void> {
@@ -318,7 +372,7 @@ async function marcarEnviada(
 }
 
 async function marcarErro(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   id: number,
   erro: string,
   tentativasAtuais: number
@@ -327,7 +381,7 @@ async function marcarErro(
     .from('notificacoes')
     .update({
       tentativas: tentativasAtuais + 1,
-      erro_envio: erro,
+      erro_envio: erro.slice(0, 500),
     })
     .eq('id', id);
 }

@@ -435,6 +435,56 @@ class PushNotificationService {
     );
   }
 
+  /// Dispara a Edge Function `send-push` para notificações ainda não enviadas.
+  ///
+  /// O caminho oficial é Database Webhook → send-push. Este método é fallback
+  /// quando o webhook não está configurado: após gravar `papel=compartilhado`,
+  /// o app encontra linhas em `notificacoes` (criadas pelo trigger) e invoca
+  /// a função com `{ notificacao_id }`. Não roda no `main()` / startup.
+  Future<void> dispararPendentesParaPessoas(List<int> pessoaIds) async {
+    if (pessoaIds.isEmpty) return;
+    if (!PessoaRepository.isConfigured) return;
+
+    try {
+      final client = PessoaRepository.supabaseClient;
+      final rows = await client
+          .from('notificacoes')
+          .select('id, pessoa_id, tipo, enviada')
+          .inFilter('pessoa_id', pessoaIds)
+          .eq('enviada', false)
+          .order('created_at', ascending: false)
+          .limit(30);
+
+      final pendentes = (rows as List)
+          .where((r) => r['enviada'] != true)
+          .toList();
+      if (pendentes.isEmpty) {
+        print('[PUSH_SEND] Nenhuma notificacao pendente para ${pessoaIds.length} pessoa(s)');
+        _diag('send: 0 pendentes (trigger/webhook?)');
+        return;
+      }
+
+      for (final r in pendentes) {
+        final id = (r['id'] as num).toInt();
+        try {
+          final resp = await client.functions.invoke(
+            'send-push',
+            body: {'notificacao_id': id},
+          );
+          print(
+              '[PUSH_SEND] notificacao_id=$id status=${resp.status} data=${resp.data}');
+          _diag('send: id=$id status=${resp.status}');
+        } catch (e) {
+          print('[PUSH_SEND] falha notificacao_id=$id: $e');
+          _diag('send: id=$id erro=$e');
+        }
+      }
+    } catch (e) {
+      print('[PUSH_SEND] Erro ao listar/disparar pendentes: $e');
+      _diag('send: erro=$e');
+    }
+  }
+
   /// App em BACKGROUND e tocado pelo usuário: navega para a rota correta.
   void _onMessageOpenedApp(RemoteMessage message) {
     final tipo = message.data['tipo'] as String? ?? '';
