@@ -97,8 +97,9 @@ workflows:
             -exportPath build/ios/ipa \
             -exportOptionsPlist "$HOME/export_options.plist"
 
-      - name: Validate IPA contains Share Extension .appex
+      - name: Validate IPA Share Extension + entitlements (Push + App Group)
         script: |
+          set -euo pipefail
           IPA=$(ls build/ios/ipa/*.ipa 2>/dev/null | head -1)
           if [ -z "$IPA" ]; then
             echo "FATAL: No IPA found in build/ios/ipa/"
@@ -107,7 +108,6 @@ workflows:
           echo "Validating IPA: $IPA"
           unzip -l "$IPA" | grep -q '\.appex/' && {
             echo "OK: .appex found in IPA"
-            echo "Extension bundles:"
             unzip -l "$IPA" | grep '\.appex/' | head -5
           } || {
             echo "FATAL: No .appex bundle found in IPA — Share Extension will not appear in share sheet!"
@@ -120,17 +120,120 @@ workflows:
             echo "FATAL: NSExtension key missing from extension Info.plist"
             exit 1
           }
-          echo "Main app bundle IDs in IPA:"
-          unzip -p "$IPA" 'Payload/*.app/Info.plist' 2>/dev/null | \
-            grep -A1 'CFBundleIdentifier' | grep -o '<string>.*</string>' || true
-          echo "Extension bundle IDs in IPA:"
-          unzip -p "$IPA" 'Payload/*.app/PlugIns/*.appex/Info.plist' 2>/dev/null | \
-            grep -A1 'CFBundleIdentifier' | grep -o '<string>.*</string>' || true
-          echo "IPA validation complete."
+
+          # --- Extrai IPA e audita entitlements / profile (roda no Mac do CI) ---
+          # Sem Mac local: o Darlan lê estes dumps nos artifacts/logs do Codemagic.
+          WORK=/tmp/ipa_entitlements_check
+          rm -rf "$WORK"
+          mkdir -p "$WORK" /tmp/xcodebuild_logs
+          unzip -q "$IPA" -d "$WORK"
+          APP=$(find "$WORK/Payload" -maxdepth 1 -name '*.app' | head -1)
+          APEX=$(find "$APP/PlugIns" -maxdepth 1 -name '*.appex' 2>/dev/null | head -1)
+          if [ -z "$APP" ]; then
+            echo "FATAL: Runner .app nao encontrado no Payload"
+            exit 1
+          fi
+          echo "APP=$APP"
+          echo "APEX=${APEX:-<none>}"
+
+          # codesign escreve o plist direto em arquivo (mais confiavel que :- + redirect)
+          codesign -d --entitlements=/tmp/xcodebuild_logs/runner_entitlements.plist "$APP" 2>/dev/null || true
+          echo "=== Runner codesign entitlements ==="
+          cat /tmp/xcodebuild_logs/runner_entitlements.plist 2>/dev/null || echo "(vazio)"
+
+          if [ -n "${APEX:-}" ]; then
+            codesign -d --entitlements=/tmp/xcodebuild_logs/share_ext_entitlements.plist "$APEX" 2>/dev/null || true
+            echo "=== ShareExtension codesign entitlements ==="
+            cat /tmp/xcodebuild_logs/share_ext_entitlements.plist 2>/dev/null || echo "(vazio)"
+          fi
+
+          PROF="$APP/embedded.mobileprovision"
+          if [ ! -f "$PROF" ]; then
+            echo "FATAL: embedded.mobileprovision ausente no Runner"
+            exit 1
+          fi
+          security cms -D -i "$PROF" > /tmp/xcodebuild_logs/runner_mobileprovision.plist
+          echo "=== Runner profile (Name / UUID / Entitlements) ==="
+          /usr/libexec/PlistBuddy -c 'Print :Name' /tmp/xcodebuild_logs/runner_mobileprovision.plist || true
+          /usr/libexec/PlistBuddy -c 'Print :UUID' /tmp/xcodebuild_logs/runner_mobileprovision.plist || true
+          /usr/libexec/PlistBuddy -c 'Print :Entitlements' /tmp/xcodebuild_logs/runner_mobileprovision.plist \
+            > /tmp/xcodebuild_logs/runner_profile_entitlements.txt 2>/dev/null || true
+          cat /tmp/xcodebuild_logs/runner_profile_entitlements.txt || echo "(Entitlements do profile vazios)"
+
+          FAIL=0
+
+          # 1) Binário Runner precisa ter aps-environment (Push)
+          if grep -q 'aps-environment' /tmp/xcodebuild_logs/runner_entitlements.plist 2>/dev/null; then
+            echo "OK: Runner codesign tem aps-environment"
+            grep -A1 'aps-environment' /tmp/xcodebuild_logs/runner_entitlements.plist || true
+          else
+            echo "FATAL: Runner codesign SEM aps-environment — Push vai falhar com didFail APNs"
+            FAIL=1
+          fi
+
+          # 2) Binário Runner precisa ter o App Group
+          if grep -q 'group.com.aeterna.app' /tmp/xcodebuild_logs/runner_entitlements.plist 2>/dev/null; then
+            echo "OK: Runner codesign tem group.com.aeterna.app"
+          else
+            echo "FATAL: Runner codesign SEM group.com.aeterna.app — share App Group NULO no device"
+            FAIL=1
+          fi
+
+          # 3) Profile embutido precisa CONCEDER os mesmos entitlements
+          if grep -q 'aps-environment' /tmp/xcodebuild_logs/runner_profile_entitlements.txt 2>/dev/null; then
+            echo "OK: embedded.mobileprovision concede aps-environment"
+          else
+            echo "FATAL: embedded.mobileprovision NAO concede aps-environment — regenerar appstore_profile no Apple Developer/Codemagic"
+            FAIL=1
+          fi
+          if grep -q 'group.com.aeterna.app' /tmp/xcodebuild_logs/runner_profile_entitlements.txt 2>/dev/null; then
+            echo "OK: embedded.mobileprovision concede group.com.aeterna.app"
+          else
+            echo "FATAL: embedded.mobileprovision NAO concede group.com.aeterna.app — App Group nao marcado no App ID ou profile velho"
+            FAIL=1
+          fi
+
+          # 4) Share Extension tambem precisa do App Group
+          if [ -n "${APEX:-}" ]; then
+            if grep -q 'group.com.aeterna.app' /tmp/xcodebuild_logs/share_ext_entitlements.plist 2>/dev/null; then
+              echo "OK: ShareExtension codesign tem group.com.aeterna.app"
+            else
+              echo "FATAL: ShareExtension codesign SEM group.com.aeterna.app"
+              FAIL=1
+            fi
+            APEX_PROF="$APEX/embedded.mobileprovision"
+            if [ -f "$APEX_PROF" ]; then
+              security cms -D -i "$APEX_PROF" > /tmp/xcodebuild_logs/share_ext_mobileprovision.plist
+              /usr/libexec/PlistBuddy -c 'Print :Entitlements' /tmp/xcodebuild_logs/share_ext_mobileprovision.plist \
+                > /tmp/xcodebuild_logs/share_ext_profile_entitlements.txt 2>/dev/null || true
+              if grep -q 'group.com.aeterna.app' /tmp/xcodebuild_logs/share_ext_profile_entitlements.txt 2>/dev/null; then
+                echo "OK: profile da ShareExtension concede group.com.aeterna.app"
+              else
+                echo "FATAL: profile aeterna_share_extension_appstore NAO concede group.com.aeterna.app"
+                FAIL=1
+              fi
+            else
+              echo "FATAL: embedded.mobileprovision ausente na ShareExtension"
+              FAIL=1
+            fi
+          fi
+
+          if [ "$FAIL" -ne 0 ]; then
+            echo ""
+            echo "=== RESUMO: IPA INVALIDO para Push/Share — NAO publicar no TestFlight ==="
+            echo "Corrigir: Apple Developer → Identifiers → br.com.aeternalegado.app"
+            echo "  → Push Notifications ON + App Groups com check em group.com.aeterna.app"
+            echo "  → Profiles → regenerar App Store profile → atualizar appstore_profile no Codemagic"
+            echo "Mesmo para a extensao ShareExtension (bundle .ShareExtension)."
+            exit 1
+          fi
+          echo "=== RESUMO: IPA OK — aps-environment + App Group presentes no binario E no profile ==="
 
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
+      - /tmp/xcodebuild_logs/*.plist
+      - /tmp/xcodebuild_logs/*.txt
       - $HOME/export_options.plist
 
     publishing:
