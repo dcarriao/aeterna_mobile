@@ -7,12 +7,43 @@ import UserNotifications
 
     private let appGroupId = "group.com.aeterna.app"
 
+    /// Diagnóstico APNs / share — lido sob demanda via getPushDiag (nunca no startup Dart).
+    static var pushDiag: [String] = []
+
+    static func diagPush(_ msg: String) {
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let line = "\(ts) \(msg)"
+        pushDiag.append(line)
+        if pushDiag.count > 30 {
+            pushDiag.removeFirst()
+        }
+        NSLog("[PUSH_IOS_NATIVE] %@", msg)
+    }
+
     override func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+
+    // MARK: — APNs callbacks (sem Firebase imports — swizzling/Dart cuidam do token FCM)
+
+    override func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        AppDelegate.diagPush("didRegister APNs ok bytes=\(deviceToken.count)")
+        super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+    }
+
+    override func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        AppDelegate.diagPush("didFail APNs: \(error.localizedDescription)")
+        super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
     }
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -35,10 +66,20 @@ import UserNotifications
                 NSLog("[IOS_SHARE] getSharedImage -> %@", path ?? "nil (sem pendencia)")
                 result(path)
             } else if call.method == "requestPushRegistration" {
+                AppDelegate.diagPush("registerForRemoteNotifications() chamado")
                 DispatchQueue.main.async {
                     UIApplication.shared.registerForRemoteNotifications()
                 }
                 result(true)
+            } else if call.method == "probeAppGroup" {
+                let container = FileManager.default.containerURL(
+                    forSecurityApplicationGroupIdentifier: self?.appGroupId ?? ""
+                )
+                let ok = container != nil
+                AppDelegate.diagPush(ok ? "probeAppGroup=ok" : "probeAppGroup=NULL")
+                result(ok)
+            } else if call.method == "getPushDiag" {
+                result(AppDelegate.pushDiag)
             } else {
                 result(FlutterMethodNotImplemented)
             }

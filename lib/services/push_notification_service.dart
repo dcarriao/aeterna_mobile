@@ -9,6 +9,7 @@
 //   - Toque na notificação: navega para a rota correta via callback (_navigationCallback)
 //   - Logs: [PUSH_TOKEN] e [PUSH_OPEN] para rastreamento
 
+import 'dart:async';
 import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -34,7 +35,10 @@ class PushNotificationService {
   PushNotificationService._();
   static final instance = PushNotificationService._();
 
+  static const _shareChannel = MethodChannel('com.aeterna.app/share');
+
   bool _inicializado = false;
+  bool _obtendoToken = false;
 
   /// S.9.4c — trilha de diagnóstico visível na tela Perfil (iPhone sem
   /// Mac não tem Console; isto substitui).
@@ -65,6 +69,8 @@ class PushNotificationService {
 
   /// Inicializa Firebase, flutter_local_notifications e listeners de FCM.
   /// Deve ser chamado o mais cedo possível em main() — antes de runApp().
+  /// NÃO aguarda token APNs/FCM (nem MethodChannel) — isso roda em background
+  /// após marcar pronto, para não bloquear runApp() (tela branca).
   Future<void> initialize() async {
     if (_inicializado) return;
     try {
@@ -94,34 +100,6 @@ class PushNotificationService {
       // e para roteamento ao tocar em notificação recebida em foreground)
       await _inicializarLocalNotifications();
 
-      // S.9.3.1 (Item 7) — no iOS, o token FCM depende do token APNs.
-      // Se o APNs token for null, o getToken() falha ou devolve token
-      // inválido para push real. Logamos o APNs token (parcial) para
-      // auditar o elo iPhone → APNs → FCM.
-      if (Platform.isIOS) {
-        try {
-          String? apns = await messaging.getAPNSToken();
-          // O APNs token pode demorar alguns instantes após o registro.
-          for (var i = 0; apns == null && i < 5; i++) {
-            await Future.delayed(const Duration(seconds: 1));
-            apns = await messaging.getAPNSToken();
-          }
-          _diag('apns_token(init)=${apns == null ? 'NULL' : 'ok'}');
-        } catch (e) {
-          _diag('apns_token(init) erro: $e');
-        }
-      }
-
-      // Captura o token atual
-      _currentToken = await messaging.getToken();
-      if (_currentToken != null) {
-        print('[PUSH_TOKEN] Token FCM obtido: ...${_currentToken!.substring(_currentToken!.length - 8)}');
-        _diag('fcm_token=...${_currentToken!.substring(_currentToken!.length - 8)}');
-        await _salvarTokenSeLogado();
-      } else {
-        _diag('fcm_token(init)=NULL');
-      }
-
       // Escuta renovação de token
       messaging.onTokenRefresh.listen((token) async {
         print('[PUSH_TOKEN] Token FCM renovado: ...${token.substring(token.length - 8)}');
@@ -145,20 +123,108 @@ class PushNotificationService {
       _inicializado = true;
       print('[PUSH_TOKEN] Serviço inicializado com sucesso');
 
-      // V2.2.3 — dispara registro APNs pelo MethodChannel, após engine pronto.
-      // Chamar registerForRemoteNotifications() diretamente no AppDelegate
-      // causa tela branca; pelo canal, com o engine já rodando, é seguro.
-      Future.delayed(const Duration(seconds: 3), () async {
-        try {
-          const channel = MethodChannel('com.aeterna.app/share');
-          await channel.invokeMethod('requestPushRegistration');
-          print('[PUSH_TOKEN] requestPushRegistration enviado ao native');
-        } catch (e) {
-          print('[PUSH_TOKEN] requestPushRegistration erro: $e');
-        }
-      });
+      // Ordem correta: pedir registro APNs ANTES de esperar getAPNSToken.
+      // Sem await — não bloqueia runApp() / MethodChannel no caminho do main.
+      unawaited(_obterTokenAposRegistro());
     } catch (e) {
       print('[PUSH_TOKEN] Erro ao inicializar: $e');
+    }
+  }
+
+  /// Solicita registro APNs nativo → espera token APNs → obtém FCM → persiste.
+  Future<void> _obterTokenAposRegistro() async {
+    if (_obtendoToken) return;
+    _obtendoToken = true;
+    try {
+      if (Platform.isIOS) {
+        await _solicitarRegistroPushIos();
+        final apns = await _aguardarApnsToken(maxSegundos: 20);
+        _diag('apns_token=${apns == null ? 'NULL' : 'ok'}');
+        if (apns == null) {
+          _diag('fcm_token=NULL (sem APNs)');
+          return;
+        }
+      }
+
+      _currentToken = await FirebaseMessaging.instance.getToken();
+      if (_currentToken != null) {
+        print(
+            '[PUSH_TOKEN] Token FCM obtido: ...${_currentToken!.substring(_currentToken!.length - 8)}');
+        _diag(
+            'fcm_token=...${_currentToken!.substring(_currentToken!.length - 8)}');
+        await _salvarTokenSeLogado();
+      } else {
+        _diag('fcm_token=NULL');
+      }
+    } catch (e) {
+      _diag('obterToken erro: $e');
+    } finally {
+      _obtendoToken = false;
+    }
+  }
+
+  /// Pede ao AppDelegate que chame registerForRemoteNotifications.
+  /// Timeout obrigatório — nunca travar se o canal não responder.
+  Future<void> _solicitarRegistroPushIos() async {
+    try {
+      // Delay mínimo: deixa o engine/messenger estabilizar após runApp.
+      await Future.delayed(const Duration(milliseconds: 300));
+      await _shareChannel
+          .invokeMethod('requestPushRegistration')
+          .timeout(const Duration(seconds: 2));
+      _diag('requestPushRegistration=ok');
+    } catch (e) {
+      _diag('requestPushRegistration erro: $e');
+    }
+  }
+
+  /// Espera o token APNs ficar disponível (até [maxSegundos]).
+  Future<String?> _aguardarApnsToken({int maxSegundos = 20}) async {
+    final messaging = FirebaseMessaging.instance;
+    String? apns = await messaging.getAPNSToken();
+    for (var i = 0; apns == null && i < maxSegundos; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+      apns = await messaging.getAPNSToken();
+      if (i % 5 == 4) {
+        _diag('apns(tent ${i + 1})=${apns == null ? 'NULL' : 'ok'}');
+      }
+    }
+    return apns;
+  }
+
+  /// Importa linhas de diagnóstico nativo (getPushDiag).
+  /// Chamar SÓ ao abrir o painel no Perfil — nunca no startup.
+  Future<void> importarDiagnosticoNativo() async {
+    if (!Platform.isIOS) return;
+    try {
+      final linhas = await _shareChannel
+          .invokeMethod<List<dynamic>>('getPushDiag')
+          .timeout(const Duration(seconds: 2), onTimeout: () => <dynamic>[]);
+      if (linhas != null) {
+        for (final l in linhas) {
+          final s = 'iOS: $l';
+          if (!diagnostico.contains(s)) diagnostico.add(s);
+        }
+        while (diagnostico.length > 30) {
+          diagnostico.removeAt(0);
+        }
+      }
+    } catch (e) {
+      _diag('getPushDiag erro: $e');
+    }
+  }
+
+  /// Probe se o container do App Group é acessível.
+  /// Chamar SÓ ao abrir o painel no Perfil — nunca no startup.
+  Future<void> probeAppGroup() async {
+    if (!Platform.isIOS) return;
+    try {
+      final ok = await _shareChannel
+          .invokeMethod<bool>('probeAppGroup')
+          .timeout(const Duration(seconds: 2), onTimeout: () => false);
+      _diag(ok == true ? 'share: app_group=ok' : 'share: app_group=NULL');
+    } catch (e) {
+      _diag('share: app_group erro=$e');
     }
   }
 
@@ -166,7 +232,7 @@ class PushNotificationService {
   Future<void> _inicializarLocalNotifications() async {
     const initAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initIOS = DarwinInitializationSettings(
-      requestAlertPermission: false,  // permissão já pedida via FCM
+      requestAlertPermission: false, // permissão já pedida via FCM
       requestBadgePermission: false,
       requestSoundPermission: false,
     );
@@ -184,8 +250,8 @@ class PushNotificationService {
           // payload é "tipo|route|conteudo_id" — ver _onMessage()
           final parts = payload.split('|');
           final data = <String, dynamic>{
-            'tipo':        parts.isNotEmpty ? parts[0] : '',
-            'route':       parts.length > 1 ? parts[1] : '',
+            'tipo': parts.isNotEmpty ? parts[0] : '',
+            'route': parts.length > 1 ? parts[1] : '',
             'conteudo_id': parts.length > 2 ? parts[2] : '',
           };
           print('[PUSH_OPEN] Toque em notificação local: tipo=${data['tipo']}');
@@ -206,33 +272,9 @@ class PushNotificationService {
   /// Salva o token para o usuário atualmente logado.
   /// Chamado após login, restore de sessão e token refresh.
   Future<void> salvarTokenParaUsuario() async {
-    // S.9.3.2 — CAUSA RAIZ do iPhone sem token: no iOS, getToken() LANÇA
-    // exceção enquanto o token APNs não estiver disponível (timing de
-    // segundos após o launch), e a versão anterior desistia em silêncio
-    // no primeiro erro — resultado: zero linhas ios em push_dispositivos.
-    // Agora: espera o APNs (iOS) e tenta getToken() com retries.
+    // Mesma ordem do init: registrar APNs → esperar token → FCM → persistir.
     if (_currentToken == null) {
-      for (var tentativa = 1; tentativa <= 5 && _currentToken == null; tentativa++) {
-        try {
-          if (Platform.isIOS) {
-            String? apns = await FirebaseMessaging.instance.getAPNSToken();
-            for (var i = 0; apns == null && i < 5; i++) {
-              await Future.delayed(const Duration(seconds: 1));
-              apns = await FirebaseMessaging.instance.getAPNSToken();
-            }
-            _diag('apns(tent $tentativa)=${apns == null ? 'NULL' : 'ok'}');
-            if (apns == null) {
-              // APNs ainda não registrou; aguarda e tenta de novo
-              await Future.delayed(Duration(seconds: 2 * tentativa));
-              continue;
-            }
-          }
-          _currentToken = await FirebaseMessaging.instance.getToken();
-        } catch (e) {
-          _diag('getToken tent $tentativa: $e');
-          await Future.delayed(Duration(seconds: 2 * tentativa));
-        }
-      }
+      await _obterTokenAposRegistro();
     }
     if (_currentToken != null) {
       await _salvarToken(_currentToken!);
@@ -244,7 +286,7 @@ class PushNotificationService {
   /// Desativa o dispositivo atual no banco ao fazer logout.
   /// Evita receber pushes para outra conta no mesmo dispositivo.
   Future<void> desativarDispositivoAtual() async {
-    final token    = _currentToken;
+    final token = _currentToken;
     final pessoaId = PessoaRepository.usuarioId;
 
     if (token == null || pessoaId <= 0) return;
@@ -287,11 +329,12 @@ class PushNotificationService {
         'upsert_push_dispositivo',
         params: {
           'p_pessoa_id': pessoaId,
-          'p_token':      token,
+          'p_token': token,
           'p_plataforma': plataforma,
         },
       );
-      print('[PUSH_TOKEN] Token salvo/atualizado para pessoa_id=$pessoaId plataforma=$plataforma');
+      print(
+          '[PUSH_TOKEN] Token salvo/atualizado para pessoa_id=$pessoaId plataforma=$plataforma');
       _diag('persistido=true pessoa=$pessoaId');
     } catch (e) {
       print('[PUSH_TOKEN] Erro ao salvar token: $e');
@@ -303,10 +346,10 @@ class PushNotificationService {
   void _onMessage(RemoteMessage message) {
     final notif = message.notification;
     final titulo = notif?.title ?? message.data['titulo'] as String? ?? 'aEterna';
-    final corpo  = notif?.body  ?? message.data['corpo']  as String? ?? '';
-    final tipo   = message.data['tipo']        as String? ?? '';
-    final route  = message.data['route']       as String? ?? '';
-    final cid    = message.data['conteudo_id'] as String? ?? '';
+    final corpo = notif?.body ?? message.data['corpo'] as String? ?? '';
+    final tipo = message.data['tipo'] as String? ?? '';
+    final route = message.data['route'] as String? ?? '';
+    final cid = message.data['conteudo_id'] as String? ?? '';
 
     print('[PUSH_OPEN] Mensagem em foreground: tipo=$tipo');
 
@@ -349,7 +392,8 @@ class PushNotificationService {
     } else {
       // Callback ainda não registrado (race condition na inicialização)
       // main.dart chama setNavigationCallback() logo após initialize()
-      print('[PUSH_OPEN] Callback de navegação ainda não registrado — tipo=${data['tipo']}');
+      print(
+          '[PUSH_OPEN] Callback de navegação ainda não registrado — tipo=${data['tipo']}');
     }
   }
 }

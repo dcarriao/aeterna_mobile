@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/push_notification_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/pessoa.dart';
@@ -35,6 +36,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
   Map<String, dynamic> _usuario = {};
   bool _carregando = true;
   bool _salvandoFoto = false;
+  String _versaoApp = '…';
 
   // Preferências e Segurança
   bool _notificacoes = true;
@@ -45,6 +47,20 @@ class _PerfilScreenState extends State<PerfilScreen> {
     super.initState();
     _carregarUsuario();
     _carregarConfiguracaoBiometria();
+    _carregarVersao();
+  }
+
+  Future<void> _carregarVersao() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() {
+        _versaoApp = '${info.version} (Build ${info.buildNumber})';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _versaoApp = 'desconhecida');
+    }
   }
 
   Future<void> _carregarConfiguracaoBiometria() async {
@@ -454,6 +470,14 @@ class _PerfilScreenState extends State<PerfilScreen> {
                               color: AppColors.roxo,
                               fontSize: 14,
                               fontWeight: FontWeight.w600)),
+                      onExpansionChanged: (expanded) async {
+                        if (!expanded) return;
+                        // Sob demanda — nunca no startup (regra tela branca)
+                        await PushNotificationService.instance
+                            .importarDiagnosticoNativo();
+                        await PushNotificationService.instance.probeAppGroup();
+                        if (mounted) setState(() {});
+                      },
                       children: [
                         if (PushNotificationService.diagnostico.isEmpty)
                           const Padding(
@@ -503,11 +527,11 @@ class _PerfilScreenState extends State<PerfilScreen> {
                   titulo: 'Sobre',
                   icon: Icons.info_outline,
                   children: [
-                    const ListTile(
+                    ListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: Text('Versão do aplicativo', style: TextStyle(color: AppColors.roxo, fontSize: 14, fontWeight: FontWeight.w600)),
-                      subtitle: Text('1.0.0 (Build 5)', style: TextStyle(fontSize: 12)),
-                      leading: Icon(Icons.phone_android_outlined, color: AppColors.dourado, size: 20),
+                      title: const Text('Versão do aplicativo', style: TextStyle(color: AppColors.roxo, fontSize: 14, fontWeight: FontWeight.w600)),
+                      subtitle: Text(_versaoApp, style: const TextStyle(fontSize: 12)),
+                      leading: const Icon(Icons.phone_android_outlined, color: AppColors.dourado, size: 20),
                     ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,

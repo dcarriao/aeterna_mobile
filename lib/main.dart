@@ -95,7 +95,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       if (path != null && path.isNotEmpty) {
         _processarImagemCompartilhada(path);
       } else {
-        PushNotificationService.registrarDiagnostico('share: pendencia=null (App Group vazio ou inacessivel)');
+        // path null = sem compartilhamento pendente (NÃO prova App Group inacessível)
+        PushNotificationService.registrarDiagnostico('share: sem_pendencia');
       }
     } catch (e) {
       // Canal pode não estar implementado em plataformas sem suporte (ex: web).
