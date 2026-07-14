@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/memoria.dart';
+import '../services/push_notification_service.dart';
 import '../theme/app_theme.dart';
 
 class MemoryCard extends StatefulWidget {
@@ -35,13 +37,17 @@ class _MemoryCardState extends State<MemoryCard> {
                 ? 'video_sem_url'
                 : 'sem_midia';
 
-    print('[HOME_MEDIA] memoria_id=${m.id ?? -1} '
+    final log = '[HOME_MEDIA${Platform.isAndroid ? "_ANDROID" : ""}] '
+        'memoria_id=${m.id ?? -1} '
         'titulo="${m.titulo}" '
         'fotos=${m.fotoUrl != null ? 1 : 0} '
         'videos=${m.temVideo ? 1 : 0} '
         'video_url=${m.videoUrl ?? "NULL"} '
         'thumbnail=NULL '
-        'renderer=$renderer');
+        'renderer=$renderer'
+        ' erro=${!m.temVideo && m.videoUrl == null && m.fotoUrl == null && m.foto == null ? "sem_midia_nenhuma" : "null"}';
+    print(log);
+    PushNotificationService.registrarDiagnostico(log);
 
     return GestureDetector(
       onTap: widget.onLer,
