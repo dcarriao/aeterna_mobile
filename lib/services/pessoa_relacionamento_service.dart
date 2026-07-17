@@ -191,7 +191,7 @@ class PessoaRelacionamentoService {
 
       final nomes = await PessoaRepository.supabaseClient
           .from('pessoas')
-          .select('id, nome, sobrenome, tipo')
+          .select('id, nome, sobrenome, tipo, falecido')
           .inFilter('id', bIds)
           .neq('situacao', 'inativo');
 
@@ -205,6 +205,10 @@ class PessoaRelacionamentoService {
         for (final r in nomes)
           (r['id'] as num).toInt(): (r['tipo'] as String?) ?? 'humano',
       };
+      final falecidoPorId = <int, bool>{
+        for (final r in nomes)
+          (r['id'] as num).toInt(): (r['falecido'] as bool?) ?? false,
+      };
 
       return rows
           .map<Map<String, dynamic>>((r) {
@@ -214,6 +218,7 @@ class PessoaRelacionamentoService {
               'relacao_b_para_a': r['relacao_b_para_a'] as String? ?? '',
               'nome': nomePorId[bid] ?? 'Pessoa #$bid',
               'tipo': tipoPorId[bid] ?? 'humano',
+              'falecido': falecidoPorId[bid] ?? false,
             };
           })
           .where((m) => nomePorId.containsKey(m['pessoa_b_id'] as int))

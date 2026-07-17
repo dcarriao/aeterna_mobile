@@ -71,6 +71,18 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
       _meuPapel == PapelColaborador.editor ||
       _meuPapel == PapelColaborador.colaborador;
 
+  /// Pessoa representada pelo memorial + qualquer falecido: nunca entram
+  /// em "Compartilhado com" nem no picker de compartilhamento.
+  Set<int> get _idsExcluirDoCompartilhamento {
+    final ids = <int>{};
+    final representada = _pessoaVinculada;
+    if (representada != null) ids.add(representada.id);
+    for (final p in _todasPessoas) {
+      if (p.falecido) ids.add(p.id);
+    }
+    return ids;
+  }
+
   // IA Chat
   final List<Map<String, String>> _conversa = [];
   final _chatController = TextEditingController();
@@ -234,6 +246,11 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
   Future<void> _abrirCompartilharMemorial() async {
     if (!mounted) return;
 
+    final excluir = _idsExcluirDoCompartilhamento;
+    final selecionadasShare = _pessoasVinculadas
+        .where((id) => !excluir.contains(id))
+        .toSet();
+
     final resultado = await showModalBottomSheet<List<int>>(
       context: context,
       isScrollControlled: true,
@@ -242,8 +259,10 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
       ),
       builder: (ctx) {
         return PessoaPickerSheet(
-          selecionadas: _pessoasVinculadas.toSet(),
+          selecionadas: selecionadasShare,
           titulo: 'Convidar Familiares',
+          excluirIds: excluir,
+          excluirFalecido: true,
         );
       },
     );
@@ -253,11 +272,20 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         _carregandoLembrancas = true;
       });
       try {
-        await PessoaRepository.atualizarPessoasDoMemorial(widget.memorial.id!, resultado);
+        // Preserva o falecido representado (e outros falecidos já ligados)
+        // em memorial_pessoas — não são "compartilhados", só vínculo do memorial.
+        final preservar = <int>{
+          ..._pessoasVinculadas.where(excluir.contains),
+          if (_pessoaVinculada != null) _pessoaVinculada!.id,
+        };
+        final idsFinais = <int>{...resultado, ...preservar}.toList();
+        await PessoaRepository.atualizarPessoasDoMemorial(
+            widget.memorial.id!, idsFinais);
         // Garante direito de VISUALIZAÇÃO via conteudo_colaboradores
         // (memorial_pessoas sozinho falhava para alguns convidados).
         for (final pid in resultado) {
           if (pid == SupabaseService.usuarioId) continue;
+          if (excluir.contains(pid)) continue;
           try {
             await PessoaRepository.concederPermissaoConteudo(
               tipoConteudo: 'memorial',
@@ -613,7 +641,14 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
 
   // ── ABA 1: BIOGRAFIA ──
   Widget _buildAbaBiografia() {
-    final sharedPessoas = _todasPessoas.where((p) => _pessoasVinculadas.contains(p.id)).toList();
+    final sharedPessoas = _todasPessoas
+        .where((p) =>
+            _pessoasVinculadas.contains(p.id) &&
+            !_idsExcluirDoCompartilhamento.contains(p.id))
+        .toList();
+    final colaboradoresVisiveis = _colaboradores
+        .where((c) => !_idsExcluirDoCompartilhamento.contains(c.usuarioId))
+        .toList();
 
     return ListView(
       padding: const EdgeInsets.all(20),
@@ -661,7 +696,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
             ],
           ),
         ),
-        if (_colaboradores.isNotEmpty) ...[
+        if (colaboradoresVisiveis.isNotEmpty) ...[
           const SizedBox(height: 20),
           Container(
             padding: const EdgeInsets.all(20),
@@ -690,7 +725,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children: _colaboradores.map((col) {
+                  children: colaboradoresVisiveis.map((col) {
                     return Chip(
                       avatar: const CircleAvatar(
                         backgroundColor: Color(0xFFF0EAF5),

@@ -1325,11 +1325,17 @@ class PessoaPickerSheet extends StatefulWidget {
     required this.selecionadas,
     required this.titulo,
     this.filtro = PessoaPickerFiltro.humanos,
+    this.excluirIds = const {},
+    this.excluirFalecido = false,
   });
 
   final Set<int> selecionadas;
   final String titulo;
   final PessoaPickerFiltro filtro;
+  /// IDs ocultos do seletor (ex.: pessoa que o memorial representa).
+  final Set<int> excluirIds;
+  /// Memorial: falecido nunca é alvo de compartilhamento.
+  final bool excluirFalecido;
 
   @override
   State<PessoaPickerSheet> createState() => _PessoaPickerSheetState();
@@ -1352,7 +1358,15 @@ class _PessoaPickerSheetState extends State<PessoaPickerSheet> {
     // S.9.3.1 (Item 10) — separa humanos de pets pelo pessoas.tipo.
     final pessoas = todas.where((m) {
       final ehPet = (m['tipo'] as String?) == 'pet';
-      return widget.filtro == PessoaPickerFiltro.pets ? ehPet : !ehPet;
+      final tipoOk =
+          widget.filtro == PessoaPickerFiltro.pets ? ehPet : !ehPet;
+      if (!tipoOk) return false;
+      final id = m['pessoa_b_id'] as int;
+      if (widget.excluirIds.contains(id)) return false;
+      if (widget.excluirFalecido && (m['falecido'] as bool? ?? false)) {
+        return false;
+      }
+      return true;
     }).toList();
     print('[PessoaPickerSheet] _carregar() -> ${pessoas.length} de ${todas.length}');
     if (mounted) {
