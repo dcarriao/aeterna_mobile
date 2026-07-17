@@ -299,7 +299,8 @@ class _PessoasScreenState extends State<PessoasScreen> {
                                   final pessoa = _pessoas[i];
                                   return _PessoaCard(
                                     pessoa: pessoa,
-                                    relacaoLabel: _parentescoMap[pessoa.id] ?? pessoa.parentesco,
+                                    // Só rótulo do grafo da sessão — NUNCA pessoas.parentesco (criador).
+                                    relacaoLabel: _parentescoMap[pessoa.id] ?? '',
                                     totalMemorias: _contarMemorias(pessoa.id),
                                     onTap: () => _abrirDetalhe(pessoa),
                                   );
@@ -432,8 +433,10 @@ class _PessoaCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          _ParentescoChip(parentesco: relacaoLabel),
-                          const SizedBox(width: 10),
+                          if (relacaoLabel.isNotEmpty) ...[
+                            _ParentescoChip(parentesco: relacaoLabel),
+                            const SizedBox(width: 10),
+                          ],
                           Icon(Icons.auto_stories_outlined,
                               size: 13, color: Colors.grey.shade400),
                           const SizedBox(width: 4),

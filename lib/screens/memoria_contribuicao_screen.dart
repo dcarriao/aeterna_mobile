@@ -91,9 +91,30 @@ class _MemoriaContribuicaoScreenState
 
   Future<void> _selecionarVideo() async {
     try {
-      final video = await _picker.pickVideo(source: ImageSource.gallery);
+      final video = await _picker.pickVideo(
+        source: ImageSource.gallery,
+        // Limita duração no picker (quando a plataforma respeitar) para
+        // reduzir chance de 413 no Storage.
+        maxDuration: const Duration(seconds: 90),
+      );
       if (video == null) return;
       final bytes = await video.readAsBytes();
+      final maxBytes = SupabaseService.maxVideoContribuicaoBytes;
+      if (bytes.lengthInBytes > maxBytes) {
+        final mb = (bytes.lengthInBytes / (1024 * 1024)).toStringAsFixed(1);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Vídeo com $mb MB ultrapassa o limite de '
+              '${maxBytes ~/ (1024 * 1024)} MB. Escolha um vídeo mais curto '
+              '(até ~90s) ou comprima antes de enviar.',
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        return;
+      }
       setState(() {
         _videoBytes = bytes;
         _fotoBytes = null;
@@ -172,8 +193,18 @@ class _MemoriaContribuicaoScreenState
     } catch (e) {
       if (mounted) {
         setState(() => _enviando = false);
+        final msg = e.toString();
+        final amigavel = msg.contains('Vídeo') ||
+                msg.contains('vídeo') ||
+                msg.contains('413') ||
+                msg.contains('grande')
+            ? msg.replaceFirst('Bad state: ', '').replaceFirst('Exception: ', '')
+            : 'Erro ao enviar contribuição: $e';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao enviar contribuição: $e')),
+          SnackBar(
+            content: Text(amigavel),
+            duration: const Duration(seconds: 5),
+          ),
         );
       }
     }

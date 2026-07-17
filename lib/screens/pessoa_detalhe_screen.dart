@@ -293,11 +293,15 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              // S.9.3.1 — no pet, o selo mostra
-                              // "Gato • Siamês" (ou só a espécie).
+                              // S.9.3.1 — pet: espécie/raça.
+                              // Humano: só a relação da SESSÃO com esta
+                              // pessoa — nunca pessoas.parentesco (rótulo
+                              // do criador, ex. "irmão" do dono da conta).
                               pessoa.isPet
                                   ? (pessoa.especieRacaLabel ?? 'Pet')
-                                  : (_minhaRelacao ?? pessoa.parentesco),
+                                  : (_minhaRelacao?.isNotEmpty == true
+                                      ? _minhaRelacao!
+                                      : 'Familiar'),
                               style: const TextStyle(
                                 color: AppColors.dourado,
                                 fontSize: 14,

@@ -461,7 +461,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => CadastroScreen(
-                                onCadastrado: widget.onEntrar,
+                                // Pop Cadastro antes de entrar: senão o route
+                                // fica empilhado sobre o home e o spinner
+                                // gira para sempre (sessão já gravada).
+                                onCadastrado: () {
+                                  Navigator.of(context).pop();
+                                  widget.onEntrar();
+                                },
                               ),
                             ),
                           );

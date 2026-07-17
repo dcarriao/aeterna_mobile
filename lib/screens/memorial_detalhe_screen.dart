@@ -254,6 +254,21 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
       });
       try {
         await PessoaRepository.atualizarPessoasDoMemorial(widget.memorial.id!, resultado);
+        // Garante direito de VISUALIZAÇÃO via conteudo_colaboradores
+        // (memorial_pessoas sozinho falhava para alguns convidados).
+        for (final pid in resultado) {
+          if (pid == SupabaseService.usuarioId) continue;
+          try {
+            await PessoaRepository.concederPermissaoConteudo(
+              tipoConteudo: 'memorial',
+              conteudoId: widget.memorial.id!,
+              usuarioIdColaborador: pid,
+              papel: PapelColaborador.leitor,
+            );
+          } catch (e) {
+            print('[Memorial] conceder leitor pessoa_id=$pid ERRO: $e');
+          }
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Compartilhamento do memorial atualizado com sucesso! Seus convidados agora podem ver e enviar lembranças.')),

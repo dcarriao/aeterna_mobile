@@ -5,6 +5,7 @@ import 'package:supabase/supabase.dart';
 import '../models/memoria.dart';
 import '../models/memorial.dart';
 import '../models/contribuicao.dart';
+import '../models/pessoa.dart';
 import 'push_notification_service.dart';
 
 class SupabaseService {
@@ -18,6 +19,9 @@ class SupabaseService {
   );
   static const _anonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
   static const _bucketFotos = 'fotos';
+  /// Limite cliente para vídeo de contribuição (Storage/API costuma rejeitar
+  /// ~50MB com 413). Deixe margem abaixo do teto do bucket.
+  static const int maxVideoContribuicaoBytes = 40 * 1024 * 1024;
 
   // ID de usuário dinâmico para isolamento de dados
   static int usuarioId = 2;
@@ -57,10 +61,11 @@ class SupabaseService {
   Future<List<Memoria>> listarMemorias() async {
     if (!isConfigured) return const [];
 
+    final uid = PessoaRepository.usuarioId;
     final memoriaRows = await _client
         .from('memorias')
-        .select('id, titulo, conteudo, categoria, data_criacao, data_evento')
-        .eq('usuario_id', usuarioId)
+        .select('id, titulo, conteudo, categoria, data_criacao, data_evento, usuario_id')
+        .eq('usuario_id', uid)
         .order('data_criacao', ascending: false);
 
     if (memoriaRows.isEmpty) return const [];
@@ -167,7 +172,12 @@ class SupabaseService {
           'thumbnail=NULL '
           'renderer=${fotoUrl != null ? "foto" : (temVideo ? "video" : "sem_midia")}');
       return Memoria.fromMap(row,
-          fotoUrl: fotoUrl, videoUrl: videoUrl, temVideo: temVideo);
+          fotoUrl: fotoUrl,
+          videoUrl: videoUrl,
+          temVideo: temVideo,
+          // Dono real = memorias.usuario_id (necessário p/ moderar
+          // contribuições pendentes — sem isso _souDono ficava sempre false).
+          donoUsuarioId: (row['usuario_id'] as num?)?.toInt() ?? uid);
     }).toList();
   }
 
@@ -279,7 +289,9 @@ class SupabaseService {
         fotoUrl: fotoUrl,
         videoUrl: videoUrl,
         temVideo: temVideo,
-        donoUsuarioId: info?['usuario_id'] as int?,
+        donoUsuarioId: info?['usuario_id'] is num
+            ? (info?['usuario_id'] as num).toInt()
+            : info?['usuario_id'] as int?,
         compartilhadaPorNome: info?['nome'] as String?,
       );
     }).toList();
@@ -435,11 +447,12 @@ class SupabaseService {
 
   Future<List<Memorial>> listarMemoriais() async {
     if (!isConfigured) return const [];
+    final uid = PessoaRepository.usuarioId;
     try {
       final rows = await _client
           .from('memoriais')
           .select('*')
-          .eq('usuario_id', usuarioId)
+          .eq('usuario_id', uid)
           .order('criado_em', ascending: false);
       return rows.map<Memorial>((row) => Memorial.fromMap(row)).toList();
     } catch (e) {
@@ -544,6 +557,8 @@ class SupabaseService {
   /// Complementa `listarMemoriais()` (que só traz os próprios).
   Future<List<Memorial>> listarMemoriaisColaborativos() async {
     if (!isConfigured) return const [];
+    // Fonte de verdade da sessão (evita drift com static legado = 2).
+    final uid = PessoaRepository.usuarioId;
     try {
       final ids = <int>{};
 
@@ -552,7 +567,7 @@ class SupabaseService {
           .from('conteudo_colaboradores')
           .select('conteudo_id')
           .eq('tipo_conteudo', 'memorial')
-          .eq('usuario_id', usuarioId);
+          .eq('usuario_id', uid);
       for (final r in vinculos) {
         ids.add((r['conteudo_id'] as num).toInt());
       }
@@ -561,7 +576,7 @@ class SupabaseService {
       final vinculosMp = await _client
           .from('memorial_pessoas')
           .select('memorial_id')
-          .eq('pessoa_id', usuarioId);
+          .eq('pessoa_id', uid);
       for (final r in vinculosMp) {
         ids.add((r['memorial_id'] as num).toInt());
       }
@@ -572,7 +587,7 @@ class SupabaseService {
           .from('memoriais')
           .select('id, nome, parentesco, data_nascimento, data_falecimento, biografia, foto_perfil, usuario_id, criado_em')
           .inFilter('id', ids.toList())
-          .neq('usuario_id', usuarioId)
+          .neq('usuario_id', uid)
           .order('criado_em', ascending: false);
       return rows.map<Memorial>((row) => Memorial.fromMap(row)).toList();
     } catch (e) {
@@ -675,15 +690,42 @@ class SupabaseService {
           .from(_bucketFotos)
           .getPublicUrl(caminhoStorage);
     } else if (contribuicao.videoBytes != null) {
+      final bytes = contribuicao.videoBytes!;
+      if (bytes.lengthInBytes > maxVideoContribuicaoBytes) {
+        final mb = (bytes.lengthInBytes / (1024 * 1024)).toStringAsFixed(1);
+        throw StateError(
+          'Vídeo muito grande ($mb MB). O limite é '
+          '${maxVideoContribuicaoBytes ~/ (1024 * 1024)} MB. '
+          'Escolha um vídeo mais curto ou comprima antes de enviar.',
+        );
+      }
       final caminhoStorage = _criarCaminhoArquivo(
         agora,
         'contrib_video_${agora.millisecondsSinceEpoch}.mp4',
       );
-      await _client.storage.from(_bucketFotos).uploadBinary(
-        caminhoStorage,
-        contribuicao.videoBytes!,
-        fileOptions: const FileOptions(contentType: 'video/mp4'),
-      );
+      try {
+        await _client.storage.from(_bucketFotos).uploadBinary(
+          caminhoStorage,
+          bytes,
+          fileOptions: const FileOptions(
+            contentType: 'video/mp4',
+            upsert: true,
+          ),
+        );
+      } on StorageException catch (e) {
+        final code = e.statusCode ?? '';
+        if (code == '413' ||
+            e.message.toLowerCase().contains('payload') ||
+            e.message.toLowerCase().contains('too large') ||
+            e.message.toLowerCase().contains('maximum')) {
+          throw StateError(
+            'O servidor recusou o vídeo (arquivo grande demais). '
+            'Use um vídeo de até ${maxVideoContribuicaoBytes ~/ (1024 * 1024)} MB '
+            'ou mais curto.',
+          );
+        }
+        rethrow;
+      }
       arquivoPublicUrl = _client.storage
           .from(_bucketFotos)
           .getPublicUrl(caminhoStorage);

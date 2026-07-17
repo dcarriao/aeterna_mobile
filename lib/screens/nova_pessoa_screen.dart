@@ -200,7 +200,6 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
       final idsRelacionados = todas.map((p) => p.id).toSet();
 
       // 2. Email ou telefone iguais em QUALQUER cadastro
-      //    Se a pessoa já for relacionada, trata como duplicata relacionada
       if (email.isNotEmpty) {
         final porEmail = await db
             .from('pessoas')
@@ -224,21 +223,28 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         }
       }
 
-      // 3. Nome + data_nascimento + (email ou telefone) EXATOS
-      if (_dataNascimento != null && (email.isNotEmpty || telefone.isNotEmpty)) {
+      // 3. Nome + data_nascimento GLOBAL (sem exigir e-mail/telefone).
+      // Antes só batia se também tivesse e-mail/telefone → permitia
+      // duplicar contato existente cadastrado só com nome+nascimento.
+      if (_dataNascimento != null) {
         final dataStr =
             '${_dataNascimento!.year}-${_dataNascimento!.month.toString().padLeft(2, '0')}-${_dataNascimento!.day.toString().padLeft(2, '0')}';
-        var query = db
+        final candidatos = await db
             .from('pessoas')
             .select('id, nome, sobrenome, email, telefone, data_nascimento')
-            .eq('nome', nome)
-            .eq('data_nascimento', dataStr);
-        if (email.isNotEmpty) query = query.eq('email', email);
-        if (telefone.isNotEmpty) query = query.eq('telefone', telefone);
-        final global = await query.maybeSingle();
-        if (global != null) {
-          final p = Pessoa.fromMap(global);
-          return (pessoa: p, ehRelacionada: idsRelacionados.contains(p.id));
+            .eq('data_nascimento', dataStr)
+            .eq('tipo', 'humano');
+        for (final row in candidatos) {
+          final p = Pessoa.fromMap(row);
+          final pTokens = p.nome.toLowerCase().split(RegExp(r'\s+'));
+          final nomeCompleto =
+              '${p.nome} ${p.apelido ?? ''}'.trim().toLowerCase();
+          final tokensOk = nomeTokens.every(
+              (t) => pTokens.contains(t) || nomeCompleto.contains(t));
+          final nomeExato = p.nome.trim().toLowerCase() == nome.toLowerCase();
+          if (tokensOk || nomeExato) {
+            return (pessoa: p, ehRelacionada: idsRelacionados.contains(p.id));
+          }
         }
       }
     } catch (_) {}

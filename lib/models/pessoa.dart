@@ -339,18 +339,31 @@ class PessoaRepository {
 
   /// Retorna pessoas relacionadas a [pessoaId] via `pessoas_relacionamentos`.
   /// Mapa: `outraPessoaId → rotulo` (ex: "Pai", "Esposo(a)", "Filho(a)").
+  /// NUNCA usa `pessoas.parentesco` (rótulo do criador) — só o grafo real.
   static Future<Map<int, String>> listarRelacionados(int pessoaId) async {
     if (!isConfigured) return {};
     try {
-      final rows = await _supabase
+      final rowsA = await _supabase
           .from('pessoas_relacionamentos')
           .select('pessoa_b_id, relacao_b_para_a')
           .eq('pessoa_a_id', pessoaId);
-      return {
-        for (final r in rows)
+      final map = <int, String>{
+        for (final r in rowsA)
           (r['pessoa_b_id'] as num).toInt():
               (r['relacao_b_para_a'] as String?) ?? '',
       };
+      // Completa lado B (dados legados sem linha direta).
+      final rowsB = await _supabase
+          .from('pessoas_relacionamentos')
+          .select('pessoa_a_id, relacao_a_para_b')
+          .eq('pessoa_b_id', pessoaId);
+      for (final r in rowsB) {
+        final outraId = (r['pessoa_a_id'] as num).toInt();
+        if (map.containsKey(outraId)) continue;
+        final rot = (r['relacao_a_para_b'] as String?) ?? '';
+        if (rot.isNotEmpty) map[outraId] = rot;
+      }
+      return map;
     } catch (e) {
       print('[PessoaRepo] listarRelacionados() ERRO: $e');
       return {};
@@ -740,6 +753,7 @@ class PessoaRepository {
         fotoUrl: fotoUrl,
         videoUrl: videoUrl,
         temVideo: videoUrl != null && videoUrl.isNotEmpty,
+        donoUsuarioId: (row['usuario_id'] as num?)?.toInt(),
       );
     } catch (e) {
       print('[PessoaRepo] obterMemoriaPorId($memoriaId) ERRO: $e');
@@ -1391,21 +1405,17 @@ class PessoaRepository {
 
   static Future<void> atualizarPessoasDoMemorial(int memorialId, List<int> pessoaIds) async {
     if (!isConfigured) return;
-    try {
-      await _supabase
-          .from('memorial_pessoas')
-          .delete()
-          .eq('memorial_id', memorialId);
-      if (pessoaIds.isNotEmpty) {
-        await _supabase.from('memorial_pessoas').insert(
-          pessoaIds.map((pid) => {
-            'memorial_id': memorialId,
-            'pessoa_id': pid,
-          }).toList(),
-        );
-      }
-    } catch (e) {
-      print('Erro ao atualizar pessoas do memorial: $e');
+    await _supabase
+        .from('memorial_pessoas')
+        .delete()
+        .eq('memorial_id', memorialId);
+    if (pessoaIds.isNotEmpty) {
+      await _supabase.from('memorial_pessoas').insert(
+        pessoaIds.map((pid) => {
+          'memorial_id': memorialId,
+          'pessoa_id': pid,
+        }).toList(),
+      );
     }
   }
 

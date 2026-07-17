@@ -44,6 +44,9 @@ class _CadastroScreenState extends State<CadastroScreen> {
         sobrenome: _sobrenomeCtrl.text.trim(),
         email: _emailCtrl.text.trim(),
         senha: _senhaCtrl.text,
+      ).timeout(
+        const Duration(seconds: 25),
+        onTimeout: () => null,
       );
       if (uid == null) {
         if (mounted) _mostrarErro('Erro ao criar conta. Tente novamente.');
@@ -75,6 +78,9 @@ class _CadastroScreenState extends State<CadastroScreen> {
       if (mounted) widget.onCadastrado();
     } catch (_) {
       if (mounted) _mostrarErro('Erro ao criar conta. Tente novamente.');
+    } finally {
+      // Se a navegação não desmontou a tela, libera o spinner.
+      if (mounted && _salvando) setState(() => _salvando = false);
     }
   }
 

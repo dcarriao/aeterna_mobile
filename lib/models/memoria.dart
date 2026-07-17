@@ -35,13 +35,14 @@ class Memoria {
   final String? videoUrl;
   final bool temVideo;
 
-  // Preenchidos apenas para memórias RECEBIDAS de outra conta (Bug 1):
-  // identifica o dono real da memória (pessoas.id) e seu nome, para exibir
-  // "Compartilhado por Fulano" na tela Compartilhadas.
+  // Preenchidos para identificar o dono (pessoas.id = memorias.usuario_id).
+  // Em memórias RECEBIDAS, compartilhadaPorNome também vem preenchido.
   final int? donoUsuarioId;
   final String? compartilhadaPorNome;
 
-  bool get isRecebidaDeOutraConta => donoUsuarioId != null;
+  /// True só quando veio de outra conta (share), não quando é memória própria
+  /// com donoUsuarioId preenchido.
+  bool get isRecebidaDeOutraConta => compartilhadaPorNome != null;
 
   factory Memoria.fromMap(
     Map<String, dynamic> map, {
@@ -58,7 +59,7 @@ class Memoria {
         DateTime.now();
 
     return Memoria(
-      id: map['id'] as int?,
+      id: map['id'] is num ? (map['id'] as num).toInt() : map['id'] as int?,
       titulo: map['titulo'] as String? ?? '',
       contexto: map['conteudo'] as String? ?? '',
       categoria: map['categoria'] as String? ?? 'momentos',
@@ -67,7 +68,10 @@ class Memoria {
       videoUrl: videoUrl,
       temVideo: temVideo,
       dataMemoria: dataEvento,
-      donoUsuarioId: donoUsuarioId,
+      donoUsuarioId: donoUsuarioId ??
+          (map['usuario_id'] is num
+              ? (map['usuario_id'] as num).toInt()
+              : map['usuario_id'] as int?),
       compartilhadaPorNome: compartilhadaPorNome,
     );
   }

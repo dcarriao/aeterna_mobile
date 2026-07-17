@@ -87,9 +87,13 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
   List<MemoriaRelacionamento> _relacionados = const [];
   bool _carregandoRelacionados = true;
 
-  bool get _souDono =>
-      widget.memoria.donoUsuarioId != null &&
-      widget.memoria.donoUsuarioId == SupabaseService.usuarioId;
+  bool get _souDono {
+    final dono = _memoria.donoUsuarioId;
+    final uid = SupabaseService.usuarioId;
+    if (dono != null) return dono == uid;
+    // Memória própria da lista sem dono preenchido: não é somente-leitura.
+    return !widget.somenteLeitura && !_memoria.isRecebidaDeOutraConta;
+  }
 
   /// Quem pode ENRIQUECER (criar contribuições). Dono sempre pode.
   /// Outros usuários só podem se forem colaboradores/editor (papel já
@@ -565,14 +569,26 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
     }
 
     // Bloco de moderação para o dono: contribuições pendentes.
-    if (_souDono && _contribuicoesPendentes.isNotEmpty) {
+    // Autor também vê as próprias pendentes (antes "sumiam" para todos
+    // porque _souDono era false sem donoUsuarioId nas memórias próprias).
+    final emailSessao = PessoaRepository.usuarioEmail?.toLowerCase() ?? '';
+    final pendentesVisiveis = _souDono
+        ? _contribuicoesPendentes
+        : _contribuicoesPendentes
+            .where((c) =>
+                emailSessao.isNotEmpty &&
+                c.usuarioContribuidorEmail.toLowerCase() == emailSessao)
+            .toList();
+    if (pendentesVisiveis.isNotEmpty) {
       children.add(const SizedBox(height: 24));
       children.add(const Divider());
       children.add(const SizedBox(height: 16));
       children.add(
-        const Text(
-          'Contribuições aguardando aprovação',
-          style: TextStyle(
+        Text(
+          _souDono
+              ? 'Contribuições aguardando aprovação'
+              : 'Suas contribuições aguardando aprovação',
+          style: const TextStyle(
             color: AppColors.roxo,
             fontSize: 15,
             fontWeight: FontWeight.w800,
@@ -581,13 +597,15 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
       );
       children.add(const SizedBox(height: 4));
       children.add(
-        const Text(
-          'Aprove ou rejeite contribuições dos seus familiares para que passem a fazer parte da história.',
-          style: TextStyle(color: Color(0xFF7A7280), fontSize: 12, height: 1.4),
+        Text(
+          _souDono
+              ? 'Aprove ou rejeite contribuições dos seus familiares para que passem a fazer parte da história.'
+              : 'O dono da memória ainda precisa aprovar. Elas continuam salvas.',
+          style: const TextStyle(color: Color(0xFF7A7280), fontSize: 12, height: 1.4),
         ),
       );
       children.add(const SizedBox(height: 12));
-      for (final c in _contribuicoesPendentes) {
+      for (final c in pendentesVisiveis) {
         children.add(_buildCardContribuicaoPendente(c));
       }
     }
@@ -970,27 +988,37 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
             ),
           ],
           const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () => _moderarContribuicaoMemoria(c, false),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.redAccent,
-                  side: const BorderSide(color: Colors.redAccent),
+          if (_souDono)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _moderarContribuicaoMemoria(c, false),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: const BorderSide(color: Colors.redAccent),
+                  ),
+                  icon: const Icon(Icons.close, size: 16),
+                  label: const Text('Rejeitar'),
                 ),
-                icon: const Icon(Icons.close, size: 16),
-                label: const Text('Rejeitar'),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: () => _moderarContribuicaoMemoria(c, true),
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.verdeApoio),
+                  icon: const Icon(Icons.check, size: 16),
+                  label: const Text('Aprovar'),
+                ),
+              ],
+            )
+          else
+            const Text(
+              'Aguardando aprovação do dono da memória.',
+              style: TextStyle(
+                color: AppColors.dourado,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: () => _moderarContribuicaoMemoria(c, true),
-                style: FilledButton.styleFrom(backgroundColor: AppColors.verdeApoio),
-                icon: const Icon(Icons.check, size: 16),
-                label: const Text('Aprovar'),
-              ),
-            ],
-          ),
+            ),
         ],
       ),
     );

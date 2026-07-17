@@ -47,12 +47,10 @@ class PessoaRelacionamentoService {
 
   /// Lista as relações exibidas no perfil da pessoa.
   ///
-  /// S.9.3.1 (Item 6) — QUERY OFICIAL do perfil: apenas as linhas em que a
-  /// pessoa do perfil é `pessoa_a_id`, exibindo `relacao_b_para_a`
-  /// (o que a OUTRA pessoa é para ela). Toda relação criada por criar()
-  /// possui as duas direções (linha direta + inversa), então ler só o lado
-  /// A cobre 100% das relações bidirecionais e elimina a ambiguidade que
-  /// invertia rótulos quando a mesma relação era lida pelos dois lados.
+  /// S.9.3.1 (Item 6) — QUERY OFICIAL do perfil: linhas em que a pessoa do
+  /// perfil é `pessoa_a_id`, exibindo `relacao_b_para_a` (o que a OUTRA é
+  /// para ela). Se a linha inversa existir sem a direta (dados legados),
+  /// completa pelo lado B usando `relacao_a_para_b`.
   Future<List<OutraPessoaNaFamilia>> listarRelacionamentos(
     int pessoaId,
   ) async {
@@ -65,11 +63,22 @@ class PessoaRelacionamentoService {
           .select('pessoa_b_id, relacao_a_para_b, relacao_b_para_a, tipo, id')
           .eq('pessoa_a_id', pessoaId)
           .order('pessoa_b_id');
-      print('[PERF] query=listarRelacionamentos duracao_ms=${sw.elapsedMilliseconds} linhas=${rowsA.length}');
+
+      // Dados incompletos: só existe a linha inversa (pessoa é B).
+      // Sem isso, a UI caía no fallback `pessoas.parentesco` (rótulo do
+      // CRIADOR, não da pessoa do perfil / sessão).
+      final rowsB = await PessoaRepository.supabaseClient
+          .from('pessoas_relacionamentos')
+          .select('pessoa_a_id, relacao_a_para_b, relacao_b_para_a, tipo, id')
+          .eq('pessoa_b_id', pessoaId)
+          .order('pessoa_a_id');
+      print('[PERF] query=listarRelacionamentos duracao_ms=${sw.elapsedMilliseconds} '
+          'ladoA=${rowsA.length} ladoB=${rowsB.length}');
 
       // Busca nomes de todas as pessoas envolvidas
       final todosIds = <int>{
         for (final r in rowsA) (r['pessoa_b_id'] as num).toInt(),
+        for (final r in rowsB) (r['pessoa_a_id'] as num).toInt(),
       };
       final nomes = <int, String>{};
       final fotos = <int, String>{};
@@ -102,9 +111,6 @@ class PessoaRelacionamentoService {
       for (final r in rowsA) {
         final outraId = (r['pessoa_b_id'] as num).toInt();
         final tipo = r['tipo'] as String? ?? 'OUTRO';
-        // Convenção oficial: tipo = papel de B. Fallback (rótulo nulo):
-        // o rótulo de B vem de rotuloA do catálogo (nome do papel) e o
-        // de A vem de rotuloB (papel recíproco).
         final rotB = r['relacao_b_para_a'] as String? ?? rotuloAPorTipo[tipo] ?? 'Pessoa';
         final rotA = r['relacao_a_para_b'] as String? ?? rotuloBPorTipo[tipo] ?? 'Pessoa';
         lista.add(OutraPessoaNaFamilia(
@@ -117,7 +123,30 @@ class PessoaRelacionamentoService {
           fotoUrl: fotos[outraId],
         ));
       }
-      // Remove duplicatas (defensivo — não deve ocorrer lendo só o lado A)
+
+      // Completa com o lado B (só se ainda não houver a direta).
+      // Na linha A→B invertida: A é a "outra"; o que A é para mim (B) =
+      // relacao_a_para_b.
+      final jaTem = lista.map((f) => f.outraPessoaId).toSet();
+      for (final r in rowsB) {
+        final outraId = (r['pessoa_a_id'] as num).toInt();
+        if (jaTem.contains(outraId)) continue;
+        final tipo = r['tipo'] as String? ?? 'OUTRO';
+        final rotDaOutra =
+            r['relacao_a_para_b'] as String? ?? rotuloBPorTipo[tipo] ?? 'Pessoa';
+        final rotDeMim =
+            r['relacao_b_para_a'] as String? ?? rotuloAPorTipo[tipo] ?? 'Pessoa';
+        lista.add(OutraPessoaNaFamilia(
+          relacionamentoId: (r['id'] as num).toInt(),
+          outraPessoaId: outraId,
+          outraPessoaNome: nomes[outraId] ?? 'Pessoa #$outraId',
+          tipo: tipo,
+          rotuloDaOutraParaMim: rotDaOutra,
+          rotuloDeMimParaAOutra: rotDeMim,
+          fotoUrl: fotos[outraId],
+        ));
+      }
+
       final unique = <int, OutraPessoaNaFamilia>{};
       for (final f in lista) {
         unique.putIfAbsent(f.outraPessoaId, () => f);

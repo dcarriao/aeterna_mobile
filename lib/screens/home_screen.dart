@@ -337,10 +337,11 @@ class _HomeScreenState extends State<HomeScreen> {
             p.situacao == 'ativo')
         .toList();
     elegiveis.sort((a, b) {
+      // Só rótulos do grafo da sessão — nunca pessoas.parentesco (criador).
       final pa = _prioridadePessoaImportante(
-          tipoPorId[a.id] ?? '', parentescoMap[a.id] ?? a.parentesco);
+          tipoPorId[a.id] ?? '', parentescoMap[a.id] ?? '');
       final pb = _prioridadePessoaImportante(
-          tipoPorId[b.id] ?? '', parentescoMap[b.id] ?? b.parentesco);
+          tipoPorId[b.id] ?? '', parentescoMap[b.id] ?? '');
       if (pa != pb) return pa.compareTo(pb);
       return a.nome.toLowerCase().compareTo(b.nome.toLowerCase());
     });
@@ -352,7 +353,7 @@ class _HomeScreenState extends State<HomeScreen> {
         .map((p) => PessoaVivaResumo(
               id: p.id,
               nome: p.nome,
-              parentesco: parentescoMap[p.id] ?? p.parentesco,
+              parentesco: parentescoMap[p.id] ?? '',
               fotoUrl: p.fotoUrl,
               ultimaInteracao: null,
               totalEventos: counts[p.id] ?? 0,

@@ -80,7 +80,7 @@ class Contribuicao {
 
   factory Contribuicao.fromMap(Map<String, dynamic> map) {
     return Contribuicao(
-      id: map['id'] as int?,
+      id: map['id'] is num ? (map['id'] as num).toInt() : map['id'] as int?,
       memorialId: (map['memorial_id'] as num?)?.toInt(),
       tipoConteudo: map['tipo_conteudo'] as String? ?? 'memorial',
       conteudoId: (map['conteudo_id'] as num? ?? 0).toInt(),
