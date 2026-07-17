@@ -153,11 +153,25 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
   }
 
   Future<void> _excluir() async {
+    final pessoa = _pessoa ?? widget.pessoa;
+    final motivo = _motivoExclusaoBloqueada(pessoa);
+    if (motivo != null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(motivo)),
+      );
+      return;
+    }
+
+    final rotulo = pessoa.isPet ? 'pet' : 'contato';
     final confirmou = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Excluir pessoa'),
-        content: Text('Tem certeza que deseja excluir ${widget.pessoa.nome}?'),
+        title: Text(pessoa.isPet ? 'Excluir pet' : 'Excluir contato'),
+        content: Text(
+          'Tem certeza que deseja excluir ${pessoa.nome}? '
+          'O $rotulo deixará de aparecer nas suas listas.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -173,18 +187,44 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
     );
 
     if (confirmou == true && mounted) {
-      try {
-        await PessoaRepository.remover(widget.pessoa.id);
-        if (mounted) Navigator.of(context).pop();
-      } catch (_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Não foi possível excluir ${widget.pessoa.nome}.'),
-            ),
-          );
-        }
+      final erro = await PessoaRepository.remover(pessoa.id);
+      if (!mounted) return;
+      if (erro == null) {
+        Navigator.of(context).pop(true);
+        return;
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_mensagemErroRemover(erro, pessoa.nome))),
+      );
+    }
+  }
+
+  /// null = pode excluir; senão mensagem clara.
+  String? _motivoExclusaoBloqueada(Pessoa pessoa) {
+    if (pessoa.id == PessoaRepository.usuarioId) {
+      return 'Você não pode excluir a própria conta por aqui.';
+    }
+    if (pessoa.criadoPorId != PessoaRepository.usuarioId) {
+      return 'Só quem cadastrou este contato pode excluí-lo.';
+    }
+    if (pessoa.situacao == 'ativo') {
+      return 'Não é possível excluir: esta pessoa já tem conta ativa.';
+    }
+    return null;
+  }
+
+  bool _podeExcluir(Pessoa pessoa) => _motivoExclusaoBloqueada(pessoa) == null;
+
+  String _mensagemErroRemover(String codigo, String nome) {
+    switch (codigo) {
+      case 'nao_criador':
+        return 'Só quem cadastrou este contato pode excluí-lo.';
+      case 'conta_ativa':
+        return 'Não é possível excluir: $nome já tem conta ativa.';
+      case 'nao_encontrada':
+        return 'Contato não encontrado.';
+      default:
+        return 'Não foi possível excluir $nome.';
     }
   }
 
@@ -233,11 +273,21 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
             onPressed: _editar,
             icon: const Icon(Icons.edit_outlined),
           ),
-          IconButton(
-            tooltip: 'Excluir',
-            onPressed: _excluir,
-            icon: const Icon(Icons.delete_outline),
-          ),
+          if (_podeExcluir(pessoa))
+            IconButton(
+              tooltip: 'Excluir',
+              onPressed: _excluir,
+              icon: const Icon(Icons.delete_outline),
+            )
+          else if (pessoa.id != PessoaRepository.usuarioId)
+            IconButton(
+              tooltip: _motivoExclusaoBloqueada(pessoa) ?? 'Excluir',
+              onPressed: _excluir,
+              icon: Icon(
+                Icons.delete_outline,
+                color: Colors.grey.shade400,
+              ),
+            ),
         ],
       ),
       body: SafeArea(

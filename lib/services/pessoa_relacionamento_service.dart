@@ -85,8 +85,9 @@ class PessoaRelacionamentoService {
       if (todosIds.isNotEmpty) {
         final pRows = await PessoaRepository.supabaseClient
             .from('pessoas')
-            .select('id, nome, sobrenome, foto_perfil')
-            .inFilter('id', todosIds.toList());
+            .select('id, nome, sobrenome, foto_perfil, situacao')
+            .inFilter('id', todosIds.toList())
+            .neq('situacao', 'inativo');
         for (final r in pRows) {
           nomes[(r['id'] as num).toInt()] =
               '${r['nome'] ?? ''} ${r['sobrenome'] ?? ''}'.trim();
@@ -110,6 +111,7 @@ class PessoaRelacionamentoService {
 
       for (final r in rowsA) {
         final outraId = (r['pessoa_b_id'] as num).toInt();
+        if (!nomes.containsKey(outraId)) continue; // inativo filtrado acima
         final tipo = r['tipo'] as String? ?? 'OUTRO';
         final rotB = r['relacao_b_para_a'] as String? ?? rotuloAPorTipo[tipo] ?? 'Pessoa';
         final rotA = r['relacao_a_para_b'] as String? ?? rotuloBPorTipo[tipo] ?? 'Pessoa';
@@ -131,6 +133,7 @@ class PessoaRelacionamentoService {
       for (final r in rowsB) {
         final outraId = (r['pessoa_a_id'] as num).toInt();
         if (jaTem.contains(outraId)) continue;
+        if (!nomes.containsKey(outraId)) continue; // inativo filtrado acima
         final tipo = r['tipo'] as String? ?? 'OUTRO';
         final rotDaOutra =
             r['relacao_a_para_b'] as String? ?? rotuloBPorTipo[tipo] ?? 'Pessoa';
@@ -189,7 +192,8 @@ class PessoaRelacionamentoService {
       final nomes = await PessoaRepository.supabaseClient
           .from('pessoas')
           .select('id, nome, sobrenome, tipo')
-          .inFilter('id', bIds);
+          .inFilter('id', bIds)
+          .neq('situacao', 'inativo');
 
       final nomePorId = <int, String>{
         for (final r in nomes)
@@ -212,6 +216,7 @@ class PessoaRelacionamentoService {
               'tipo': tipoPorId[bid] ?? 'humano',
             };
           })
+          .where((m) => nomePorId.containsKey(m['pessoa_b_id'] as int))
           .where((m) =>
               excludeId == null || (m['pessoa_b_id'] as int) != excludeId)
           .toList();
@@ -255,7 +260,8 @@ class PessoaRelacionamentoService {
       final nomes = await PessoaRepository.supabaseClient
           .from('pessoas')
           .select('id, nome, sobrenome')
-          .inFilter('id', bIds);
+          .inFilter('id', bIds)
+          .neq('situacao', 'inativo');
 
       final nv = await PessoaRepository.supabaseClient
           .from('tipos_relacionamento')
@@ -270,18 +276,21 @@ class PessoaRelacionamentoService {
         for (final r in nv) (r['id'] as String): (r['nivel'] as num?)?.toInt() ?? 99,
       };
 
-      final out = rows.map<Map<String, dynamic>>((r) {
-        final bid = (r['pessoa_b_id'] as num).toInt();
-        final tipo = r['tipo'] as String? ?? 'OUTRO';
-        return {
-          'pessoa_b_id': bid,
-          'relacao_b_para_a': r['relacao_b_para_a'] as String? ?? '',
-          'tipo': tipo,
-          'relacao_a_para_b': r['relacao_a_para_b'] as String? ?? '',
-          'nome': nomePorId[bid] ?? 'Pessoa #$bid',
-          'nivel': nivelPorTipo[tipo] ?? 99,
-        };
-      }).toList();
+      final out = rows
+          .map<Map<String, dynamic>>((r) {
+            final bid = (r['pessoa_b_id'] as num).toInt();
+            final tipo = r['tipo'] as String? ?? 'OUTRO';
+            return {
+              'pessoa_b_id': bid,
+              'relacao_b_para_a': r['relacao_b_para_a'] as String? ?? '',
+              'tipo': tipo,
+              'relacao_a_para_b': r['relacao_a_para_b'] as String? ?? '',
+              'nome': nomePorId[bid] ?? 'Pessoa #$bid',
+              'nivel': nivelPorTipo[tipo] ?? 99,
+            };
+          })
+          .where((m) => nomePorId.containsKey(m['pessoa_b_id'] as int))
+          .toList();
 
       out.sort((a, b) => (a['nivel'] as int).compareTo(b['nivel'] as int));
       return out;

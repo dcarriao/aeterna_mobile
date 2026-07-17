@@ -389,11 +389,15 @@ class PessoaRepository {
       }
       if (ids.isEmpty) return [];
       final t2 = Stopwatch()..start();
-      // S.9.3.1 — inclui especie/raca (requer migration sprint_s9_3_1_pet_especie_raca.sql)
+      // Soft-delete some das listas; criado_por_id para regra de exclusao.
       final rows = await _supabase
           .from('pessoas')
-          .select('id, nome, sobrenome, email, telefone, tipo, especie, raca, data_nascimento, foto_perfil, situacao, falecido, created_at')
+          .select(
+              'id, nome, sobrenome, email, telefone, tipo, especie, raca, '
+              'data_nascimento, foto_perfil, situacao, falecido, created_at, '
+              'criado_por_id')
           .inFilter('id', ids.toList())
+          .neq('situacao', 'inativo')
           .order('nome');
       print('[PERF] query=listar.pessoas duracao_ms=${t2.elapsedMilliseconds} linhas=${rows.length} total_ms=${sw.elapsedMilliseconds}');
       return rows.map((r) => Pessoa.fromMap(r)).toList();
@@ -423,11 +427,12 @@ class PessoaRepository {
     }
 
     final data = <String, dynamic>{
-      'criado_por_id': usuarioId,
       'nome': pessoa.nome,
       'tipo': pessoa.tipo,
       'situacao': pessoa.situacao,
     };
+    // criado_por_id só no INSERT — nunca sobrescrever o criador original no UPDATE
+    // (apagaria a regra "só quem criou pode excluir").
     // S.9.3.1 — espécie/raça: somente para pets; nunca gravadas em humanos.
     if (pessoa.isPet) {
       if (pessoa.especie != null && pessoa.especie!.trim().isNotEmpty) {
@@ -463,6 +468,7 @@ class PessoaRepository {
             .eq('id', pessoa.id);
         return pessoa.id;
       } else {
+        data['criado_por_id'] = usuarioId;
         data['created_at'] = pessoa.createdAt.toIso8601String();
         final result = await _supabase
             .from('pessoas')
@@ -477,17 +483,44 @@ class PessoaRepository {
     }
   }
 
-  static Future<void> remover(int pessoaId) async {
-    if (!isConfigured) return;
+  /// Soft-delete de contato/pet (`situacao='inativo'`).
+  ///
+  /// Regras: só o criador (`criado_por_id == usuarioId`); só se
+  /// `situacao != 'ativo'`. Retorna `null` em sucesso; senão código:
+  /// `nao_configurado` | `nao_encontrada` | `nao_criador` | `conta_ativa` | `falha`.
+  static Future<String?> remover(int pessoaId) async {
+    if (!isConfigured) return 'nao_configurado';
     try {
-      await _supabase.from('conteudo_permissoes').delete().eq('pessoa_id', pessoaId);
+      final rows = await _supabase
+          .from('pessoas')
+          .select('id, criado_por_id, situacao')
+          .eq('id', pessoaId)
+          .limit(1);
+      if (rows.isEmpty) return 'nao_encontrada';
+      final row = rows.first;
+      final criador = (row['criado_por_id'] as num?)?.toInt();
+      final situacao = (row['situacao'] as String?) ?? 'pendente';
+
+      if (criador != usuarioId) return 'nao_criador';
+      if (situacao == 'ativo') return 'conta_ativa';
+
       await _supabase
+          .from('conteudo_permissoes')
+          .delete()
+          .eq('pessoa_id', pessoaId);
+
+      final atualizados = await _supabase
           .from('pessoas')
           .update({'situacao': 'inativo'})
           .eq('id', pessoaId)
-          .eq('criado_por_id', usuarioId);
-    } catch (_) {
-      rethrow;
+          .eq('criado_por_id', usuarioId)
+          .neq('situacao', 'ativo')
+          .select('id');
+      if (atualizados.isEmpty) return 'falha';
+      return null;
+    } catch (e) {
+      print('[PessoaRepo] remover() ERRO: $e');
+      return 'falha';
     }
   }
 
@@ -684,7 +717,8 @@ class PessoaRepository {
           .from('pessoas')
           .select(
               'id, nome, sobrenome, email, telefone, tipo, especie, raca, '
-              'data_nascimento, foto_perfil, situacao, falecido, created_at')
+              'data_nascimento, foto_perfil, situacao, falecido, created_at, '
+              'criado_por_id')
           .eq('id', id)
           .limit(1);
       if (rows.isEmpty) return null;
