@@ -8,12 +8,20 @@ import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 
 class NovoMemorialScreen extends StatefulWidget {
-  const NovoMemorialScreen({this.pessoaParaVincular, super.key});
+  const NovoMemorialScreen({
+    this.pessoaParaVincular,
+    this.modoPet = false,
+    super.key,
+  });
 
   /// Sprint H — quando aberto a partir de "Criar memorial para esta
   /// pessoa" na PessoaDetalheScreen, pré-preenche o formulário com os
   /// dados da pessoa (nome, parentesco, datas).
   final Pessoa? pessoaParaVincular;
+
+  /// Quando true (ou quando [pessoaParaVincular] é pet): lista e vincula
+  /// apenas pets via `memorial_pessoas` (convenção S.9.3).
+  final bool modoPet;
 
   @override
   State<NovoMemorialScreen> createState() => _NovoMemorialScreenState();
@@ -35,6 +43,9 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
   Pessoa? _pessoaSelecionada;
   bool _carregandoPessoas = false;
   Map<int, String> _parentescoPorPessoaId = {};
+
+  bool get _modoPet =>
+      widget.modoPet || (widget.pessoaParaVincular?.isPet ?? false);
 
   @override
   void initState() {
@@ -73,9 +84,10 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
       };
       if (mounted) {
         setState(() {
-          // S.9.3.2 — no fluxo avulso, vincular só humanos; memorial de
-          // pet é criado a partir do perfil do pet.
-          _pessoasDisponiveis = lista.where((x) => !x.isPet).toList();
+          // S.9.3.2 — humano: só humanos; pet: só pets (vínculo memorial_pessoas).
+          _pessoasDisponiveis = lista
+              .where((x) => _modoPet ? x.isPet : !x.isPet)
+              .toList();
           _parentescoPorPessoaId = parentescoMap;
           _carregandoPessoas = false;
         });
@@ -145,7 +157,11 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (_dataNascimento == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor, informe a data de nascimento.')),
+        SnackBar(
+          content: Text(_modoPet
+              ? 'Por favor, informe a data de nascimento do pet.'
+              : 'Por favor, informe a data de nascimento.'),
+        ),
       );
       return;
     }
@@ -163,6 +179,21 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
       return;
     }
 
+    // Pet memorial precisa de vínculo em memorial_pessoas para aparecer
+    // em "Memoriais de pets" (listarMemorialIdsDePets).
+    final pessoaVinculo =
+        _pessoaSelecionada ?? widget.pessoaParaVincular;
+    if (_modoPet && pessoaVinculo == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Selecione um pet cadastrado para vincular ao memorial.',
+          ),
+        ),
+      );
+      return;
+    }
+
     setState(() => _salvando = true);
     try {
       final memorial = Memorial(
@@ -172,12 +203,19 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
         dataFalecimento: _dataFalecimento!,
         biografia: _biografiaController.text.trim(),
         fotoBytes: _fotoBytes,
-        pessoaId: _pessoaSelecionada?.id,
+        pessoaId: pessoaVinculo?.id,
         usuarioId: SupabaseService.usuarioId,
         createdAt: DateTime.now(),
       );
 
-      await SupabaseService.instance.salvarMemorial(memorial);
+      final criado = await SupabaseService.instance.salvarMemorial(memorial);
+      // pessoa_id não fica em memoriais — vínculo em memorial_pessoas.
+      if (criado.id != null && pessoaVinculo != null) {
+        await PessoaRepository.atualizarPessoasDoMemorial(
+          criado.id!,
+          [pessoaVinculo.id],
+        );
+      }
       if (mounted) {
         Navigator.of(context).pop(true);
       }
@@ -196,8 +234,8 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
     return Scaffold(
       backgroundColor: AppColors.fundo,
       appBar: AppBar(
-        title: const Text('Novo Memorial',
-            style: TextStyle(
+        title: Text(_modoPet ? 'Novo Memorial de Pet' : 'Novo Memorial',
+            style: const TextStyle(
                 color: AppColors.roxo,
                 fontSize: 20,
                 fontWeight: FontWeight.w800)),
@@ -218,79 +256,139 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
                     child: ListView(
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
                       children: [
-                        const Text(
-                          'Preste uma Homenagem',
-                          style: TextStyle(
+                        Text(
+                          _modoPet
+                              ? 'Homenagem ao pet'
+                              : 'Preste uma Homenagem',
+                          style: const TextStyle(
                               color: AppColors.roxo,
                               fontSize: 24,
                               fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 6),
-                        const Text(
-                          'Registre o legado de um ente querido que partiu para preservar suas melhores recordações.',
-                          style: TextStyle(
+                        Text(
+                          _modoPet
+                              ? 'Registre o memorial de um pet da família para preservar as melhores recordações.'
+                              : 'Registre o legado de um ente querido que partiu para preservar suas melhores recordações.',
+                          style: const TextStyle(
                               color: Color(0xFF7A7280), fontSize: 14, height: 1.4),
                         ),
                         const SizedBox(height: 24),
 
-                        // Link com Pessoa do App
+                        // Link com Pessoa/Pet do App
                         // S.9.3.2 — se veio do perfil (pessoa ou pet), o
                         // vínculo é fixo com quem originou: não pergunta.
-                        if (widget.pessoaParaVincular == null &&
-                            _pessoasDisponiveis.isNotEmpty) ...[
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.borda),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Vincular a uma pessoa já cadastrada (Opcional):',
-                                  style: TextStyle(
+                        if (widget.pessoaParaVincular == null) ...[
+                          if (_carregandoPessoas)
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 20),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
                                     color: AppColors.roxo,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                const SizedBox(height: 8),
-                                DropdownButtonHideUnderline(
-                                  child: DropdownButtonFormField<Pessoa>(
-                                    value: _pessoaSelecionada,
-                                    hint: const Text('Selecione uma pessoa', style: TextStyle(fontSize: 14)),
-                                    isExpanded: true,
-                                    decoration: const InputDecoration(
-                                      contentPadding: EdgeInsets.zero,
-                                      filled: false,
-                                      border: InputBorder.none,
+                              ),
+                            )
+                          else if (_pessoasDisponiveis.isEmpty && _modoPet)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 20),
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: const Color(0x16D4A84F),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.borda),
+                              ),
+                              child: const Text(
+                                'Nenhum pet cadastrado. Cadastre um pet em Pets antes de criar o memorial.',
+                                style: TextStyle(
+                                  color: AppColors.roxo,
+                                  fontSize: 13,
+                                  height: 1.4,
+                                ),
+                              ),
+                            )
+                          else if (_pessoasDisponiveis.isNotEmpty)
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 20),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.borda),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _modoPet
+                                        ? 'Vincular a um pet já cadastrado (obrigatório):'
+                                        : 'Vincular a uma pessoa já cadastrada (Opcional):',
+                                    style: const TextStyle(
+                                      color: AppColors.roxo,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
                                     ),
-                                    items: _pessoasDisponiveis.map((p) {
-                                      final rel = _parentescoPorPessoaId[p.id] ?? p.parentesco;
-                                      return DropdownMenuItem<Pessoa>(
-                                        value: p,
-                                        child: Text('${p.nome} ($rel)', style: const TextStyle(fontSize: 14)),
-                                      );
-                                    }).toList(),
-                                    onChanged: (pessoa) {
-                                      if (pessoa != null) {
-                                        final rel = _parentescoPorPessoaId[pessoa.id] ?? pessoa.parentesco;
-                                        setState(() {
-                                          _pessoaSelecionada = pessoa;
-                                          _nomeController.text = pessoa.nome;
-                                          _parentescoController.text = rel;
-                                          _dataNascimento = pessoa.dataNascimento;
-                                        });
-                                      }
-                                    },
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(height: 8),
+                                  DropdownButtonHideUnderline(
+                                    child: DropdownButtonFormField<Pessoa>(
+                                      value: _pessoaSelecionada,
+                                      hint: Text(
+                                        _modoPet
+                                            ? 'Selecione um pet'
+                                            : 'Selecione uma pessoa',
+                                        style: const TextStyle(fontSize: 14),
+                                      ),
+                                      isExpanded: true,
+                                      decoration: const InputDecoration(
+                                        contentPadding: EdgeInsets.zero,
+                                        filled: false,
+                                        border: InputBorder.none,
+                                      ),
+                                      items: _pessoasDisponiveis.map((p) {
+                                        final rel = _parentescoPorPessoaId[p.id] ??
+                                            p.parentesco;
+                                        final extra = p.isPet &&
+                                                (p.especieRacaLabel != null)
+                                            ? ' · ${p.especieRacaLabel}'
+                                            : (rel.isNotEmpty ? ' ($rel)' : '');
+                                        return DropdownMenuItem<Pessoa>(
+                                          value: p,
+                                          child: Text(
+                                            '${p.nome}$extra',
+                                            style: const TextStyle(fontSize: 14),
+                                          ),
+                                        );
+                                      }).toList(),
+                                      onChanged: (pessoa) {
+                                        if (pessoa != null) {
+                                          final rel =
+                                              _parentescoPorPessoaId[pessoa.id] ??
+                                                  pessoa.parentesco;
+                                          setState(() {
+                                            _pessoaSelecionada = pessoa;
+                                            _nomeController.text = pessoa.nome;
+                                            if (rel.isNotEmpty) {
+                                              _parentescoController.text = rel;
+                                            } else if (_modoPet) {
+                                              _parentescoController.text =
+                                                  pessoa.especieRacaLabel ??
+                                                      'Pet';
+                                            }
+                                            _dataNascimento =
+                                                pessoa.dataNascimento;
+                                          });
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 20),
                         ],
 
                         // Foto de Perfil do Homenageado
@@ -343,13 +441,17 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
                           controller: _nomeController,
                           textCapitalization: TextCapitalization.words,
                           style: const TextStyle(fontSize: 15, color: AppColors.roxo, fontWeight: FontWeight.w600),
-                          decoration: const InputDecoration(
-                            labelText: 'Nome Completo',
-                            hintText: 'Nome do ente querido',
+                          decoration: InputDecoration(
+                            labelText: _modoPet ? 'Nome do pet' : 'Nome Completo',
+                            hintText: _modoPet
+                                ? 'Nome do pet'
+                                : 'Nome do ente querido',
                           ),
                           validator: (v) {
                             if (v == null || v.trim().isEmpty) {
-                              return 'Por favor, informe o nome.';
+                              return _modoPet
+                                  ? 'Por favor, informe o nome do pet.'
+                                  : 'Por favor, informe o nome.';
                             }
                             return null;
                           },
@@ -360,13 +462,19 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
                           controller: _parentescoController,
                           textCapitalization: TextCapitalization.sentences,
                           style: const TextStyle(fontSize: 15, color: AppColors.roxo, fontWeight: FontWeight.w600),
-                          decoration: const InputDecoration(
-                            labelText: 'Grau de Parentesco / Relação',
-                            hintText: 'Ex: Avó, Pai, Amigo',
+                          decoration: InputDecoration(
+                            labelText: _modoPet
+                                ? 'Relação / espécie'
+                                : 'Grau de Parentesco / Relação',
+                            hintText: _modoPet
+                                ? 'Ex: Cachorro, Gato, Pet da família'
+                                : 'Ex: Avó, Pai, Amigo',
                           ),
                           validator: (v) {
                             if (v == null || v.trim().isEmpty) {
-                              return 'Por favor, informe o parentesco.';
+                              return _modoPet
+                                  ? 'Por favor, informe a relação ou espécie.'
+                                  : 'Por favor, informe o parentesco.';
                             }
                             return null;
                           },
@@ -448,14 +556,18 @@ class _NovoMemorialScreenState extends State<NovoMemorialScreen> {
                           maxLines: 5,
                           textCapitalization: TextCapitalization.sentences,
                           style: const TextStyle(fontSize: 14, color: AppColors.roxo, height: 1.4),
-                          decoration: const InputDecoration(
-                            labelText: 'Biografia / Homenagem Inicial',
-                            hintText: 'Escreva um breve resumo da história, valores e legado deixados por esta pessoa...',
+                          decoration: InputDecoration(
+                            labelText: _modoPet
+                                ? 'História / Homenagem Inicial'
+                                : 'Biografia / Homenagem Inicial',
+                            hintText: _modoPet
+                                ? 'Escreva um breve resumo da história e das memórias com este pet...'
+                                : 'Escreva um breve resumo da história, valores e legado deixados por esta pessoa...',
                             alignLabelWithHint: true,
                           ),
                           validator: (v) {
                             if (v == null || v.trim().isEmpty) {
-                              return 'Por favor, escreva uma biografia.';
+                              return 'Por favor, escreva uma homenagem.';
                             }
                             return null;
                           },

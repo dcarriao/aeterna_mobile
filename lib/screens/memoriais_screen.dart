@@ -65,13 +65,91 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
     }
   }
 
-  Future<void> _abrirNovoMemorial() async {
+  Future<void> _abrirNovoMemorial({bool modoPet = false}) async {
     final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const NovoMemorialScreen()),
+      MaterialPageRoute(
+        builder: (_) => NovoMemorialScreen(modoPet: modoPet),
+      ),
     );
     if (result == true) {
       _carregarMemoriais();
     }
+  }
+
+  void _mostrarOpcoesCriar() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Text(
+                    'Criar memorial',
+                    style: TextStyle(
+                      color: AppColors.roxo,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFF0EAF5),
+                    child: Icon(Icons.favorite_outline, color: AppColors.roxo),
+                  ),
+                  title: const Text(
+                    'Memorial humano',
+                    style: TextStyle(
+                      color: AppColors.roxo,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Homenagem a uma pessoa querida',
+                    style: TextStyle(color: Color(0xFF7A7280), fontSize: 13),
+                  ),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _abrirNovoMemorial(modoPet: false);
+                  },
+                ),
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0x16D4A84F),
+                    child: Icon(Icons.pets, color: AppColors.dourado),
+                  ),
+                  title: const Text(
+                    'Memorial de pet',
+                    style: TextStyle(
+                      color: AppColors.roxo,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Homenagem a um pet da família',
+                    style: TextStyle(color: Color(0xFF7A7280), fontSize: 13),
+                  ),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _abrirNovoMemorial(modoPet: true);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _abrirDetalhe(Memorial memorial) async {
@@ -100,6 +178,20 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
         backgroundColor: AppColors.fundo,
         elevation: 0,
         iconTheme: const IconThemeData(color: AppColors.roxo),
+        actions: [
+          IconButton(
+            tooltip: 'Criar memorial',
+            onPressed: _mostrarOpcoesCriar,
+            icon: const Icon(Icons.add_circle_outline),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _mostrarOpcoesCriar,
+        backgroundColor: AppColors.roxo,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add),
+        label: const Text('Criar memorial'),
       ),
       body: SafeArea(
         child: Center(
@@ -115,33 +207,16 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
                         onRefresh: _carregarMemoriais,
                         color: AppColors.roxo,
                         child: ListView(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 88),
                           children: [
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 20),
-                              child: Row(
-                                children: [
-                                  const Text(
-                                    'Homenagens',
-                                    style: TextStyle(
-                                        color: AppColors.roxo,
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.w800),
-                                  ),
-                                  const Spacer(),
-                                  FilledButton.icon(
-                                    onPressed: _abrirNovoMemorial,
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: AppColors.roxo,
-                                      foregroundColor: Colors.white,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                    ),
-                                    icon: const Icon(Icons.add, size: 18),
-                                    label: const Text('Criar'),
-                                  ),
-                                ],
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 20),
+                              child: Text(
+                                'Homenagens',
+                                style: TextStyle(
+                                    color: AppColors.roxo,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w800),
                               ),
                             ),
                             // S.9.3.2 — humanos e pets separados.
@@ -315,7 +390,7 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
   Widget _buildEstadoVazio() {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(40),
+        padding: const EdgeInsets.fromLTRB(40, 40, 40, 100),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -347,17 +422,31 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
             ),
             const SizedBox(height: 32),
             FilledButton.icon(
-              onPressed: _abrirNovoMemorial,
+              onPressed: () => _abrirNovoMemorial(modoPet: false),
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.roxo,
                 foregroundColor: Colors.white,
-                minimumSize: const Size(200, 50),
+                minimumSize: const Size(240, 50),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Criar Memorial'),
+              icon: const Icon(Icons.favorite_outline, size: 18),
+              label: const Text('Memorial humano'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _abrirNovoMemorial(modoPet: true),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.dourado,
+                side: const BorderSide(color: AppColors.dourado, width: 1.4),
+                minimumSize: const Size(240, 50),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const Icon(Icons.pets, size: 18),
+              label: const Text('Memorial de pet'),
             ),
           ],
         ),
