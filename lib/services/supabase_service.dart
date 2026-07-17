@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:supabase/supabase.dart';
@@ -523,6 +524,71 @@ class SupabaseService {
   Future<void> atualizarBiografiaMemorial(int id, String biografia) async {
     if (!isConfigured) return;
     await _client.from('memoriais').update({'biografia': biografia}).eq('id', id);
+  }
+
+  /// Conversa compartilhada do Curador IA do memorial (`memoriais.conversa_curador`).
+  /// Chave = memorial_id — qualquer colaborador lê/enriquece o mesmo histórico.
+  /// Formato JSON: lista de `{role, content, usuario_id?}`.
+  Future<List<Map<String, String>>> carregarConversaCuradorMemorial(
+    int memorialId,
+  ) async {
+    if (!isConfigured) return const [];
+    try {
+      final row = await _client
+          .from('memoriais')
+          .select('conversa_curador')
+          .eq('id', memorialId)
+          .maybeSingle();
+      final raw = row?['conversa_curador'] as String?;
+      if (raw == null || raw.trim().isEmpty) return const [];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      final out = <Map<String, String>>[];
+      for (final item in decoded) {
+        if (item is! Map) continue;
+        final role = '${item['role'] ?? ''}'.trim();
+        final content = '${item['content'] ?? item['conteudo'] ?? ''}'.trim();
+        if (role.isEmpty || content.isEmpty) continue;
+        final msg = <String, String>{'role': role, 'content': content};
+        final uid = item['usuario_id'];
+        if (uid != null) msg['usuario_id'] = '$uid';
+        final nome = item['usuario_nome'];
+        if (nome != null && '$nome'.trim().isNotEmpty) {
+          msg['usuario_nome'] = '$nome'.trim();
+        }
+        out.add(msg);
+      }
+      return out;
+    } catch (e) {
+      print('Erro ao carregar conversa_curador memorial $memorialId: $e');
+      return const [];
+    }
+  }
+
+  /// Persiste o histórico compartilhado do Curador no memorial (não por usuário).
+  Future<void> salvarConversaCuradorMemorial(
+    int memorialId,
+    List<Map<String, String>> conversa,
+  ) async {
+    if (!isConfigured) return;
+    try {
+      final payload = conversa
+          .map((m) => {
+                'role': m['role'] ?? 'user',
+                'content': m['content'] ?? '',
+                if (m['usuario_id'] != null && m['usuario_id']!.isNotEmpty)
+                  'usuario_id': int.tryParse(m['usuario_id']!) ?? m['usuario_id'],
+                if (m['usuario_nome'] != null && m['usuario_nome']!.isNotEmpty)
+                  'usuario_nome': m['usuario_nome'],
+              })
+          .toList();
+      await _client.from('memoriais').update({
+        'conversa_curador': jsonEncode(payload),
+        'curador_etapa': 'chat',
+      }).eq('id', memorialId);
+    } catch (e) {
+      print('Erro ao salvar conversa_curador memorial $memorialId: $e');
+    }
   }
 
   Future<void> excluirMemorial(int id) async {

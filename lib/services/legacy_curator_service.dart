@@ -615,9 +615,10 @@ class LegacyCuratorService {
     }
     
     buffer.writeln('REGRAS DE CONDUTA:');
-    buffer.writeln('1. NUNCA invente fatos, datas ou relacionamentos que não constem na biografia ou nas recordações fornecidas.');
-    buffer.writeln('2. Caso lhe perguntem algo não documentado, responda com sensibilidade: "Infelizmente não temos essa recordação guardada, mas adoraria ouvir se você tiver essa lembrança para registrar."');
-    buffer.writeln('3. Mantenha as respostas curtas (máximo 2 parágrafos), calorosas e humanizadas.');
+    buffer.writeln('1. NUNCA invente fatos, datas ou relacionamentos que não constem na biografia, nas recordações fornecidas OU no histórico desta conversa.');
+    buffer.writeln('2. Fatos que familiares já contaram nesta conversa (histórico) são recordações guardadas — use-os com confiança quando perguntarem de novo.');
+    buffer.writeln('3. Caso lhe perguntem algo ainda não documentado nem falado na conversa, responda com sensibilidade: "Infelizmente não temos essa recordação guardada, mas adoraria ouvir se você tiver essa lembrança para registrar."');
+    buffer.writeln('4. Mantenha as respostas curtas (máximo 2 parágrafos), calorosas e humanizadas.');
 
     final messages = <Map<String, dynamic>>[
       {

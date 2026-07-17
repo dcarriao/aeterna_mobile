@@ -83,11 +83,14 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     return ids;
   }
 
-  // IA Chat
+  // IA Chat — histórico COMPARTILHADO do memorial (memoriais.conversa_curador),
+  // não silo por usuário logado.
   final List<Map<String, String>> _conversa = [];
   final _chatController = TextEditingController();
   final _chatScrollController = ScrollController();
   bool _enviandoChat = false;
+  bool _carregandoConversa = true;
+  String _meuNomeCurador = '';
 
   @override
   void initState() {
@@ -95,7 +98,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     _carregarPessoaVinculada();
     _tabController = TabController(length: 4, vsync: this);
     _carregarDados();
-    _inicializarMensagemCurador();
+    _carregarConversaCuradorCompartilhada();
   }
 
   @override
@@ -106,11 +109,50 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     super.dispose();
   }
 
-  void _inicializarMensagemCurador() {
-    _conversa.add({
-      'role': 'assistant',
-      'content': 'Olá, sou o Curador de Memórias de ${widget.memorial.nome}. Estou aqui para preservar seu legado, contar suas histórias e responder perguntas sobre sua vida e seus valores. Sobre o que você gostaria de lembrar hoje?',
+  Future<void> _carregarConversaCuradorCompartilhada() async {
+    final memorialId = widget.memorial.id;
+    final dados = await PessoaRepository.obterUsuario();
+    final meuNome = dados == null
+        ? ''
+        : '${dados['nome'] ?? ''} ${dados['sobrenome'] ?? ''}'.trim();
+
+    List<Map<String, String>> historico = const [];
+    if (memorialId != null && _service.isConfigured) {
+      historico =
+          await _service.carregarConversaCuradorMemorial(memorialId);
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _meuNomeCurador = meuNome;
+      _conversa.clear();
+      if (historico.isNotEmpty) {
+        _conversa.addAll(historico);
+      } else {
+        _conversa.add({
+          'role': 'assistant',
+          'content':
+              'Olá, sou o Curador de Memórias de ${widget.memorial.nome}. Estou aqui para preservar seu legado, contar suas histórias e responder perguntas sobre sua vida e seus valores. Sobre o que você gostaria de lembrar hoje?',
+        });
+      }
+      _carregandoConversa = false;
     });
+
+    // Boas-vindas iniciais também ficam no storage compartilhado.
+    if (historico.isEmpty && memorialId != null) {
+      await _persistirConversaCurador();
+    }
+    _rolarChatAoFim();
+  }
+
+  Future<void> _persistirConversaCurador() async {
+    final memorialId = widget.memorial.id;
+    if (memorialId == null || !_service.isConfigured) return;
+    await _service.salvarConversaCuradorMemorial(
+      memorialId,
+      List<Map<String, String>>.from(_conversa),
+    );
   }
 
   Future<void> _carregarDados() async {
@@ -403,15 +445,21 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
 
   Future<void> _enviarMensagemChat() async {
     final texto = _chatController.text.trim();
-    if (texto.isEmpty || _enviandoChat) return;
+    if (texto.isEmpty || _enviandoChat || _carregandoConversa) return;
 
     setState(() {
-      _conversa.add({'role': 'user', 'content': texto});
+      _conversa.add({
+        'role': 'user',
+        'content': texto,
+        'usuario_id': '${PessoaRepository.usuarioId}',
+        if (_meuNomeCurador.isNotEmpty) 'usuario_nome': _meuNomeCurador,
+      });
       _chatController.clear();
       _enviandoChat = true;
     });
 
     _rolarChatAoFim();
+    await _persistirConversaCurador();
 
     try {
       // Compilar contexto dinâmico da história de vida do falecido
@@ -423,23 +471,35 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         historias.add('Lembrança de ${c.usuarioContribuidorNome}: ${c.texto ?? ''}');
       }
 
+      // Histórico para o modelo: só role+content (sem metadados de atribuição).
+      final historicoParaModelo = _conversa
+          .where((m) => m['role'] == 'user' || m['role'] == 'assistant')
+          .skip(1) // Exclui a mensagem de boas-vindas
+          .map((m) => {
+                'role': m['role']!,
+                'content': m['content']!,
+              })
+          .toList();
+
       final resposta = await LegacyCuratorService.instance.responderComoCurador(
         nome: widget.memorial.nome,
         parentesco: widget.memorial.parentesco,
         biografia: _biografiaAtual,
         memoriasEContribuicoes: historias,
-        historicoConversa: _conversa.sublist(1), // Exclui a mensagem de boas-vindas local
+        historicoConversa: historicoParaModelo,
       );
 
       if (mounted) {
         setState(() {
           _conversa.add({
             'role': 'assistant',
-            'content': resposta ?? 'Desculpe, tive um contratempo para acessar a memória do curador.',
+            'content': resposta ??
+                'Desculpe, tive um contratempo para acessar a memória do curador.',
           });
           _enviandoChat = false;
         });
         _rolarChatAoFim();
+        await _persistirConversaCurador();
       }
     } catch (e) {
       if (mounted) {
@@ -451,6 +511,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
           _enviandoChat = false;
         });
         _rolarChatAoFim();
+        await _persistirConversaCurador();
       }
     }
   }
@@ -1150,6 +1211,12 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
 
   // ── ABA 4: CURADOR DE IA ──
   Widget _buildAbaCuradorIA() {
+    if (_carregandoConversa) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.roxo),
+      );
+    }
+
     return Column(
       children: [
         // Chat List
@@ -1161,7 +1228,8 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
             itemBuilder: (context, index) {
               final msg = _conversa[index];
               final isMe = msg['role'] == 'user';
-              
+              final autor = msg['usuario_nome']?.trim();
+
               return Align(
                 alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                 child: Container(
@@ -1185,14 +1253,31 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                     ],
                   ),
                   constraints: const BoxConstraints(maxWidth: 380),
-                  child: Text(
-                    msg['content']!,
-                    style: TextStyle(
-                      color: isMe ? Colors.white : AppColors.roxo,
-                      fontSize: 13,
-                      height: 1.4,
-                      fontWeight: FontWeight.w500,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (isMe && autor != null && autor.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            autor,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.75),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      Text(
+                        msg['content']!,
+                        style: TextStyle(
+                          color: isMe ? Colors.white : AppColors.roxo,
+                          fontSize: 13,
+                          height: 1.4,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               );
