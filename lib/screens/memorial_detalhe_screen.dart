@@ -1068,31 +1068,43 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                 style: const TextStyle(color: AppColors.roxo, fontSize: 13, height: 1.5),
               ),
               const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: () => _moderar(c, false),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.redAccent,
-                      side: const BorderSide(color: Colors.redAccent),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              // Theme global: minimumSize Size.fromHeight(54) = largura
+              // infinita; override finito evita Aprovar sumir no overflow.
+              Align(
+                alignment: Alignment.centerRight,
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => _moderar(c, false),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.redAccent,
+                        side: const BorderSide(color: Colors.redAccent),
+                        minimumSize: const Size(0, 40),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                      ),
+                      icon: const Icon(Icons.close, size: 16),
+                      label: const Text('Rejeitar'),
                     ),
-                    icon: const Icon(Icons.close, size: 16),
-                    label: const Text('Rejeitar'),
-                  ),
-                  const SizedBox(width: 12),
-                  FilledButton.icon(
-                    onPressed: () => _moderar(c, true),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.verdeApoio,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    FilledButton.icon(
+                      onPressed: () => _moderar(c, true),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.verdeApoio,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(0, 40),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                      ),
+                      icon: const Icon(Icons.check, size: 16),
+                      label: const Text('Aprovar'),
                     ),
-                    icon: const Icon(Icons.check, size: 16),
-                    label: const Text('Aprovar'),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),

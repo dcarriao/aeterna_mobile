@@ -989,26 +989,40 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
           ],
           const SizedBox(height: 12),
           if (_souDono)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => _moderarContribuicaoMemoria(c, false),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.redAccent,
-                    side: const BorderSide(color: Colors.redAccent),
+            // Theme global usa minimumSize: Size.fromHeight(54) (largura
+            // infinita) — FilledButton.icon num Row overflowa e o Aprovar
+            // some; override finite + Wrap garante os dois botões.
+            Align(
+              alignment: Alignment.centerRight,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.end,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _moderarContribuicaoMemoria(c, false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.redAccent,
+                      side: const BorderSide(color: Colors.redAccent),
+                      minimumSize: const Size(0, 40),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    icon: const Icon(Icons.close, size: 16),
+                    label: const Text('Rejeitar'),
                   ),
-                  icon: const Icon(Icons.close, size: 16),
-                  label: const Text('Rejeitar'),
-                ),
-                const SizedBox(width: 8),
-                FilledButton.icon(
-                  onPressed: () => _moderarContribuicaoMemoria(c, true),
-                  style: FilledButton.styleFrom(backgroundColor: AppColors.verdeApoio),
-                  icon: const Icon(Icons.check, size: 16),
-                  label: const Text('Aprovar'),
-                ),
-              ],
+                  FilledButton.icon(
+                    onPressed: () => _moderarContribuicaoMemoria(c, true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.verdeApoio,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(0, 40),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    icon: const Icon(Icons.check, size: 16),
+                    label: const Text('Aprovar'),
+                  ),
+                ],
+              ),
             )
           else
             const Text(
