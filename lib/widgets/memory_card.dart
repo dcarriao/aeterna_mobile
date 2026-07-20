@@ -136,7 +136,11 @@ class _MemoryCardState extends State<MemoryCard> {
       child: SizedBox(
         height: 200,
         width: double.infinity,
-        child: Image.memory(bytes, fit: BoxFit.cover),
+        child: Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          alignment: Alignment.topCenter,
+        ),
       ),
     );
   }
@@ -149,6 +153,7 @@ class _MemoryCardState extends State<MemoryCard> {
         width: double.infinity,
         child: Image.network(url,
             fit: BoxFit.cover,
+            alignment: Alignment.topCenter,
             errorBuilder: (_, _, _) => Container(
                   color: const Color(0xFFF0EAF5),
                   child: const Center(

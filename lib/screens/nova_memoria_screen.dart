@@ -827,9 +827,17 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
             fit: StackFit.expand,
             children: [
               if (_foto != null)
-                Image.memory(_foto!, fit: BoxFit.cover)
+                Image.memory(
+                  _foto!,
+                  fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
+                )
               else if (_fotoUrlExistente != null && !_fotoRemovida)
-                Image.network(_fotoUrlExistente!, fit: BoxFit.cover)
+                Image.network(
+                  _fotoUrlExistente!,
+                  fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
+                )
               else
                 const Center(
                   child: Column(

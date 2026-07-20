@@ -580,6 +580,7 @@ class _CuradorScreenState extends State<CuradorScreen> {
               image: DecorationImage(
                 image: MemoryImage(capaBytes),
                 fit: BoxFit.cover,
+                alignment: Alignment.topCenter,
               ),
             ),
           ),

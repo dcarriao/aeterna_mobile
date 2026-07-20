@@ -1028,6 +1028,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
               width: double.infinity,
               height: 200,
               fit: BoxFit.cover,
+              alignment: Alignment.topCenter,
             ),
             const SizedBox(height: 12),
           ],
@@ -1155,6 +1156,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                     width: double.infinity,
                     height: 150,
                     fit: BoxFit.cover,
+                    alignment: Alignment.topCenter,
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -1533,7 +1535,12 @@ class _NovaContribuicaoScreenState extends State<_NovaContribuicaoScreen> {
                             child: _fotoBytes != null
                                 ? ClipRRect(
                                     borderRadius: BorderRadius.circular(12),
-                                    child: Image.memory(_fotoBytes!, fit: BoxFit.cover, width: double.infinity),
+                                    child: Image.memory(
+                                      _fotoBytes!,
+                                      fit: BoxFit.cover,
+                                      alignment: Alignment.topCenter,
+                                      width: double.infinity,
+                                    ),
                                   )
                                 : const Column(
                                     mainAxisAlignment: MainAxisAlignment.center,

@@ -50,6 +50,7 @@ class MemoriaDoDiaCard extends StatelessWidget {
                 child: Image.network(
                   item.fotoPrincipal!,
                   fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
                   errorBuilder: (_, _, _) => Container(
                     color: const Color(0xFFEDE8DC),
                     child: const Center(

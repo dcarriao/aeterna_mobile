@@ -730,6 +730,7 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                       width: double.infinity,
                       height: 160,
                       fit: BoxFit.cover,
+                      alignment: Alignment.topCenter,
                       errorBuilder: (_, _, _) => Container(
                         height: 100,
                         color: const Color(0xFFF0EAF5),
@@ -984,6 +985,7 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                 width: double.infinity,
                 height: 140,
                 fit: BoxFit.cover,
+                alignment: Alignment.topCenter,
               ),
             ),
           ],
@@ -1070,24 +1072,30 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                 : ListView(
                     padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
                     children: [
-                      // ── HERO IMAGE ──
+                      // ── HERO IMAGE (contain: foto inteira, sem cortar cabeça) ──
                       if (_memoria.foto != null)
                         ClipRRect(
                           borderRadius: BorderRadius.circular(16),
-                          child: AspectRatio(
-                            aspectRatio: 16 / 10,
-                            child: Image.memory(_memoria.foto!, fit: BoxFit.cover),
+                          child: ColoredBox(
+                            color: const Color(0xFFF0EAF5),
+                            child: Image.memory(
+                              _memoria.foto!,
+                              fit: BoxFit.contain,
+                              width: double.infinity,
+                            ),
                           ),
                         )
                       else if (_memoria.fotoUrl != null)
                         ClipRRect(
                           borderRadius: BorderRadius.circular(16),
-                          child: AspectRatio(
-                            aspectRatio: 16 / 10,
+                          child: ColoredBox(
+                            color: const Color(0xFFF0EAF5),
                             child: Image.network(
                               _memoria.fotoUrl!,
-                              fit: BoxFit.cover,
+                              fit: BoxFit.contain,
+                              width: double.infinity,
                               errorBuilder: (_, _, _) => Container(
+                                height: 180,
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFF0EAF5),
                                   borderRadius: BorderRadius.circular(16),

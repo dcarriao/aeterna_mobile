@@ -498,8 +498,11 @@ class _TimelineEvent extends StatelessWidget {
                           child: SizedBox(
                             height: 180,
                             width: double.infinity,
-                            child:
-                                Image.memory(memoria.foto!, fit: BoxFit.cover),
+                            child: Image.memory(
+                              memoria.foto!,
+                              fit: BoxFit.cover,
+                              alignment: Alignment.topCenter,
+                            ),
                           ),
                         )
                       else if (memoria.fotoUrl != null)
@@ -512,6 +515,7 @@ class _TimelineEvent extends StatelessWidget {
                             child: Image.network(
                               memoria.fotoUrl!,
                               fit: BoxFit.cover,
+                              alignment: Alignment.topCenter,
                               errorBuilder: (_, _, _) => const SizedBox.shrink(),
                             ),
                           ),

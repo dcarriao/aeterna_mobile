@@ -365,7 +365,10 @@ class _MemoriaContribuicaoScreenState
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(12),
                                 child: Image.memory(_fotoBytes!,
-                                    width: double.infinity, height: 220, fit: BoxFit.cover),
+                                    width: double.infinity,
+                                    height: 220,
+                                    fit: BoxFit.cover,
+                                    alignment: Alignment.topCenter),
                               ),
                               IconButton.filled(
                                 tooltip: 'Remover foto',
