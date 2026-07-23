@@ -151,7 +151,12 @@ class _PessoasScreenState extends State<PessoasScreen> {
 
   void _abrirGrafoFamilia() {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const GrafoFamiliaScreen()),
+      MaterialPageRoute(
+        builder: (_) => GrafoFamiliaScreen(
+          onAbrirMemoria: widget.onAbrirMemoria,
+          titulosMemorias: widget.titulosMemorias,
+        ),
+      ),
     );
   }
 

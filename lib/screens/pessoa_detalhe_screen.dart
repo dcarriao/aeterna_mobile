@@ -11,6 +11,7 @@ import '../services/pessoa_relacionamento_service.dart';
 import '../services/pessoa_timeline_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/memory_card.dart';
 import '../widgets/pessoa_avatar.dart';
 import 'adicionar_relacionamento_screen.dart';
 import 'memorial_detalhe_screen.dart';
@@ -1261,6 +1262,29 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
+                      if (e.fotoUrl != null && e.fotoUrl!.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            e.fotoUrl!,
+                            height: 120,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                          ),
+                        ),
+                      ] else if (e.videoUrl != null &&
+                          e.videoUrl!.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: VideoFramePreview(
+                            url: e.videoUrl!,
+                            height: 120,
+                          ),
+                        ),
+                      ],
                       if (ehContribuicao && e.autorContribuicao != null) ...[
                         const SizedBox(height: 4),
                         Text(

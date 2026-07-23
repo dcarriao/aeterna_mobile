@@ -217,14 +217,32 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       return;
     }
 
-    // Ler session_pessoa_id (novo nome) com fallback para session_user_id (legado)
+    // Ler session_pessoa_id (pessoas.id). NUNCA usar session_user_id como
+    // pessoas.id direto — podia ser contatos.id / usuarios.id legado.
     final sessionPessoaId = prefs.getInt('session_pessoa_id');
     final sessionUserId = prefs.getInt('session_user_id');
     final email = prefs.getString('session_user_email');
 
-    // Se só temos o ID legado (session_user_id), mapear para o novo pessoas.id
     int? uid = sessionPessoaId;
-    if (uid == null && sessionUserId != null && sessionUserId > 0) {
+    if (uid != null && uid > 0) {
+      // Valida que ainda é pessoa humana (evita sessão corrompida).
+      try {
+        final p = await PessoaRepository.obterPorId(uid);
+        if (p == null || p.isPet) {
+          print('[SESSAO] session_pessoa_id=$uid invalido — limpando');
+          uid = null;
+          await prefs.remove('session_pessoa_id');
+        }
+      } catch (_) {
+        uid = null;
+      }
+    }
+
+    // Só mapeia session_user_id via _legacy_usuario_id — nunca assume que
+    // o número legado é o pessoas.id atual.
+    if ((uid == null || uid <= 0) &&
+        sessionUserId != null &&
+        sessionUserId > 0) {
       try {
         final rows = await PessoaRepository.supabaseClient
             .from('pessoas')
@@ -234,14 +252,19 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
         if (rows.isNotEmpty) {
           uid = (rows.first['id'] as num).toInt();
           await prefs.setInt('session_pessoa_id', uid);
+          await prefs.remove('session_user_id');
+        } else {
+          print('[SESSAO] session_user_id=$sessionUserId sem mapeamento — descartando');
+          await prefs.remove('session_user_id');
         }
-      } catch (_) {}
-      // Se não achou mapeamento, usar o legado como fallback
-      uid ??= sessionUserId;
+      } catch (_) {
+        await prefs.remove('session_user_id');
+      }
     }
 
     if (uid != null && uid > 0) {
       PessoaRepository.usuarioId = uid;
+      PessoaRepository.legadoUsuarioId = null;
       SupabaseService.usuarioId = uid;
       if (email != null) PessoaRepository.usuarioEmail = email;
       // Sprint R.4 — associa o token FCM ao usuário restaurado
@@ -253,14 +276,16 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
       }
       return;
     }
-    // Fallback: buscar por email (sessões antigas sem session_user_id)
+    // Fallback: buscar por email (sessões antigas sem session_pessoa_id)
     if (email != null && email.isNotEmpty) {
       final uidByEmail = await PessoaRepository.obterUsuarioIdPorEmail(email);
       if (uidByEmail != null) {
         PessoaRepository.usuarioId = uidByEmail;
+        PessoaRepository.legadoUsuarioId = null;
         PessoaRepository.usuarioEmail = email;
         SupabaseService.usuarioId = uidByEmail;
         await prefs.setInt('session_pessoa_id', uidByEmail);
+        await prefs.remove('session_user_id');
         // Sprint R.4 — associa o token FCM ao usuário restaurado
         PushNotificationService.instance.salvarTokenParaUsuario();
         if (mounted) {
@@ -271,7 +296,7 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
         return;
       }
     }
-    // Sessão expirou
+    // Sessão expirou / inválida
     await prefs.setBool('is_logged_in', false);
     await prefs.remove('session_user_email');
     await prefs.remove('session_pessoa_id');

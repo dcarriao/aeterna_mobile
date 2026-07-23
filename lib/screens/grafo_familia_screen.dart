@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../services/supabase_service.dart';
 import '../widgets/pessoa_avatar.dart';
 import 'memorial_detalhe_screen.dart';
+import 'memoria_detalhe_screen.dart';
 import 'pessoa_detalhe_screen.dart';
 
 /// Sprint L — Mapa da Família (esqueleto).
@@ -18,7 +19,14 @@ import 'pessoa_detalhe_screen.dart';
 /// É a base para futuras evoluções (grafo interativo, navegação
 /// por fase da vida, etc.).
 class GrafoFamiliaScreen extends StatefulWidget {
-  const GrafoFamiliaScreen({super.key});
+  const GrafoFamiliaScreen({
+    this.onAbrirMemoria,
+    this.titulosMemorias = const {},
+    super.key,
+  });
+
+  final void Function(int memoriaId)? onAbrirMemoria;
+  final Map<int, String> titulosMemorias;
 
   @override
   State<GrafoFamiliaScreen> createState() => _GrafoFamiliaScreenState();
@@ -40,6 +48,8 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   /// árvore de relacionamentos (ex.: Douglas, "Irmão"). Entram no mapa
   /// automaticamente, posicionados pela geração do parentesco.
   List<Memorial> _memoriaisOrfaos = const [];
+  /// pessoa_id (falecido) → foto do memorial, fallback se pessoas.foto vazia.
+  Map<int, String> _fotoMemorialPorPessoa = const {};
   bool _carregando = true;
   String? _erro;
 
@@ -62,12 +72,19 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
         PessoaRepository.listar(),
         PessoaRelacionamentoService.instance.carregarGrafo(),
         SupabaseService.instance.listarMemoriais(),
+        SupabaseService.instance.listarMemoriaisColaborativos(),
         SupabaseService.instance.listarMemorialIdsDePets(),
       ]);
       final pessoas = resultados[0] as List<Pessoa>;
       final grafo = resultados[1] as List<Map<String, dynamic>>;
-      final memoriais = resultados[2] as List<Memorial>;
-      final petMemorialIds = resultados[3] as Set<int>;
+      final memoriaisProprios = resultados[2] as List<Memorial>;
+      final memoriaisColab = resultados[3] as List<Memorial>;
+      final petMemorialIds = resultados[4] as Set<int>;
+      // Propios + colaborativos (foto do memorial acessivel a quem ja ve).
+      final memoriais = <Memorial>[
+        ...memoriaisProprios,
+        ...memoriaisColab,
+      ];
       // S.9.3.2 — Meus Pets: pets relacionados ao usuário logado
       // (tutoria; um pet com dois tutores aparece uma vez em cada mapa,
       // sem duplicar o registro em pessoas).
@@ -80,6 +97,23 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
       // à da lista Pets).
       final memorialPorPessoa = await PessoaRepository.mapaPessoaMemorial();
       final comMemorial = memorialPorPessoa.keys.toSet();
+      final fotoPorMemId = <int, String>{
+        for (final m in memoriais)
+          if (m.id != null &&
+              m.fotoUrl != null &&
+              m.fotoUrl!.isNotEmpty)
+            m.id!: m.fotoUrl!,
+      };
+      final falecidoIds = {
+        for (final p in pessoas)
+          if (p.falecido) p.id,
+      };
+      final fotoMemorialPorPessoa = <int, String>{};
+      for (final e in memorialPorPessoa.entries) {
+        if (!falecidoIds.contains(e.key)) continue;
+        final url = fotoPorMemId[e.value];
+        if (url != null) fotoMemorialPorPessoa[e.key] = url;
+      }
       final meusPets = pessoas
           .where((p) =>
               p.isPet &&
@@ -115,6 +149,7 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
           _grafo = grafo;
           _meusPets = meusPets;
           _memorialPorPessoa = memorialPorPessoa;
+          _fotoMemorialPorPessoa = fotoMemorialPorPessoa;
           _memoriaisOrfaos = orfaos;
           _carregando = false;
         });
@@ -200,8 +235,15 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
                   MaterialPageRoute(
                     builder: (_) => PessoaDetalheScreen(
                       pessoa: pet,
-                      onAbrirMemoria: (_) {},
-                      titulosMemorias: const {},
+                      onAbrirMemoria: (id) {
+                        final cb = widget.onAbrirMemoria;
+                        if (cb != null) {
+                          cb(id);
+                        } else {
+                          _abrirMemoriaFallback(id);
+                        }
+                      },
+                      titulosMemorias: widget.titulosMemorias,
                     ),
                   ),
                 ),
@@ -257,8 +299,8 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
   Future<void> _abrirMemorialDe(Pessoa pessoa) async {
     final memorialId = _memorialPorPessoa[pessoa.id];
     if (memorialId == null) return;
-    final memoriais = await SupabaseService.instance.listarMemoriais();
-    final m = memoriais.where((x) => x.id == memorialId).firstOrNull;
+    // Nao filtrar por dono: colaboradores / familia veem o mesmo memorial.
+    final m = await SupabaseService.instance.obterMemorialPorId(memorialId);
     if (m == null || !mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => MemorialDetalheScreen(memorial: m)),
@@ -487,6 +529,25 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
     }
   }
 
+  Future<void> _abrirMemoriaFallback(int memoriaId) async {
+    final m = await PessoaRepository.obterMemoriaPorId(memoriaId);
+    if (!mounted) return;
+    if (m == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível abrir esta memória.')),
+      );
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => MemoriaDetalheScreen(
+          memoria: m,
+          somenteLeitura: m.isRecebidaDeOutraConta,
+        ),
+      ),
+    );
+  }
+
   Widget _buildCardPessoa(int id, String nome, String rotulo, Pessoa? pessoa) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -504,8 +565,15 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
                         MaterialPageRoute(
                           builder: (_) => PessoaDetalheScreen(
                             pessoa: pessoa,
-                            onAbrirMemoria: (_) {},
-                            titulosMemorias: const {},
+                            onAbrirMemoria: (id) {
+                              final cb = widget.onAbrirMemoria;
+                              if (cb != null) {
+                                cb(id);
+                              } else {
+                                _abrirMemoriaFallback(id);
+                              }
+                            },
+                            titulosMemorias: widget.titulosMemorias,
                           ),
                         ),
                       ),
@@ -519,7 +587,10 @@ class _GrafoFamiliaScreenState extends State<GrafoFamiliaScreen> {
               children: [
                 PessoaAvatar(
                   radius: 16,
-                  fotoUrl: pessoa?.fotoUrl,
+                  fotoUrl: pessoa?.fotoUrl ??
+                      (pessoa?.falecido == true
+                          ? _fotoMemorialPorPessoa[id]
+                          : null),
                   fotoBytes: pessoa?.fotoBytes,
                   falecido: pessoa?.falecido ?? false,
                   isPet: pessoa?.isPet ?? false,

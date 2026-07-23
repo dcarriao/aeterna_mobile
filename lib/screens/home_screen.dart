@@ -673,8 +673,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ..._memoriasQuePodemCrescer.map(
                     (item) => MemoriaPodeCrescerCard(
                       item: item,
-                      onAbrirMemoria: (id) =>
-                          widget.onAbrirMemoria(_resolveMemoria(id)),
+                      onAbrirMemoria: (id) => _abrirMemoriaPorId(id),
                       onAbrirCurador: () =>
                           _abrirCuradorComplemento(item),
                       onDispensar: () =>
@@ -1005,24 +1004,32 @@ class _HomeScreenState extends State<HomeScreen> {
     // do `id` local do construtor).
     final todas = await PessoaRepository.listar();
     if (!mounted) return;
-    final pessoa = todas.firstWhere(
-      (p) => p.id == resumo.id,
-      orElse: () => Pessoa(
-        nome: resumo.nome,
-        parentesco: resumo.parentesco,
-      ),
-    );
+    final encontrada = todas.where((p) => p.id == resumo.id).toList();
+    final pessoaFinal = encontrada.isNotEmpty
+        ? encontrada.first
+        : await PessoaRepository.obterPorId(resumo.id) ??
+            Pessoa(
+              id: resumo.id,
+              nome: resumo.nome,
+              parentesco: resumo.parentesco,
+            );
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => PessoaDetalheScreen(
-          pessoa: pessoa,
-          onAbrirMemoria: (id) {
-            // A Home não tem callback direto para abrir uma memória;
-            // apenas volta para que a navegação existente (main.dart)
-            // seja usada. Solução prática: usar widget.onAbrirMemoria.
-            // Como esse callback não está no HomeScreen, delegamos
-            // para a main via Navigator.
-            Navigator.of(context).pop();
+          pessoa: pessoaFinal,
+          // Abre a memória correta (nunca só pop / orElse first).
+          onAbrirMemoria: (id) async {
+            final m = await PessoaRepository.obterMemoriaPorId(id);
+            if (!mounted) return;
+            if (m == null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Não foi possível abrir esta memória.'),
+                ),
+              );
+              return;
+            }
+            widget.onAbrirMemoria(m);
           },
         ),
       ),
@@ -1036,23 +1043,28 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _abrirCuradorComplemento(MemoriaComScore item) async {
     // Carrega a memória completa (precisa do `id` real + contexto)
     // a partir de widget.memorias (passado pela main.dart).
-    final m = widget.memorias.firstWhere(
-      (mm) => mm.id == item.memoria.memoriaId,
-      orElse: () => widget.memorias.first,
-    );
-    if (m.id == null) return;
+    Memoria? m;
+    for (final mm in widget.memorias) {
+      if (mm.id == item.memoria.memoriaId) {
+        m = mm;
+        break;
+      }
+    }
+    m ??= await PessoaRepository.obterMemoriaPorId(item.memoria.memoriaId);
+    if (m == null || m.id == null) return;
+    final memoria = m!;
     final result = await Navigator.of(context).push<CuradorResultado>(
       MaterialPageRoute(
         builder: (_) => CuradorScreen(
-          titulo: m.titulo,
-          contextoOriginal: m.contexto,
+          titulo: memoria.titulo,
+          contextoOriginal: memoria.contexto,
           isProativo: false,
           // Sprint I: modo "complemento" â€” a CuradorScreen sabe que deve
           // carregar a memória do banco (contribuições, pessoas) e
           // oferecer a primeira pergunta "você gostaria de complementar
           // esta história ou registrar um novo capítulo?". O retorno
           // é tratado como CONTRIBUIÃ‡ÃƒO, não como reescrita.
-          complementoMemoriaId: m.id,
+          complementoMemoriaId: memoria.id,
         ),
       ),
     );
@@ -1062,8 +1074,8 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final contrib = Contribuicao(
         tipoConteudo: 'memoria',
-        conteudoId: m.id!,
-        usuarioDonoId: m.donoUsuarioId ?? SupabaseService.usuarioId,
+        conteudoId: memoria.id!,
+        usuarioDonoId: memoria.donoUsuarioId ?? SupabaseService.usuarioId,
         usuarioContribuidorEmail: PessoaRepository.usuarioEmail ?? '',
         usuarioContribuidorNome: _meuNomeCurador,
         tipoContribuicao: 'texto',
@@ -1096,20 +1108,24 @@ class _HomeScreenState extends State<HomeScreen> {
     return 'Eu';
   }
 
-  /// Helper para o callback de abrir memória a partir de cards da
-  /// Home (que recebem apenas o id).
-  Memoria _resolveMemoria(int id) {
-    return widget.memorias.firstWhere(
-      (m) => m.id == id,
-      orElse: () => widget.memorias.isNotEmpty
-          ? widget.memorias.first
-          : Memoria(
-              titulo: '',
-              contexto: '',
-              categoria: 'momentos',
-              criadaEm: DateTime.now(),
-            ),
-    );
+  /// Resolve memória por id sem `orElse: first` (abria memória errada).
+  Future<void> _abrirMemoriaPorId(int id) async {
+    Memoria? m;
+    for (final x in widget.memorias) {
+      if (x.id == id) {
+        m = x;
+        break;
+      }
+    }
+    m ??= await PessoaRepository.obterMemoriaPorId(id);
+    if (!mounted) return;
+    if (m == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível abrir esta memória.')),
+      );
+      return;
+    }
+    widget.onAbrirMemoria(m);
   }
 
   // Sprint L — Card de aniversário de memórias

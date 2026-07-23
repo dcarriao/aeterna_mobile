@@ -174,13 +174,48 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
     super.dispose();
   }
 
+  /// Compara datas de calendário (Y/M/D). Nunca usa `DateTime ==` —
+  /// parse de `date` do Postgres vira UTC e falha no fuso BR.
+  bool _mesmaDataNascimento(DateTime? a, DateTime? b) {
+    if (a == null || b == null) return false;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  /// Normaliza nome+sobrenome: minúsculas, sem acento, espaços colapsados.
+  String _normalizarNomeCompleto(String nome, [String? sobrenome]) {
+    var s = '$nome ${sobrenome ?? ''}'.trim().toLowerCase();
+    const from = 'áàãâäéèêëíìîïóòõôöúùûüçñ';
+    const to = 'aaaaaeeeeiiiiooooouuuucn';
+    for (var i = 0; i < from.length; i++) {
+      s = s.replaceAll(from[i], to[i]);
+    }
+    return s.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  bool _nomesCorrespondem(String nomeDigitado, Pessoa p) {
+    final input = _normalizarNomeCompleto(nomeDigitado);
+    final completo = _normalizarNomeCompleto(p.nome, p.apelido);
+    if (input.isEmpty || completo.isEmpty) return false;
+    if (input == completo) return true;
+    final inputTokens = input.split(' ');
+    final completoTokens = completo.split(' ');
+    // Todos os tokens digitados estão no cadastro (ex: "Jaqueline Carrião"
+    // vs nome=Jaqueline sobrenome=Carrião).
+    if (inputTokens.every(completoTokens.contains)) return true;
+    // Cadastro completo contido no digitado (ordem invertida de campos).
+    if (completoTokens.every(inputTokens.contains)) return true;
+    return false;
+  }
+
   Future<({Pessoa pessoa, bool ehRelacionada})?> _buscarDuplicata() async {
     final nome = _nomeController.text.trim();
-    final nomeTokens = nome.toLowerCase().split(RegExp(r'\s+'));
     final email = _emailController.text.trim().toLowerCase();
     final telefone = _telefoneController.text.trim();
     if (nome.isEmpty) return null;
-    print('[DUPLICIDADE] buscando candidato nome="$nome" email="$email" telefone="$telefone"');
+    final dataStr = _dataNascimento == null
+        ? null
+        : '${_dataNascimento!.year}-${_dataNascimento!.month.toString().padLeft(2, '0')}-${_dataNascimento!.day.toString().padLeft(2, '0')}';
+    print('[DUPLICIDADE] buscando candidato nome="$nome" data=$dataStr email="$email" telefone="$telefone"');
 
     try {
       final db = PessoaRepository.supabaseClient;
@@ -188,12 +223,9 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
       // 1. Token match + data_nascimento nas pessoas RELACIONADAS
       final todas = await PessoaRepository.listar();
       for (final p in todas) {
-        final pTokens = p.nome.toLowerCase().split(RegExp(r'\s+'));
-        final todosTokensIguais = nomeTokens.every((t) => pTokens.contains(t));
-        if (!todosTokensIguais) continue;
-        if (_dataNascimento == null ||
-            p.dataNascimento == null ||
-            p.dataNascimento != _dataNascimento) continue;
+        if (!_nomesCorrespondem(nome, p)) continue;
+        if (!_mesmaDataNascimento(_dataNascimento, p.dataNascimento)) continue;
+        print('[DUPLICIDADE] hit relacionado id=${p.id}');
         return (pessoa: p, ehRelacionada: true);
       }
 
@@ -203,8 +235,9 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
       if (email.isNotEmpty) {
         final porEmail = await db
             .from('pessoas')
-            .select('id, nome, sobrenome, email, telefone, data_nascimento')
+            .select('id, nome, sobrenome, email, telefone, data_nascimento, tipo')
             .eq('email', email)
+            .eq('tipo', 'humano')
             .maybeSingle();
         if (porEmail != null) {
           final p = Pessoa.fromMap(porEmail);
@@ -214,8 +247,9 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
       if (telefone.isNotEmpty) {
         final porTelefone = await db
             .from('pessoas')
-            .select('id, nome, sobrenome, email, telefone, data_nascimento')
+            .select('id, nome, sobrenome, email, telefone, data_nascimento, tipo')
             .eq('telefone', telefone)
+            .eq('tipo', 'humano')
             .maybeSingle();
         if (porTelefone != null) {
           final p = Pessoa.fromMap(porTelefone);
@@ -223,31 +257,27 @@ class _NovaPessoaScreenState extends State<NovaPessoaScreen> {
         }
       }
 
-      // 3. Nome + data_nascimento GLOBAL (sem exigir e-mail/telefone).
-      // Antes só batia se também tivesse e-mail/telefone → permitia
-      // duplicar contato existente cadastrado só com nome+nascimento.
-      if (_dataNascimento != null) {
-        final dataStr =
-            '${_dataNascimento!.year}-${_dataNascimento!.month.toString().padLeft(2, '0')}-${_dataNascimento!.day.toString().padLeft(2, '0')}';
+      // 3. Nome + data_nascimento GLOBAL (obrigatório quando há data).
+      // Bloqueia segunda linha com mesmo nome+nascimento (ex.: ids 24 e 28).
+      if (dataStr != null) {
         final candidatos = await db
             .from('pessoas')
-            .select('id, nome, sobrenome, email, telefone, data_nascimento')
+            .select('id, nome, sobrenome, email, telefone, data_nascimento, tipo')
             .eq('data_nascimento', dataStr)
-            .eq('tipo', 'humano');
+            .eq('tipo', 'humano')
+            .neq('situacao', 'inativo');
+        print('[DUPLICIDADE] candidatos global data=$dataStr n=${candidatos.length}');
         for (final row in candidatos) {
-          final p = Pessoa.fromMap(row);
-          final pTokens = p.nome.toLowerCase().split(RegExp(r'\s+'));
-          final nomeCompleto =
-              '${p.nome} ${p.apelido ?? ''}'.trim().toLowerCase();
-          final tokensOk = nomeTokens.every(
-              (t) => pTokens.contains(t) || nomeCompleto.contains(t));
-          final nomeExato = p.nome.trim().toLowerCase() == nome.toLowerCase();
-          if (tokensOk || nomeExato) {
+          final p = Pessoa.fromMap(Map<String, dynamic>.from(row as Map));
+          if (_nomesCorrespondem(nome, p)) {
+            print('[DUPLICIDADE] hit global id=${p.id} nome=${p.nome} sobrenome=${p.apelido}');
             return (pessoa: p, ehRelacionada: idsRelacionados.contains(p.id));
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      print('[DUPLICIDADE] ERRO: $e');
+    }
     print('[DUPLICIDADE] nenhum candidato encontrado');
     return null;
   }

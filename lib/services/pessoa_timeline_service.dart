@@ -42,7 +42,7 @@ class PessoaTimelineService {
           .cast<Map<String, dynamic>>()
           .map<PessoaTimelineEvento>((r) => PessoaTimelineEvento.fromMap(r))
           .toList();
-      return eventos;
+      return _enriquecerMidia(eventos);
     } catch (e) {
       print('[PessoaTimelineService] obterLinhaDoTempo ERRO: $e');
       return const [];
@@ -214,7 +214,7 @@ class PessoaTimelineService {
           .eq('usuario_id', pessoaId)
           .order('data_criacao', ascending: false)
           .limit(50);
-      return [
+      final eventos = <PessoaTimelineEvento>[
         for (final r in rows)
           PessoaTimelineEvento(
             tipo: PessoaTimelineTipo.memoria,
@@ -225,10 +225,121 @@ class PessoaTimelineService {
                 DateTime.now(),
           ),
       ];
+      return _enriquecerMidia(eventos);
     } catch (e) {
       print('[PessoaTimeline] linhaPublicada ERRO: $e');
       return const [];
     }
+  }
+
+  /// Anexa fotoUrl/videoUrl em lote para eventos de memória.
+  Future<List<PessoaTimelineEvento>> _enriquecerMidia(
+    List<PessoaTimelineEvento> eventos,
+  ) async {
+    final memoriaIds = <int>{
+      for (final e in eventos)
+        if (e.tipo == PessoaTimelineTipo.memoria) e.conteudoId,
+      for (final e in eventos)
+        if (e.memoriaOrigemId != null) e.memoriaOrigemId!,
+    }.toList();
+    if (memoriaIds.isEmpty) return eventos;
+
+    final fotoPorMemoria = <int, String>{};
+    final videoPorMemoria = <int, String>{};
+    try {
+      final db = PessoaRepository.supabaseClient;
+      final vinculosFoto = await db
+          .from('memoria_fotos')
+          .select('memoria_id, foto_id')
+          .inFilter('memoria_id', memoriaIds);
+      if (vinculosFoto.isNotEmpty) {
+        final fotoIds = vinculosFoto
+            .map<int>((r) => (r['foto_id'] as num).toInt())
+            .toSet()
+            .toList();
+        final fotos = await db
+            .from('fotos')
+            .select('id, caminho_arquivo')
+            .inFilter('id', fotoIds);
+        final urlPorFoto = <int, String>{
+          for (final f in fotos)
+            if (f['caminho_arquivo'] != null)
+              (f['id'] as num).toInt():
+                  PessoaRepository.resolverUrlFoto(
+                          f['caminho_arquivo'] as String?) ??
+                      f['caminho_arquivo'] as String,
+        };
+        for (final v in vinculosFoto) {
+          final mid = (v['memoria_id'] as num).toInt();
+          final url = urlPorFoto[(v['foto_id'] as num).toInt()];
+          if (url != null) fotoPorMemoria.putIfAbsent(mid, () => url);
+        }
+      }
+      final vinculosVid = await db
+          .from('memoria_videos')
+          .select('memoria_id, video_id')
+          .inFilter('memoria_id', memoriaIds);
+      if (vinculosVid.isNotEmpty) {
+        final videoIds = vinculosVid
+            .map<int>((r) => (r['video_id'] as num).toInt())
+            .toSet()
+            .toList();
+        final videos = await db
+            .from('videos')
+            .select('id, caminho_arquivo')
+            .inFilter('id', videoIds);
+        final urlPorVideo = <int, String>{
+          for (final v in videos)
+            if (v['caminho_arquivo'] != null)
+              (v['id'] as num).toInt():
+                  PessoaRepository.resolverUrlFoto(
+                          v['caminho_arquivo'] as String?) ??
+                      v['caminho_arquivo'] as String,
+        };
+        for (final v in vinculosVid) {
+          final mid = (v['memoria_id'] as num).toInt();
+          final url = urlPorVideo[(v['video_id'] as num).toInt()];
+          if (url != null) videoPorMemoria.putIfAbsent(mid, () => url);
+        }
+      }
+    } catch (e) {
+      print('[PessoaTimeline] enriquecerMidia ERRO: $e');
+      return eventos;
+    }
+
+    return [
+      for (final e in eventos)
+        _comMidia(
+          e,
+          fotoPorMemoria,
+          videoPorMemoria,
+        ),
+    ];
+  }
+
+  PessoaTimelineEvento _comMidia(
+    PessoaTimelineEvento e,
+    Map<int, String> fotoPorMemoria,
+    Map<int, String> videoPorMemoria,
+  ) {
+    final mid = e.tipo == PessoaTimelineTipo.memoria
+        ? e.conteudoId
+        : e.memoriaOrigemId;
+    if (mid == null) return e;
+    final foto = fotoPorMemoria[mid];
+    final video = videoPorMemoria[mid];
+    if (foto == null && video == null) return e;
+    return PessoaTimelineEvento(
+      tipo: e.tipo,
+      conteudoId: e.conteudoId,
+      titulo: e.titulo,
+      data: e.data,
+      memoriaOrigemId: e.memoriaOrigemId,
+      contribuicaoId: e.contribuicaoId,
+      autorContribuicao: e.autorContribuicao,
+      fotoUrl: foto ?? e.fotoUrl,
+      videoUrl: video ?? e.videoUrl,
+    );
   }
 
   Future<MemorialResumo?> obterMemorialDaPessoa(int pessoaId) async {

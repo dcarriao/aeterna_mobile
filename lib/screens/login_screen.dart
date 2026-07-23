@@ -80,7 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _entrando = true);
     try {
-      final email = _emailController.text.trim();
+      final email = _emailController.text.trim().toLowerCase();
       final senha = _senhaController.text;
       final uid = await PessoaRepository.autenticarUsuario(email, senha);
       if (uid == null) {
@@ -93,15 +93,18 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // Define a sessão dinâmica
+      // Sessão = pessoas.id (nunca contatos/usuarios legado).
       PessoaRepository.usuarioId = uid;
+      PessoaRepository.legadoUsuarioId = null;
       PessoaRepository.usuarioEmail = email;
       SupabaseService.usuarioId = uid;
 
       final preferencias = await SharedPreferences.getInstance();
       await preferencias.setBool('is_logged_in', true);
       await preferencias.setString('session_user_email', email);
-          await preferencias.setInt('session_pessoa_id', uid);
+      await preferencias.setInt('session_pessoa_id', uid);
+      // Limpa chave legada que podia apontar para contatos.id / usuarios.id.
+      await preferencias.remove('session_user_id');
       await preferencias.setBool(_lembrarKey, _lembrarDados);
 
       if (_lembrarDados) {
@@ -132,20 +135,53 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
 
-      if (autenticado && mounted) {
-        final email = _emailController.text.trim();
-        final uid = await PessoaRepository.obterUsuarioIdPorEmail(email);
-        if (uid != null) {
-          PessoaRepository.usuarioId = uid;
-          PessoaRepository.usuarioEmail = email;
-          SupabaseService.usuarioId = uid;
-          final preferencias = await SharedPreferences.getInstance();
-          await preferencias.setBool('is_logged_in', true);
-          await preferencias.setString('session_user_email', email);
-      await preferencias.setInt('session_pessoa_id', uid);
+      if (!autenticado || !mounted) return;
+
+      final preferencias = await SharedPreferences.getInstance();
+      // Restaura a MESMA pessoas.id da última sessão válida — nunca contatos.
+      int? uid = preferencias.getInt('session_pessoa_id');
+      var email = preferencias.getString('session_user_email') ??
+          _emailController.text.trim().toLowerCase();
+
+      // Valida que o id ainda é uma pessoa humana autenticável.
+      if (uid != null && uid > 0) {
+        final p = await PessoaRepository.obterPorId(uid);
+        if (p == null || p.isPet) {
+          print('[LOGIN] biometria: session_pessoa_id=$uid invalido — limpando');
+          uid = null;
+          await preferencias.remove('session_pessoa_id');
+          await preferencias.remove('session_user_id');
         }
-        widget.onEntrar();
       }
+
+      if ((uid == null || uid <= 0) && email.isNotEmpty) {
+        uid = await PessoaRepository.obterUsuarioIdPorEmail(email);
+      }
+
+      if (uid == null || uid <= 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Faça login com e-mail e senha uma vez para ativar a biometria.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      PessoaRepository.usuarioId = uid;
+      PessoaRepository.legadoUsuarioId = null;
+      if (email.isNotEmpty) PessoaRepository.usuarioEmail = email;
+      SupabaseService.usuarioId = uid;
+      await preferencias.setBool('is_logged_in', true);
+      await preferencias.setInt('session_pessoa_id', uid);
+      if (email.isNotEmpty) {
+        await preferencias.setString('session_user_email', email);
+      }
+      await preferencias.remove('session_user_id');
+      if (mounted) widget.onEntrar();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -169,7 +205,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Digite seu e-mail cadastrado para receber um link de redefinição de senha.', style: TextStyle(color: Color(0xFF625B67), fontSize: 14)),
+                  const Text(
+                    'Informe o e-mail da sua conta. Contas criadas ou ativadas no app usam a senha definida no cadastro — recuperação por e-mail não está disponível neste momento.',
+                    style: TextStyle(color: Color(0xFF625B67), fontSize: 14),
+                  ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: controller,
@@ -189,7 +228,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 FilledButton(
                   onPressed: enviando ? null : () async {
                     final email = controller.text.trim();
-                    // Validação: e-mail vazio ou em formato inválido.
                     if (email.isEmpty ||
                         !email.contains('@') ||
                         !email.contains('.')) {
@@ -199,35 +237,29 @@ class _LoginScreenState extends State<LoginScreen> {
                       return;
                     }
                     setDialogState(() => enviando = true);
-                    try {
-                      await PessoaRepository.recuperarSenha(email);
-                      if (ctx.mounted) Navigator.of(ctx).pop();
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Link de recuperação enviado com sucesso! Verifique seu e-mail.')),
-                        );
-                      }
-                    } catch (_) {
-                      // Mensagem amigável: nunca expor a exceção bruta
-                      // (ex.: "Null check operator used on a null value")
-                      // diretamente ao usuário.
-                      setDialogState(() => enviando = false);
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Não foi possível enviar o link de recuperação. '
-                              'Verifique o e-mail e tente novamente.',
-                            ),
-                          ),
-                        );
-                      }
-                    }
+                    final codigo =
+                        await PessoaRepository.avaliarRecuperacaoSenha(email);
+                    if (!ctx.mounted) return;
+                    Navigator.of(ctx).pop();
+                    if (!context.mounted) return;
+                    final msg = switch (codigo) {
+                      'pendente' =>
+                        'Esta conta ainda não tem senha. Use "Criar conta" com este e-mail para definir uma.',
+                      'sem_auth' || 'smtp_indisponivel' =>
+                        'Recuperação por e-mail não está disponível. Use a senha definida no cadastro para entrar.',
+                      'nao_encontrado' =>
+                        'Não encontramos uma conta com este e-mail. Use "Criar conta" para começar.',
+                      _ =>
+                        'Não foi possível recuperar a senha. Use a senha do cadastro ou "Criar conta".',
+                    };
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(msg)),
+                    );
                   },
                   style: FilledButton.styleFrom(backgroundColor: AppColors.roxo),
                   child: enviando
                       ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Enviar'),
+                      : const Text('Verificar'),
                 ),
               ],
             );

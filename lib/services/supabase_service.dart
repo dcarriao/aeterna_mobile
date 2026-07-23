@@ -162,8 +162,10 @@ class SupabaseService {
 
     return memoriaRows.map<Memoria>((row) {
       final id = row['id'] as int;
-      final fotoUrl = fotoPorMemoria[id];
-      final videoUrl = videoPorMemoria[id];
+      final fotoRaw = fotoPorMemoria[id];
+      final videoRaw = videoPorMemoria[id];
+      final fotoUrl = PessoaRepository.resolverUrlFoto(fotoRaw) ?? fotoRaw;
+      final videoUrl = PessoaRepository.resolverUrlFoto(videoRaw) ?? videoRaw;
       final temVideo = temVideoPorMemoria.contains(id);
       print('[HOME_MEDIA] memoria_id=$id '
           'titulo="${row['titulo']}" '
@@ -269,9 +271,11 @@ class SupabaseService {
     return memoriaRows.map<Memoria>((row) {
       final id = row['id'] as int;
       final info = vinculos[id];
-      final videoUrl = videoPorMemoria[id];
+      final videoRaw = videoPorMemoria[id];
+      final fotoRaw = fotoPorMemoria[id];
+      final videoUrl = PessoaRepository.resolverUrlFoto(videoRaw) ?? videoRaw;
+      final fotoUrl = PessoaRepository.resolverUrlFoto(fotoRaw) ?? fotoRaw;
       final temVideo = temVideoPorMemoria.contains(id);
-      final fotoUrl = fotoPorMemoria[id];
       final tipoPreview = fotoUrl != null
           ? 'foto'
           : (temVideo && videoUrl != null)
@@ -455,11 +459,53 @@ class SupabaseService {
           .select('*')
           .eq('usuario_id', uid)
           .order('criado_em', ascending: false);
-      return rows.map<Memorial>((row) => Memorial.fromMap(row)).toList();
+      return rows
+          .map<Memorial>((row) => _memorialComFotoResolvida(row))
+          .toList();
     } catch (e) {
       print('Erro ao listar memoriais: $e');
       return const [];
     }
+  }
+
+  /// Busca um memorial por id (sem filtrar dono). RLS anon select libera a
+  /// linha; a UI só chama quando o usuário já tem vínculo (mapa / colaborativo).
+  Future<Memorial?> obterMemorialPorId(int id) async {
+    if (!isConfigured) return null;
+    try {
+      final rows = await _client
+          .from('memoriais')
+          .select(
+            'id, nome, parentesco, data_nascimento, data_falecimento, '
+            'biografia, foto_perfil, usuario_id, criado_em',
+          )
+          .eq('id', id)
+          .limit(1);
+      if (rows.isEmpty) return null;
+      return _memorialComFotoResolvida(rows.first);
+    } catch (e) {
+      print('Erro ao obter memorial $id: $e');
+      return null;
+    }
+  }
+
+  Memorial _memorialComFotoResolvida(Map<String, dynamic> row) {
+    final m = Memorial.fromMap(row);
+    final url = PessoaRepository.resolverUrlFoto(m.fotoUrl);
+    if (url == m.fotoUrl) return m;
+    return Memorial(
+      id: m.id,
+      nome: m.nome,
+      parentesco: m.parentesco,
+      dataNascimento: m.dataNascimento,
+      dataFalecimento: m.dataFalecimento,
+      biografia: m.biografia,
+      fotoUrl: url,
+      fotoBytes: m.fotoBytes,
+      pessoaId: m.pessoaId,
+      usuarioId: m.usuarioId,
+      createdAt: m.createdAt,
+    );
   }
 
   /// S.9.3.2 — ids de memoriais vinculados a pets (para separar a lista).
@@ -515,7 +561,16 @@ class SupabaseService {
         .select('id, nome, parentesco, data_nascimento, data_falecimento, biografia, foto_perfil, usuario_id, criado_em')
         .single();
 
-    return Memorial.fromMap(row);
+    final salvo = _memorialComFotoResolvida(row);
+    if (salvo.id != null &&
+        salvo.fotoUrl != null &&
+        salvo.fotoUrl!.isNotEmpty) {
+      await PessoaRepository.sincronizarFotoMemorialNaPessoa(
+        memorialId: salvo.id!,
+        fotoUrl: salvo.fotoUrl!,
+      );
+    }
+    return salvo;
   }
 
   /// Permite que dono OU colaborador com papel `editor` altere a biografia
@@ -655,7 +710,9 @@ class SupabaseService {
           .inFilter('id', ids.toList())
           .neq('usuario_id', uid)
           .order('criado_em', ascending: false);
-      return rows.map<Memorial>((row) => Memorial.fromMap(row)).toList();
+      return rows
+          .map<Memorial>((row) => _memorialComFotoResolvida(row))
+          .toList();
     } catch (e) {
       print('Erro ao listar memoriais colaborativos: $e');
       return const [];

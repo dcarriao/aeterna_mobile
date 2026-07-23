@@ -56,6 +56,8 @@ class Pessoa {
   Uint8List? get fotoBytes {
     if (fotoBase64 == null || fotoBase64!.isEmpty) return null;
     if (fotoBase64!.startsWith('http')) return null;
+    // Caminho de Storage (ex.: usuario_N/...) não é base64.
+    if (PessoaRepository._pareceCaminhoStorage(fotoBase64!)) return null;
     try {
       return base64Decode(fotoBase64!);
     } catch (_) {
@@ -63,10 +65,8 @@ class Pessoa {
     }
   }
 
-  String? get fotoUrl =>
-      fotoBase64 != null && fotoBase64!.startsWith('http')
-          ? fotoBase64
-          : null;
+  /// URL pública da foto. Aceita http(s) ou caminho do bucket `fotos`.
+  String? get fotoUrl => PessoaRepository.resolverUrlFoto(fotoBase64);
 
   bool get isPet => tipo == 'pet';
   bool get isHumano => tipo == 'humano';
@@ -83,6 +83,28 @@ class Pessoa {
     return '$e • $r';
   }
   bool get isAutenticavel => isHumano && authUserId != null;
+
+  Pessoa copyWith({String? fotoBase64}) {
+    return Pessoa(
+      id: id,
+      nome: nome,
+      apelido: apelido,
+      parentesco: parentesco,
+      tipo: tipo,
+      especie: especie,
+      raca: raca,
+      dataNascimento: dataNascimento,
+      fotoBase64: fotoBase64 ?? this.fotoBase64,
+      email: email,
+      telefone: telefone,
+      authUserId: authUserId,
+      authId: authId,
+      criadoPorId: criadoPorId,
+      situacao: situacao,
+      falecido: falecido,
+      createdAt: createdAt,
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -216,28 +238,30 @@ class PessoaRepository {
     if (!isConfigured) return null;
 
     // ── 1. SHA-256 (senha_hash + salt na própria tabela pessoas) ──
+    // Só `pessoas` — nunca `contatos`/`usuarios` (mortas desde S.3).
     try {
       final emailLimpo = email.trim().toLowerCase();
       final rows = await _supabase
           .from('pessoas')
-          .select('id, senha_hash, salt')
+          .select('id, senha_hash, salt, tipo')
           .eq('email', emailLimpo)
-          .limit(1);
-      if (rows.isNotEmpty) {
-        final hashEsperado = rows.first['senha_hash'] as String?;
-        final salt = rows.first['salt'] as String?;
-        if (hashEsperado != null && salt != null) {
-          final hashCalculado = sha256.convert(utf8.encode(senha + salt)).toString();
-          if (hashCalculado == hashEsperado) {
-            return (rows.first['id'] as num).toInt();
-          }
+          .eq('tipo', 'humano')
+          .order('situacao', ascending: true);
+      for (final row in rows) {
+        final hashEsperado = (row['senha_hash'] as String?) ?? '';
+        final salt = (row['salt'] as String?) ?? '';
+        if (hashEsperado.isEmpty || salt.isEmpty) continue;
+        final hashCalculado =
+            sha256.convert(utf8.encode(senha + salt)).toString();
+        if (hashCalculado == hashEsperado) {
+          return (row['id'] as num).toInt();
         }
       }
     } catch (e) {
       print('[PessoaRepo] autenticarUsuario SHA-256 ERRO: $e');
     }
 
-    // ── 2. Fallback: Supabase Auth (para usuários criados via signUp) ──
+    // ── 2. Fallback: Supabase Auth (contas com auth_user_id) ──
     try {
       final response = await _supabase.auth.signInWithPassword(
         email: email.trim().toLowerCase(),
@@ -247,7 +271,9 @@ class PessoaRepository {
       final rows = await _supabase
           .from('pessoas')
           .select('id')
-          .eq('auth_user_id', response.user!.id);
+          .eq('auth_user_id', response.user!.id)
+          .eq('tipo', 'humano')
+          .limit(1);
       if (rows.isEmpty) return null;
       return (rows.first['id'] as num).toInt();
     } catch (e) {
@@ -265,18 +291,19 @@ class PessoaRepository {
     if (!isConfigured) return null;
     final emailLimpo = email.trim().toLowerCase();
     try {
-      // Verifica se o e-mail já existe em `pessoas`.
+      // Verifica se o e-mail já existe em `pessoas` (nunca contatos/usuarios).
       final existentes = await _supabase
           .from('pessoas')
           .select('id, senha_hash, salt, tipo')
           .eq('email', emailLimpo)
+          .order('situacao', ascending: true)
           .limit(1);
 
       if (existentes.isNotEmpty) {
         final row = existentes.first;
         final hashExistente = (row['senha_hash'] as String?) ?? '';
         final saltExistente = (row['salt'] as String?) ?? '';
-        final jaTemSenha = hashExistente.isNotEmpty;
+        final jaTemSenha = hashExistente.isNotEmpty && saltExistente.isNotEmpty;
         final tipo = (row['tipo'] as String?) ?? 'humano';
         final id = (row['id'] as num).toInt();
 
@@ -306,6 +333,19 @@ class PessoaRepository {
         if (nome.trim().isNotEmpty) dados['nome'] = nome.trim();
         if (sobrenome.trim().isNotEmpty) dados['sobrenome'] = sobrenome.trim();
         await _supabase.from('pessoas').update(dados).eq('id', id);
+
+        // Confirma que o hash ficou gravado (RLS/update silencioso quebrava login).
+        final conf = await _supabase
+            .from('pessoas')
+            .select('senha_hash, salt')
+            .eq('id', id)
+            .limit(1);
+        final confHash = conf.isEmpty ? '' : (conf.first['senha_hash'] as String?) ?? '';
+        final confSalt = conf.isEmpty ? '' : (conf.first['salt'] as String?) ?? '';
+        if (confHash.isEmpty || confSalt.isEmpty || confHash != hash) {
+          print('[PessoaRepo] criarUsuario -> ATIVACAO FALHOU (hash nao persistiu) id=$id');
+          return null;
+        }
         print('[PessoaRepo] criarUsuario -> ATIVOU contato pendente id=$id');
         return id;
       }
@@ -320,9 +360,11 @@ class PessoaRepository {
         'senha_hash': hash,
         'salt': salt,
         'situacao': 'ativo',
+        'tipo': 'humano',
       }).select('id').single();
-      print('[PessoaRepo] criarUsuario -> CRIOU conta nova id=${resp['id']}');
-      return resp['id'] as int?;
+      final novoId = (resp['id'] as num?)?.toInt();
+      print('[PessoaRepo] criarUsuario -> CRIOU conta nova id=$novoId');
+      return novoId;
     } catch (e) {
       print('[PessoaRepo] criarUsuario ERRO: $e');
       return null;
@@ -400,7 +442,18 @@ class PessoaRepository {
           .neq('situacao', 'inativo')
           .order('nome');
       print('[PERF] query=listar.pessoas duracao_ms=${t2.elapsedMilliseconds} linhas=${rows.length} total_ms=${sw.elapsedMilliseconds}');
-      return rows.map((r) => Pessoa.fromMap(r)).toList();
+      final pessoas = rows.map((r) => Pessoa.fromMap(r)).toList();
+      final semFoto = [
+        for (final p in pessoas)
+          if (p.falecido && (p.fotoUrl == null || p.fotoUrl!.isEmpty)) p.id,
+      ];
+      if (semFoto.isEmpty) return pessoas;
+      final viaMem = await fotosPerfilViaMemorial(semFoto);
+      if (viaMem.isEmpty) return pessoas;
+      return [
+        for (final p in pessoas)
+          viaMem.containsKey(p.id) ? p.copyWith(fotoBase64: viaMem[p.id]) : p,
+      ];
     } catch (e) {
       print('[PessoaRepo] listar() ERRO: $e');
       return [];
@@ -722,7 +775,14 @@ class PessoaRepository {
           .eq('id', id)
           .limit(1);
       if (rows.isEmpty) return null;
-      return Pessoa.fromMap(rows.first as Map<String, dynamic>);
+      final pessoa = Pessoa.fromMap(rows.first as Map<String, dynamic>);
+      if (!pessoa.falecido ||
+          (pessoa.fotoUrl != null && pessoa.fotoUrl!.isNotEmpty)) {
+        return pessoa;
+      }
+      final viaMem = await fotosPerfilViaMemorial([pessoa.id]);
+      final url = viaMem[pessoa.id];
+      return url == null ? pessoa : pessoa.copyWith(fotoBase64: url);
     } catch (_) {
       return null;
     }
@@ -782,11 +842,14 @@ class PessoaRepository {
       }
 
       final videoUrl = await obterVideoDaMemoria(memoriaId);
+      final fotoResolvida = resolverUrlFoto(fotoUrl) ?? fotoUrl;
+      final videoResolvido = resolverUrlFoto(videoUrl) ?? videoUrl;
       return Memoria.fromMap(
         row,
-        fotoUrl: fotoUrl,
-        videoUrl: videoUrl,
-        temVideo: videoUrl != null && videoUrl.isNotEmpty,
+        fotoUrl: fotoResolvida,
+        videoUrl: videoResolvido,
+        temVideo: (videoResolvido != null && videoResolvido.isNotEmpty) ||
+            (videoUrl != null && videoUrl.isNotEmpty),
         donoUsuarioId: (row['usuario_id'] as num?)?.toInt(),
       );
     } catch (e) {
@@ -838,6 +901,108 @@ class PessoaRepository {
     }
   }
 
+  /// True se o valor parece path do bucket Storage (não URL nem base64).
+  static bool _pareceCaminhoStorage(String v) {
+    final s = v.trim();
+    if (s.startsWith('http://') || s.startsWith('https://')) return false;
+    return s.startsWith('usuario_') ||
+        s.startsWith('fotos/') ||
+        (s.contains('/') && !s.contains(' '));
+  }
+
+  /// Normaliza `foto_perfil` (URL http ou path do bucket) para URL pública.
+  static String? resolverUrlFoto(String? raw) {
+    if (raw == null) return null;
+    final v = raw.trim();
+    if (v.isEmpty) return null;
+    if (v.startsWith('http://') || v.startsWith('https://')) return v;
+    if (!_pareceCaminhoStorage(v)) return null;
+    if (!isConfigured) return null;
+    try {
+      final path = v.startsWith('fotos/') ? v.substring(6) : v;
+      return _supabase.storage.from('fotos').getPublicUrl(path);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Para falecidos sem foto em `pessoas`, usa `memoriais.foto_perfil`.
+  /// NÃO aplica a vivos (participantes de memorial_pessoas).
+  static Future<Map<int, String>> fotosPerfilViaMemorial(
+    Iterable<int> pessoaIds,
+  ) async {
+    if (!isConfigured) return {};
+    final ids = pessoaIds.toSet().toList();
+    if (ids.isEmpty) return {};
+    try {
+      final falecidos = await _supabase
+          .from('pessoas')
+          .select('id')
+          .inFilter('id', ids)
+          .eq('falecido', true);
+      final falecidoIds = <int>[
+        for (final r in falecidos) (r['id'] as num).toInt(),
+      ];
+      if (falecidoIds.isEmpty) return {};
+
+      final vinc = await _supabase
+          .from('memorial_pessoas')
+          .select('pessoa_id, memorial_id')
+          .inFilter('pessoa_id', falecidoIds);
+      if (vinc.isEmpty) return {};
+
+      final memIds = <int>{
+        for (final r in vinc)
+          if (r['memorial_id'] != null) (r['memorial_id'] as num).toInt(),
+      }.toList();
+      if (memIds.isEmpty) return {};
+
+      final memRows = await _supabase
+          .from('memoriais')
+          .select('id, foto_perfil')
+          .inFilter('id', memIds);
+      final fotoPorMemorial = <int, String>{};
+      for (final r in memRows) {
+        final url = resolverUrlFoto(r['foto_perfil'] as String?);
+        if (url != null) {
+          fotoPorMemorial[(r['id'] as num).toInt()] = url;
+        }
+      }
+      if (fotoPorMemorial.isEmpty) return {};
+
+      final out = <int, String>{};
+      for (final r in vinc) {
+        final pid = (r['pessoa_id'] as num).toInt();
+        final mid = (r['memorial_id'] as num).toInt();
+        final url = fotoPorMemorial[mid];
+        if (url != null) out.putIfAbsent(pid, () => url);
+      }
+      return out;
+    } catch (e) {
+      print('[PessoaRepo] fotosPerfilViaMemorial ERRO: $e');
+      return {};
+    }
+  }
+
+  /// Se a pessoa falecida do memorial ainda nao tem foto, grava a do memorial.
+  static Future<void> sincronizarFotoMemorialNaPessoa({
+    required int memorialId,
+    required String fotoUrl,
+  }) async {
+    if (!isConfigured || fotoUrl.trim().isEmpty) return;
+    try {
+      final pessoa = await obterPessoaDoMemorial(memorialId);
+      if (pessoa == null || !pessoa.falecido) return;
+      if (pessoa.fotoUrl != null && pessoa.fotoUrl!.isNotEmpty) return;
+      await _supabase.from('pessoas').update({
+        'foto_perfil': fotoUrl,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', pessoa.id);
+    } catch (e) {
+      print('[PessoaRepo] sincronizarFotoMemorialNaPessoa ERRO: $e');
+    }
+  }
+
   /// S.9.4d — pessoa vinculada a um memorial (para "Definir relações").
   static Future<Pessoa?> obterPessoaDoMemorial(int memorialId) async {
     if (!isConfigured) return null;
@@ -869,7 +1034,7 @@ class PessoaRepository {
 
       final pRows = await _supabase
           .from('pessoas')
-          .select('id, nome, sobrenome, tipo, falecido')
+          .select('id, nome, sobrenome, tipo, falecido, foto_perfil')
           .inFilter('id', ids);
       if (pRows.isEmpty) return null;
       final pessoas = pRows
@@ -1088,18 +1253,40 @@ class PessoaRepository {
     await _supabase.from('memorias').delete().eq('id', memoriaId);
   }
 
+  /// Resultado honesto de "recuperar senha". SMTP do projeto NÃO está
+  /// configurado — nunca fingir que o e-mail foi enviado.
+  ///
+  /// Códigos: `pendente` (ative via Criar conta), `sem_auth` (tem hash no
+  /// app — use a senha do cadastro), `smtp_indisponivel` (Auth existe mas
+  /// e-mail não sai), `nao_encontrado`.
+  static Future<String> avaliarRecuperacaoSenha(String email) async {
+    final emailLimpo = email.trim().toLowerCase();
+    if (emailLimpo.isEmpty) return 'nao_encontrado';
+    if (!isConfigured) return 'smtp_indisponivel';
+    try {
+      final rows = await _supabase
+          .from('pessoas')
+          .select('id, senha_hash, salt, auth_user_id, situacao, tipo')
+          .eq('email', emailLimpo)
+          .eq('tipo', 'humano')
+          .limit(1);
+      if (rows.isEmpty) return 'nao_encontrado';
+      final row = rows.first;
+      final hash = (row['senha_hash'] as String?) ?? '';
+      final salt = (row['salt'] as String?) ?? '';
+      final authId = row['auth_user_id'];
+      if (hash.isEmpty || salt.isEmpty) return 'pendente';
+      if (authId == null) return 'sem_auth';
+      return 'smtp_indisponivel';
+    } catch (_) {
+      return 'smtp_indisponivel';
+    }
+  }
+
+  @Deprecated('SMTP não configurado — use avaliarRecuperacaoSenha')
   static Future<void> recuperarSenha(String email) async {
-    final emailLimpo = email.trim();
-    if (emailLimpo.isEmpty) {
-      throw Exception('Informe um e-mail para recuperar a senha.');
-    }
-    if (!isConfigured) {
-      throw Exception('SUPABASE_ANON_KEY não configurada.');
-    }
-    await _supabase.auth.resetPasswordForEmail(
-      emailLimpo.toLowerCase(),
-      redirectTo: 'aeterna://login',
-    );
+    final codigo = await avaliarRecuperacaoSenha(email);
+    throw Exception(codigo);
   }
 
   static Future<String?> obterVideoDaMemoria(int? memoriaId) async {

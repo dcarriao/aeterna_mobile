@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/memoria.dart';
+import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
 
 class MemoryCard extends StatefulWidget {
@@ -88,7 +89,10 @@ class _MemoryCardState extends State<MemoryCard> {
             else if (m.fotoUrl != null)
               _buildFotoNetwork(m.fotoUrl!)
             else if (m.temVideo && m.videoUrl != null)
-              VideoFramePreview(url: m.videoUrl!, height: 200)
+              VideoFramePreview(
+                url: PessoaRepository.resolverUrlFoto(m.videoUrl) ?? m.videoUrl!,
+                height: 200,
+              )
             else if (m.temVideo)
               _buildVideoSemUrl()
             else
@@ -146,12 +150,13 @@ class _MemoryCardState extends State<MemoryCard> {
   }
 
   Widget _buildFotoNetwork(String url) {
+    final resolvida = PessoaRepository.resolverUrlFoto(url) ?? url;
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
       child: SizedBox(
         height: 200,
         width: double.infinity,
-        child: Image.network(url,
+        child: Image.network(resolvida,
             fit: BoxFit.cover,
             alignment: Alignment.topCenter,
             errorBuilder: (_, _, _) => Container(
@@ -215,7 +220,9 @@ class _VideoFramePreviewState extends State<VideoFramePreview> {
 
   Future<void> _iniciar() async {
     try {
-      final c = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+      final raw = widget.url;
+      final resolvida = PessoaRepository.resolverUrlFoto(raw) ?? raw;
+      final c = VideoPlayerController.networkUrl(Uri.parse(resolvida));
       await c.initialize();
       await c.seekTo(Duration.zero);
       await c.pause();

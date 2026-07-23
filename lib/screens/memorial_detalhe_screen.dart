@@ -83,14 +83,22 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     return ids;
   }
 
-  // IA Chat — histórico COMPARTILHADO do memorial (memoriais.conversa_curador),
-  // não silo por usuário logado.
-  final List<Map<String, String>> _conversa = [];
+  // IA Chat — histórico COMPARTILHADO do memorial (memoriais.conversa_curador).
+  // `_historicoCompleto`: tudo persistido + enviado ao modelo (contexto).
+  // `_conversaUi`: só o turno atual / boas-vindas — NÃO despeja o histórico.
+  final List<Map<String, String>> _historicoCompleto = [];
+  final List<Map<String, String>> _conversaUi = [];
   final _chatController = TextEditingController();
   final _chatScrollController = ScrollController();
   bool _enviandoChat = false;
   bool _carregandoConversa = true;
   String _meuNomeCurador = '';
+
+  static Map<String, String> _msgBoasVindas(String nomeMemorial) => {
+        'role': 'assistant',
+        'content':
+            'Olá, sou o Curador de Memórias de $nomeMemorial. Estou aqui para preservar seu legado, contar suas histórias e responder perguntas sobre sua vida e seus valores. Sobre o que você gostaria de lembrar hoje?',
+      };
 
   @override
   void initState() {
@@ -124,18 +132,16 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
 
     if (!mounted) return;
 
+    final welcome = _msgBoasVindas(widget.memorial.nome);
     setState(() {
       _meuNomeCurador = meuNome;
-      _conversa.clear();
-      if (historico.isNotEmpty) {
-        _conversa.addAll(historico);
-      } else {
-        _conversa.add({
-          'role': 'assistant',
-          'content':
-              'Olá, sou o Curador de Memórias de ${widget.memorial.nome}. Estou aqui para preservar seu legado, contar suas histórias e responder perguntas sobre sua vida e seus valores. Sobre o que você gostaria de lembrar hoje?',
-        });
-      }
+      _historicoCompleto
+        ..clear()
+        ..addAll(historico.isNotEmpty ? historico : [welcome]);
+      // UI limpa a cada abertura: só boas-vindas (modelo já tem o histórico).
+      _conversaUi
+        ..clear()
+        ..add(Map<String, String>.from(welcome));
       _carregandoConversa = false;
     });
 
@@ -143,7 +149,6 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     if (historico.isEmpty && memorialId != null) {
       await _persistirConversaCurador();
     }
-    _rolarChatAoFim();
   }
 
   Future<void> _persistirConversaCurador() async {
@@ -151,7 +156,7 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     if (memorialId == null || !_service.isConfigured) return;
     await _service.salvarConversaCuradorMemorial(
       memorialId,
-      List<Map<String, String>>.from(_conversa),
+      List<Map<String, String>>.from(_historicoCompleto),
     );
   }
 
@@ -447,13 +452,20 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
     final texto = _chatController.text.trim();
     if (texto.isEmpty || _enviandoChat || _carregandoConversa) return;
 
+    final msgUser = <String, String>{
+      'role': 'user',
+      'content': texto,
+      'usuario_id': '${PessoaRepository.usuarioId}',
+      if (_meuNomeCurador.isNotEmpty) 'usuario_nome': _meuNomeCurador,
+    };
+
     setState(() {
-      _conversa.add({
-        'role': 'user',
-        'content': texto,
-        'usuario_id': '${PessoaRepository.usuarioId}',
-        if (_meuNomeCurador.isNotEmpty) 'usuario_nome': _meuNomeCurador,
-      });
+      // UI: só o turno atual (limpa turnos anteriores da sessão visual).
+      _conversaUi
+        ..clear()
+        ..add(Map<String, String>.from(_msgBoasVindas(widget.memorial.nome)))
+        ..add(msgUser);
+      _historicoCompleto.add(msgUser);
       _chatController.clear();
       _enviandoChat = true;
     });
@@ -471,10 +483,10 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         historias.add('Lembrança de ${c.usuarioContribuidorNome}: ${c.texto ?? ''}');
       }
 
-      // Histórico para o modelo: só role+content (sem metadados de atribuição).
-      final historicoParaModelo = _conversa
+      // Modelo recebe TODO o histórico persistido (sem a 1ª boas-vindas).
+      final historicoParaModelo = _historicoCompleto
           .where((m) => m['role'] == 'user' || m['role'] == 'assistant')
-          .skip(1) // Exclui a mensagem de boas-vindas
+          .skip(1)
           .map((m) => {
                 'role': m['role']!,
                 'content': m['content']!,
@@ -489,25 +501,30 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
         historicoConversa: historicoParaModelo,
       );
 
+      final msgAssistant = <String, String>{
+        'role': 'assistant',
+        'content': resposta ??
+            'Desculpe, tive um contratempo para acessar a memória do curador.',
+      };
+
       if (mounted) {
         setState(() {
-          _conversa.add({
-            'role': 'assistant',
-            'content': resposta ??
-                'Desculpe, tive um contratempo para acessar a memória do curador.',
-          });
+          _conversaUi.add(msgAssistant);
+          _historicoCompleto.add(msgAssistant);
           _enviandoChat = false;
         });
         _rolarChatAoFim();
         await _persistirConversaCurador();
       }
     } catch (e) {
+      final msgErro = <String, String>{
+        'role': 'assistant',
+        'content': 'Desculpe, ocorreu um erro de conexão com o curador.',
+      };
       if (mounted) {
         setState(() {
-          _conversa.add({
-            'role': 'assistant',
-            'content': 'Desculpe, ocorreu um erro de conexão com o curador.',
-          });
+          _conversaUi.add(msgErro);
+          _historicoCompleto.add(msgErro);
           _enviandoChat = false;
         });
         _rolarChatAoFim();
@@ -1226,9 +1243,9 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
           child: ListView.builder(
             controller: _chatScrollController,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            itemCount: _conversa.length,
+            itemCount: _conversaUi.length,
             itemBuilder: (context, index) {
-              final msg = _conversa[index];
+              final msg = _conversaUi[index];
               final isMe = msg['role'] == 'user';
               final autor = msg['usuario_nome']?.trim();
 

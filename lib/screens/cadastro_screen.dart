@@ -67,6 +67,7 @@ class _CadastroScreenState extends State<CadastroScreen> {
         return;
       }
       PessoaRepository.usuarioId = uid;
+      PessoaRepository.legadoUsuarioId = null;
       PessoaRepository.usuarioEmail = _emailCtrl.text.trim().toLowerCase();
       SupabaseService.usuarioId = uid;
 
@@ -74,6 +75,7 @@ class _CadastroScreenState extends State<CadastroScreen> {
       await prefs.setBool('is_logged_in', true);
       await prefs.setString('session_user_email', _emailCtrl.text.trim().toLowerCase());
       await prefs.setInt('session_pessoa_id', uid);
+      await prefs.remove('session_user_id');
 
       if (mounted) widget.onCadastrado();
     } catch (_) {
