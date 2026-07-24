@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import '../models/memoria.dart';
 import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
+import 'remote_foto.dart';
 
 class MemoryCard extends StatefulWidget {
   const MemoryCard({
@@ -150,21 +151,22 @@ class _MemoryCardState extends State<MemoryCard> {
   }
 
   Widget _buildFotoNetwork(String url) {
-    final resolvida = PessoaRepository.resolverUrlFoto(url) ?? url;
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
       child: SizedBox(
         height: 200,
         width: double.infinity,
-        child: Image.network(resolvida,
-            fit: BoxFit.cover,
-            alignment: Alignment.topCenter,
-            errorBuilder: (_, _, _) => Container(
-                  color: const Color(0xFFF0EAF5),
-                  child: const Center(
-                      child: Icon(Icons.image_outlined,
-                          color: AppColors.roxo, size: 32)),
-                )),
+        child: RemoteFoto.card(
+          url: url,
+          height: 200,
+          errorBuilder: (_, _, _) => Container(
+            color: const Color(0xFFF0EAF5),
+            child: const Center(
+              child: Icon(Icons.image_outlined,
+                  color: AppColors.roxo, size: 32),
+            ),
+          ),
+        ),
       ),
     );
   }

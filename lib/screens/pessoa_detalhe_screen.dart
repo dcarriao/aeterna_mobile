@@ -13,6 +13,7 @@ import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/memory_card.dart';
 import '../widgets/pessoa_avatar.dart';
+import '../widgets/remote_foto.dart';
 import 'adicionar_relacionamento_screen.dart';
 import 'memorial_detalhe_screen.dart';
 import 'nova_memoria_screen.dart';
@@ -1266,12 +1267,11 @@ class _PessoaDetalheScreenState extends State<PessoaDetalheScreen> {
                         const SizedBox(height: 8),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            e.fotoUrl!,
+                          child: RemoteFoto.card(
+                            url: e.fotoUrl!,
                             height: 120,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                            errorBuilder: (_, _, _) =>
+                                const SizedBox.shrink(),
                           ),
                         ),
                       ] else if (e.videoUrl != null &&

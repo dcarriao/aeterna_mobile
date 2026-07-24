@@ -3,6 +3,7 @@ import '../models/memorial.dart';
 import '../models/pessoa.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/remote_foto.dart';
 import 'novo_memorial_screen.dart';
 import 'memorial_detalhe_screen.dart';
 
@@ -308,11 +309,9 @@ class _MemoriaisScreenState extends State<MemoriaisScreen> {
                     ),
                     child: ClipOval(
                       child: memorial.fotoUrl != null && memorial.fotoUrl!.isNotEmpty
-                          ? Image.network(
-                              memorial.fotoUrl!,
-                              fit: BoxFit.cover,
-                              width: 72,
-                              height: 72,
+                          ? RemoteFoto.avatar(
+                              url: memorial.fotoUrl!,
+                              size: 72,
                               errorBuilder: (_, __, ___) => const Icon(
                                 Icons.favorite_outline,
                                 color: AppColors.roxo,

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'remote_foto.dart';
 
 /// Avatar com fitinha preta de luto quando [falecido] é true.
 class PessoaAvatar extends StatelessWidget {
@@ -23,34 +24,54 @@ class PessoaAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final size = radius * 2;
     final hasBytes = fotoBytes != null;
     final hasUrl = fotoUrl != null && fotoUrl!.isNotEmpty;
-    final avatar = CircleAvatar(
-      radius: radius,
-      backgroundColor: const Color(0xFFF0EAF5),
-      backgroundImage: hasBytes
-          ? MemoryImage(fotoBytes!)
-          : (hasUrl ? NetworkImage(fotoUrl!) as ImageProvider : null),
-      child: (!hasBytes && !hasUrl)
-          ? Icon(
-              isPet ? Icons.pets : Icons.person,
-              color: isPet ? AppColors.dourado : AppColors.roxo,
-              size: radius * 0.9,
-            )
-          : null,
+    final placeholder = Icon(
+      isPet ? Icons.pets : Icons.person,
+      color: isPet ? AppColors.dourado : AppColors.roxo,
+      size: radius * 0.9,
     );
 
-    if (!falecido) return avatar;
+    final Widget face;
+    if (hasBytes) {
+      face = CircleAvatar(
+        radius: radius,
+        backgroundColor: const Color(0xFFF0EAF5),
+        backgroundImage: MemoryImage(fotoBytes!),
+      );
+    } else if (hasUrl) {
+      // RemoteFoto + errorBuilder: NetworkImage no CircleAvatar falha
+      // silenciosamente (círculo vazio) quando Storage/RLS bloqueia a URL.
+      // cacheWidth/Height evitam decodificar originais de vários MB.
+      face = CircleAvatar(
+        radius: radius,
+        backgroundColor: const Color(0xFFF0EAF5),
+        child: ClipOval(
+          child: RemoteFoto.avatar(
+            url: fotoUrl!,
+            size: size,
+            errorBuilder: (_, __, ___) => Center(child: placeholder),
+          ),
+        ),
+      );
+    } else {
+      face = CircleAvatar(
+        radius: radius,
+        backgroundColor: const Color(0xFFF0EAF5),
+        child: placeholder,
+      );
+    }
 
-    final size = radius * 2;
+    if (!falecido) return face;
+
     return SizedBox(
       width: size,
       height: size,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          avatar,
-          // Fitinha de luto: faixa preta no canto superior esquerdo.
+          face,
           Positioned(
             left: 0,
             top: 0,

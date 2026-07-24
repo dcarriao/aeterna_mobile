@@ -13,6 +13,7 @@ import '../services/memory_growth_scoring_service.dart';
 import '../services/memory_relationship_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/remote_foto.dart';
 import 'curador_screen.dart';
 import 'memoria_contribuicao_screen.dart';
 import 'nova_memoria_screen.dart';
@@ -725,12 +726,9 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                   const SizedBox(height: 8),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      e.arquivoUrl!,
-                      width: double.infinity,
+                    child: RemoteFoto.card(
+                      url: e.arquivoUrl!,
                       height: 160,
-                      fit: BoxFit.cover,
-                      alignment: Alignment.topCenter,
                       errorBuilder: (_, _, _) => Container(
                         height: 100,
                         color: const Color(0xFFF0EAF5),
@@ -980,12 +978,9 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
             const SizedBox(height: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                c.arquivoUrl!,
-                width: double.infinity,
+              child: RemoteFoto.card(
+                url: c.arquivoUrl!,
                 height: 140,
-                fit: BoxFit.cover,
-                alignment: Alignment.topCenter,
               ),
             ),
           ],
@@ -1090,10 +1085,9 @@ class _MemoriaDetalheScreenState extends State<MemoriaDetalheScreen> {
                           borderRadius: BorderRadius.circular(16),
                           child: ColoredBox(
                             color: const Color(0xFFF0EAF5),
-                            child: Image.network(
-                              _memoria.fotoUrl!,
+                            child: RemoteFoto.hero(
+                              url: _memoria.fotoUrl!,
                               fit: BoxFit.contain,
-                              width: double.infinity,
                               errorBuilder: (_, _, _) => Container(
                                 height: 180,
                                 decoration: BoxDecoration(

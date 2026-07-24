@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/memoria_do_dia.dart';
 import '../../theme/app_theme.dart';
+import '../remote_foto.dart';
 
 /// Sprint M — Card de "Memória do Dia" exibido na Home.
 ///
@@ -47,8 +48,9 @@ class MemoriaDoDiaCard extends StatelessWidget {
               ),
               child: AspectRatio(
                 aspectRatio: 16 / 9,
-                child: Image.network(
-                  item.fotoPrincipal!,
+                child: RemoteFoto.card(
+                  url: item.fotoPrincipal!,
+                  height: null,
                   fit: BoxFit.cover,
                   alignment: Alignment.topCenter,
                   errorBuilder: (_, _, _) => Container(

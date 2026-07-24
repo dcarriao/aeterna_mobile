@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
+import '../widgets/remote_foto.dart';
 import 'cofre_screen.dart';
 import 'explorador_screen.dart';
 import 'mensagens_futuro_screen.dart';
@@ -291,10 +292,19 @@ class _PerfilScreenState extends State<PerfilScreen> {
                             CircleAvatar(
                               radius: 52,
                               backgroundColor: const Color(0xFFF0EAF5),
-                              backgroundImage: fotoUrl != null ? NetworkImage(fotoUrl) : null,
-                              child: fotoUrl == null
-                                  ? const Icon(Icons.person, size: 52, color: AppColors.roxo)
-                                  : null,
+                              child: fotoUrl != null
+                                  ? ClipOval(
+                                      child: RemoteFoto.avatar(
+                                        url: fotoUrl,
+                                        size: 104,
+                                        errorBuilder: (_, __, ___) =>
+                                            const Icon(Icons.person,
+                                                size: 52,
+                                                color: AppColors.roxo),
+                                      ),
+                                    )
+                                  : const Icon(Icons.person,
+                                      size: 52, color: AppColors.roxo),
                             ),
                             if (_salvandoFoto)
                               const Positioned.fill(

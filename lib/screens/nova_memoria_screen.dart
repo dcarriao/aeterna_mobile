@@ -8,6 +8,7 @@ import 'package:supabase/supabase.dart';
 import '../models/memoria.dart';
 import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
+import '../widgets/remote_foto.dart';
 import 'curador_screen.dart';
 
 import '../models/detected_moment.dart';
@@ -833,8 +834,8 @@ class _NovaMemoriaScreenState extends State<NovaMemoriaScreen> {
                   alignment: Alignment.topCenter,
                 )
               else if (_fotoUrlExistente != null && !_fotoRemovida)
-                Image.network(
-                  _fotoUrlExistente!,
+                RemoteFoto(
+                  url: _fotoUrlExistente!,
                   fit: BoxFit.cover,
                   alignment: Alignment.topCenter,
                 )

@@ -27,6 +27,7 @@ import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/memory_card.dart';
 import '../widgets/pessoa_avatar.dart';
+import '../widgets/remote_foto.dart';
 import '../widgets/home/curador_continuar_card.dart';
 import '../widgets/home/detected_moment_card.dart';
 import '../widgets/home/memoria_do_dia_card.dart';
@@ -521,17 +522,20 @@ class _HomeScreenState extends State<HomeScreen> {
                             color: const Color(0xFFF0EAF5),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(color: AppColors.borda),
-                            image: widget.fotoUrl != null && widget.fotoUrl!.isNotEmpty
-                                ? DecorationImage(
-                                    image: NetworkImage(widget.fotoUrl!),
-                                    fit: BoxFit.cover,
-                                  )
-                                : null,
                           ),
-                          child: widget.fotoUrl == null || widget.fotoUrl!.isEmpty
-                              ? const Icon(Icons.person_outline,
-                                  color: AppColors.roxo, size: 20)
-                              : null,
+                          clipBehavior: Clip.antiAlias,
+                          child: widget.fotoUrl != null && widget.fotoUrl!.isNotEmpty
+                              ? RemoteFoto.avatar(
+                                  url: widget.fotoUrl!,
+                                  size: 40,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.person_outline,
+                                    color: AppColors.roxo,
+                                    size: 20,
+                                  ),
+                                )
+                              : const Icon(Icons.person_outline,
+                                  color: AppColors.roxo, size: 20),
                         ),
                       ),
                     ),

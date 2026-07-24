@@ -18,6 +18,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/pessoa.dart';
 import '../services/pessoa_relacionamento_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/remote_foto.dart';
 
 class NovaPetScreen extends StatefulWidget {
   const NovaPetScreen({this.pet, super.key});
@@ -667,7 +668,7 @@ class _FotoPet extends StatelessWidget {
                 height: 140,
                 child: fotoBytes != null
                     ? Image.memory(fotoBytes!, fit: BoxFit.cover)
-                    : Image.network(fotoUrl!, fit: BoxFit.cover),
+                    : RemoteFoto.avatar(url: fotoUrl!, size: 140),
               ),
             ),
           ),

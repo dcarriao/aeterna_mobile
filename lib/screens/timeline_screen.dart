@@ -5,6 +5,7 @@ import '../models/memoria.dart';
 import '../models/pessoa.dart';
 import '../theme/app_theme.dart';
 import '../widgets/memory_card.dart';
+import '../widgets/remote_foto.dart';
 
 class TimelineScreen extends StatefulWidget {
   const TimelineScreen({
@@ -512,11 +513,11 @@ class _TimelineEvent extends StatelessWidget {
                           child: SizedBox(
                             height: 180,
                             width: double.infinity,
-                            child: Image.network(
-                              memoria.fotoUrl!,
-                              fit: BoxFit.cover,
-                              alignment: Alignment.topCenter,
-                              errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                            child: RemoteFoto.card(
+                              url: memoria.fotoUrl!,
+                              height: 180,
+                              errorBuilder: (_, _, _) =>
+                                  const SizedBox.shrink(),
                             ),
                           ),
                         )

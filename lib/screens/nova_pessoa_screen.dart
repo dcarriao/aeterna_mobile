@@ -9,6 +9,7 @@ import '../models/pessoa.dart';
 import '../models/tipo_relacionamento.dart';
 import '../services/pessoa_relacionamento_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/remote_foto.dart';
 
 class NovaPessoaScreen extends StatefulWidget {
   const NovaPessoaScreen({this.pessoa, super.key});
@@ -777,7 +778,7 @@ class _FotoPessoa extends StatelessWidget {
                 height: 140,
                 child: fotoBytes != null
                     ? Image.memory(fotoBytes!, fit: BoxFit.cover)
-                    : Image.network(fotoUrl!, fit: BoxFit.cover),
+                    : RemoteFoto.avatar(url: fotoUrl!, size: 140),
               ),
             ),
           ),

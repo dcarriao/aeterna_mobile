@@ -11,6 +11,7 @@ import '../services/pessoa_relacionamento_service.dart';
 import '../services/supabase_service.dart';
 import '../services/legacy_curator_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/remote_foto.dart';
 import 'nova_memoria_screen.dart';
 
 class MemorialDetalheScreen extends StatefulWidget {
@@ -606,17 +607,21 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
                           color: const Color(0xFFF0EAF5),
                           borderRadius: BorderRadius.circular(40),
                           border: Border.all(color: AppColors.borda, width: 2),
-                          image: widget.memorial.fotoUrl != null && widget.memorial.fotoUrl!.isNotEmpty
-                              ? DecorationImage(
-                                  image: NetworkImage(widget.memorial.fotoUrl!),
-                                  fit: BoxFit.cover,
-                                )
-                              : null,
                         ),
-                        child: widget.memorial.fotoUrl == null || widget.memorial.fotoUrl!.isEmpty
-                            ? const Icon(Icons.favorite_outline,
-                                color: AppColors.roxo, size: 32)
-                            : null,
+                        clipBehavior: Clip.antiAlias,
+                        child: widget.memorial.fotoUrl != null &&
+                                widget.memorial.fotoUrl!.isNotEmpty
+                            ? RemoteFoto.avatar(
+                                url: widget.memorial.fotoUrl!,
+                                size: 80,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.favorite_outline,
+                                  color: AppColors.roxo,
+                                  size: 32,
+                                ),
+                              )
+                            : const Icon(Icons.favorite_outline,
+                                color: AppColors.roxo, size: 32),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
@@ -1040,12 +1045,9 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
 
           // Foto anexada (se houver)
           if (item.fotoUrl != null && item.fotoUrl!.isNotEmpty) ...[
-            Image.network(
-              item.fotoUrl!,
-              width: double.infinity,
+            RemoteFoto.card(
+              url: item.fotoUrl!,
               height: 200,
-              fit: BoxFit.cover,
-              alignment: Alignment.topCenter,
             ),
             const SizedBox(height: 12),
           ],
@@ -1168,12 +1170,9 @@ class _MemorialDetalheScreenState extends State<MemorialDetalheScreen> with Sing
               if (c.tipoContribuicao == 'foto' && c.arquivoUrl != null && c.arquivoUrl!.isNotEmpty) ...[
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    c.arquivoUrl!,
-                    width: double.infinity,
+                  child: RemoteFoto.card(
+                    url: c.arquivoUrl!,
                     height: 150,
-                    fit: BoxFit.cover,
-                    alignment: Alignment.topCenter,
                   ),
                 ),
                 const SizedBox(height: 10),
