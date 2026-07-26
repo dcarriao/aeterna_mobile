@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'remote_foto.dart';
 
-/// Avatar com fitinha preta de luto quando [falecido] é true.
+/// Avatar circular com fitinha preta de luto quando [falecido] é true.
+/// Sempre viewport quadrado + [BoxFit.cover] (nunca estica a foto).
 class PessoaAvatar extends StatelessWidget {
   const PessoaAvatar({
     required this.radius,
@@ -33,35 +34,33 @@ class PessoaAvatar extends StatelessWidget {
       size: radius * 0.9,
     );
 
-    final Widget face;
-    if (hasBytes) {
-      face = CircleAvatar(
-        radius: radius,
-        backgroundColor: const Color(0xFFF0EAF5),
-        backgroundImage: MemoryImage(fotoBytes!),
-      );
-    } else if (hasUrl) {
-      // RemoteFoto + errorBuilder: NetworkImage no CircleAvatar falha
-      // silenciosamente (círculo vazio) quando Storage/RLS bloqueia a URL.
-      // cacheWidth/Height evitam decodificar originais de vários MB.
-      face = CircleAvatar(
-        radius: radius,
-        backgroundColor: const Color(0xFFF0EAF5),
-        child: ClipOval(
-          child: RemoteFoto.avatar(
-            url: fotoUrl!,
-            size: size,
-            errorBuilder: (_, __, ___) => Center(child: placeholder),
-          ),
-        ),
-      );
-    } else {
-      face = CircleAvatar(
-        radius: radius,
-        backgroundColor: const Color(0xFFF0EAF5),
-        child: placeholder,
-      );
-    }
+    final Widget face = SizedBox(
+      width: size,
+      height: size,
+      child: ClipOval(
+        child: hasBytes
+            ? Image.memory(
+                fotoBytes!,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              )
+            : hasUrl
+                ? RemoteFoto.avatar(
+                    url: fotoUrl!,
+                    size: size,
+                    errorBuilder: (_, _, _) => ColoredBox(
+                      color: const Color(0xFFF0EAF5),
+                      child: Center(child: placeholder),
+                    ),
+                  )
+                : ColoredBox(
+                    color: const Color(0xFFF0EAF5),
+                    child: Center(child: placeholder),
+                  ),
+      ),
+    );
 
     if (!falecido) return face;
 

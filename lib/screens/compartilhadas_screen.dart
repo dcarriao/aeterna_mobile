@@ -63,14 +63,6 @@ class _CompartilhadasScreenState extends State<CompartilhadasScreen> {
     }).toList();
   }
 
-  Pessoa? _pessoaPorId(int id) {
-    try {
-      return _pessoas.firstWhere((p) => p.id == id);
-    } catch (_) {
-      return null;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -122,11 +114,11 @@ class _CompartilhadasScreenState extends State<CompartilhadasScreen> {
         if (_pessoas.isNotEmpty) _buildFiltro(),
         Expanded(
           child: memorias.isEmpty
-              ? Center(
+              ? const Center(
                   child: Text(
                     'Nenhuma memória compartilhada com este familiar.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Color(0xFF7A7280),
                       fontSize: 15,
                     ),
@@ -138,79 +130,9 @@ class _CompartilhadasScreenState extends State<CompartilhadasScreen> {
                   separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
                     final m = memorias[index];
-                    final ids = m.familiaresIds ??
-                        _compartilhamentos[m.id] ??
-                        [];
-                    final nomes = ids
-                        .map((id) => _pessoaPorId(id)?.nome)
-                        .whereType<String>()
-                        .take(3)
-                        .toList();
-
-                    return Material(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(14),
-                      child: InkWell(
-                        onTap: () => widget.onAbrirMemoria(m),
-                        borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: AppColors.borda),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.share_outlined,
-                                      size: 16, color: AppColors.dourado),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '${ids.length} ${ids.length == 1 ? 'familiar' : 'familiares'}',
-                                    style: const TextStyle(
-                                      color: AppColors.dourado,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                m.titulo,
-                                style: const TextStyle(
-                                  color: AppColors.roxo,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                m.contexto,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFF625B67),
-                                  fontSize: 14,
-                                  height: 1.4,
-                                ),
-                              ),
-                              if (nomes.isNotEmpty) ...[
-                                const SizedBox(height: 10),
-                                Text(
-                                  'Com ${nomes.join(', ')}',
-                                  style: const TextStyle(
-                                    color: Color(0xFF7A7280),
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
+                    return MemoryCard(
+                      memoria: m,
+                      onLer: () => widget.onAbrirMemoria(m),
                     );
                   },
                 ),

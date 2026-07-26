@@ -5,12 +5,14 @@ import '../models/contribuicao.dart';
 import '../models/curador_resposta_ia.dart';
 import '../models/curador_sessao.dart';
 import '../models/detected_moment.dart';
+import '../models/memoria.dart';
 import '../models/memoria_relacionamento.dart';
 import '../models/pending_memory.dart';
 import '../models/pessoa.dart';
 import '../curador/perguntas.dart';
 import '../services/curador_sessao_service.dart';
 import '../services/legacy_curator_service.dart';
+import '../services/media_suggestion_service.dart';
 import '../services/memory_relationship_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
@@ -19,14 +21,19 @@ import '../theme/app_theme.dart';
 /// Inclui o contexto consolidado e a sessão persistida (para que
 /// a Home possa oferecer "continuar conversa" se o usuário
 /// descartar sem salvar).
+/// Em fluxo proativo (`isProativo`), [memoriaSalva] vem preenchida
+/// porque o Salvar já persistiu no banco (antes só dava pop e nada
+/// era inserido).
 class CuradorResultado {
   const CuradorResultado({
     required this.contextoEnriquecido,
     this.sessaoId,
+    this.memoriaSalva,
   });
 
   final String contextoEnriquecido;
   final int? sessaoId;
+  final Memoria? memoriaSalva;
 }
 
 /// Curador Contextual — Sprint J. Conversa com memória de contexto
@@ -105,6 +112,9 @@ class _CuradorScreenState extends State<CuradorScreen> {
 
   // Sprint K — Histórias relacionadas (modo complemento)
   List<MemoriaRelacionamento> _relacionadosComplemento = const [];
+
+  /// Evita double-tap em "Salvar memória" (fluxo proativo persiste no banco).
+  bool _salvando = false;
 
   @override
   void initState() {
@@ -494,19 +504,133 @@ class _CuradorScreenState extends State<CuradorScreen> {
   }
 
   Future<void> _salvar() async {
+    if (_salvando) return;
+
+    final contexto = _montarContextoEnriquecido();
+
     if (_sessaoId != null) {
-      await _sessaoService.finalizarSessao(
-        sessaoId: _sessaoId!,
-        contextoAtual: _montarContextoEnriquecido(),
-      );
+      try {
+        await _sessaoService.finalizarSessao(
+          sessaoId: _sessaoId!,
+          contextoAtual: contexto,
+        );
+      } catch (e) {
+        print('[Curador] finalizarSessao ERRO: $e');
+      }
     }
+
+    // Fluxo proativo: "Salvar memória" É o persist — antes só dava pop
+    // com CuradorResultado e a Home ignorava o resultado → nada no banco.
+    if (widget.isProativo && widget.complementoMemoriaId == null) {
+      await _persistirMemoriaProativa(contexto);
+      return;
+    }
+
     if (!mounted) return;
     Navigator.of(context).pop(
       CuradorResultado(
-        contextoEnriquecido: _montarContextoEnriquecido(),
+        contextoEnriquecido: contexto,
         sessaoId: _sessaoId,
       ),
     );
+  }
+
+  Future<void> _persistirMemoriaProativa(String contexto) async {
+    setState(() => _salvando = true);
+    try {
+      final media = widget.proativoMediaBytes;
+      final isVideo = widget.proativoMediaIsVideo && media != null;
+      final isFoto = !widget.proativoMediaIsVideo && media != null;
+
+      final memoria = await _supabaseService.salvarMemoriaComFoto(
+        MemoriaRascunho(
+          titulo: widget.titulo.trim().isEmpty
+              ? 'Memória'
+              : widget.titulo.trim(),
+          contexto: contexto,
+          categoria: widget.categoria ?? 'momentos',
+          foto: isFoto ? media : null,
+          nomeArquivo: isFoto ? 'foto.jpg' : null,
+          dataMemoria: widget.dataMemoria,
+          video: isVideo ? media : null,
+          nomeVideo: isVideo ? 'video.mp4' : null,
+        ),
+      );
+
+      String? videoUrl;
+      if (isVideo && memoria.id != null) {
+        videoUrl = await PessoaRepository.uploadVideoMemoria(
+          memoriaId: memoria.id!,
+          bytes: media,
+          nomeArquivo: 'video.mp4',
+        );
+      }
+
+      final momento = widget.detectedMoment;
+      if (momento != null) {
+        for (final f in momento.fotos) {
+          await MediaSuggestionService.instance
+              .registrarAssetComoUtilizado(f.id);
+        }
+        for (final v in momento.videos) {
+          await MediaSuggestionService.instance
+              .registrarAssetComoUtilizado(v.id);
+        }
+      }
+      final pending = widget.pendingMemory;
+      if (pending != null) {
+        for (final f in pending.fotos) {
+          await MediaSuggestionService.instance
+              .registrarAssetComoUtilizado(f.id);
+        }
+        for (final v in pending.videos) {
+          await MediaSuggestionService.instance
+              .registrarAssetComoUtilizado(v.id);
+        }
+      }
+
+      if (memoria.id != null) {
+        // ignore: unawaited_futures
+        MemoryRelationshipService.instance.aoSalvarMemoria(memoria.id!);
+      }
+
+      if (!mounted) return;
+      final salva = Memoria(
+        id: memoria.id,
+        titulo: memoria.titulo,
+        contexto: memoria.contexto,
+        categoria: memoria.categoria,
+        criadaEm: memoria.criadaEm,
+        foto: memoria.foto,
+        fotoUrl: memoria.fotoUrl,
+        video: isVideo ? media : null,
+        videoUrl: videoUrl,
+        temVideo: isVideo || videoUrl != null,
+        dataMemoria: widget.dataMemoria,
+      );
+      Navigator.of(context).pop(
+        CuradorResultado(
+          contextoEnriquecido: contexto,
+          sessaoId: _sessaoId,
+          memoriaSalva: salva,
+        ),
+      );
+    } catch (e) {
+      print('[Curador] persistirMemoriaProativa ERRO: $e');
+      if (!mounted) return;
+      setState(() => _salvando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Não foi possível salvar a memória: $e',
+          ),
+          action: SnackBarAction(
+            label: 'Tentar novamente',
+            onPressed: _salvar,
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _cancelarESair() async {
@@ -1123,7 +1247,7 @@ class _CuradorScreenState extends State<CuradorScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: FilledButton.icon(
-                onPressed: _salvar,
+                onPressed: _salvando ? null : _salvar,
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.roxo,
                   foregroundColor: Colors.white,
@@ -1132,8 +1256,17 @@ class _CuradorScreenState extends State<CuradorScreen> {
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
-                icon: const Icon(Icons.favorite_outline, size: 18),
-                label: const Text('Salvar memória'),
+                icon: _salvando
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.favorite_outline, size: 18),
+                label: Text(_salvando ? 'Salvando...' : 'Salvar memória'),
               ),
             ),
           ],

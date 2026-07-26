@@ -195,42 +195,51 @@ class SupabaseService {
   ) async {
     if (!isConfigured || vinculos.isEmpty) return const [];
 
+    int asInt(dynamic v) => (v as num).toInt();
+
     final ids = vinculos.keys.toList();
     final memoriaRows = await _client
         .from('memorias')
-        .select('id, titulo, conteudo, categoria, data_criacao, data_evento')
+        .select(
+            'id, titulo, conteudo, categoria, data_criacao, data_evento, usuario_id')
         .inFilter('id', ids)
         .order('data_criacao', ascending: false);
 
     if (memoriaRows.isEmpty) return const [];
 
-    final memoriaIds = memoriaRows.map<int>((row) => row['id'] as int).toList();
-    final vinculoFotoRows = await _client
-        .from('memoria_fotos')
-        .select('memoria_id, foto_id')
-        .inFilter('memoria_id', memoriaIds);
+    final memoriaIds =
+        memoriaRows.map<int>((row) => asInt(row['id'])).toList();
 
     final fotoPorMemoria = <int, String>{};
-    if (vinculoFotoRows.isNotEmpty) {
-      final fotoIds = vinculoFotoRows
-          .map<int>((row) => row['foto_id'] as int)
-          .toSet()
-          .toList();
-      final fotoRows = await _client
-          .from('fotos')
-          .select('id, caminho_arquivo')
-          .inFilter('id', fotoIds);
-      final urlsPorFoto = <int, String>{
-        for (final row in fotoRows)
-          if (row['caminho_arquivo'] != null)
-            row['id'] as int: row['caminho_arquivo'] as String,
-      };
-      for (final vinculo in vinculoFotoRows) {
-        final url = urlsPorFoto[vinculo['foto_id'] as int];
-        if (url != null) {
-          fotoPorMemoria.putIfAbsent(vinculo['memoria_id'] as int, () => url);
+    try {
+      final vinculoFotoRows = await _client
+          .from('memoria_fotos')
+          .select('memoria_id, foto_id')
+          .inFilter('memoria_id', memoriaIds);
+
+      if (vinculoFotoRows.isNotEmpty) {
+        final fotoIds = vinculoFotoRows
+            .map<int>((row) => asInt(row['foto_id']))
+            .toSet()
+            .toList();
+        final fotoRows = await _client
+            .from('fotos')
+            .select('id, caminho_arquivo')
+            .inFilter('id', fotoIds);
+        final urlsPorFoto = <int, String>{
+          for (final row in fotoRows)
+            if (row['caminho_arquivo'] != null)
+              asInt(row['id']): row['caminho_arquivo'] as String,
+        };
+        for (final vinculo in vinculoFotoRows) {
+          final url = urlsPorFoto[asInt(vinculo['foto_id'])];
+          if (url != null) {
+            fotoPorMemoria.putIfAbsent(asInt(vinculo['memoria_id']), () => url);
+          }
         }
       }
+    } catch (e) {
+      print('[SupabaseService] fotos recebidas ERRO: $e');
     }
 
     final videoPorMemoria = <int, String>{};
@@ -242,10 +251,10 @@ class SupabaseService {
           .inFilter('memoria_id', memoriaIds);
       if (vidVinculos.isNotEmpty) {
         for (final v in vidVinculos) {
-          temVideoPorMemoria.add(v['memoria_id'] as int);
+          temVideoPorMemoria.add(asInt(v['memoria_id']));
         }
         final videoIds = vidVinculos
-            .map<int>((r) => r['video_id'] as int)
+            .map<int>((r) => asInt(r['video_id']))
             .toSet()
             .toList();
         final videoRows = await _client
@@ -255,12 +264,12 @@ class SupabaseService {
         final urlPorVideo = <int, String>{
           for (final r in videoRows)
             if (r['caminho_arquivo'] != null)
-              r['id'] as int: r['caminho_arquivo'] as String,
+              asInt(r['id']): r['caminho_arquivo'] as String,
         };
         for (final v in vidVinculos) {
-          final url = urlPorVideo[v['video_id'] as int];
+          final url = urlPorVideo[asInt(v['video_id'])];
           if (url != null) {
-            videoPorMemoria.putIfAbsent(v['memoria_id'] as int, () => url);
+            videoPorMemoria.putIfAbsent(asInt(v['memoria_id']), () => url);
           }
         }
       }
@@ -269,7 +278,7 @@ class SupabaseService {
     }
 
     return memoriaRows.map<Memoria>((row) {
-      final id = row['id'] as int;
+      final id = asInt(row['id']);
       final info = vinculos[id];
       final videoRaw = videoPorMemoria[id];
       final fotoRaw = fotoPorMemoria[id];
@@ -280,7 +289,7 @@ class SupabaseService {
           ? 'foto'
           : (temVideo && videoUrl != null)
               ? 'video'
-              : 'nenhum';
+              : (temVideo ? 'video_sem_url' : 'nenhum');
       final preview = fotoUrl ?? videoUrl;
       print('[SHARED_MEDIA] memoria_id=$id '
           'compartilhada_por=${info?['usuario_id'] ?? '?'} '

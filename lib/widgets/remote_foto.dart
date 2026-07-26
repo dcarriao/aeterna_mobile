@@ -80,10 +80,14 @@ class RemoteFoto extends StatelessWidget {
     double? logicalHeight,
   }) {
     final resolvida = PessoaRepository.resolverUrlFoto(url) ?? url;
+    // Só uma dimensão no ResizeImage — ambas iguais esticam o bitmap.
+    final h = (logicalHeight != null && logicalHeight == logicalWidth)
+        ? null
+        : logicalHeight;
     return ResizeImage(
       NetworkImage(resolvida),
       width: cachePx(context, logicalWidth),
-      height: logicalHeight != null ? cachePx(context, logicalHeight) : null,
+      height: h != null ? cachePx(context, h) : null,
     );
   }
 
@@ -101,13 +105,14 @@ class RemoteFoto extends StatelessWidget {
 
     final logicalW = decodeLogicalWidth ??
         (width != null && width!.isFinite ? width! : screenW);
-    // Para cards com height fixa e width infinito: passa só cacheWidth
-    // (mantém aspect ratio no decode). Avatars passam ambos.
-    final logicalH = decodeLogicalHeight != null &&
-            decodeLogicalWidth != null &&
-            decodeLogicalWidth == decodeLogicalHeight
-        ? decodeLogicalHeight
-        : null;
+    // NUNCA passar cacheWidth E cacheHeight iguais: o decode ESTICA a
+    // imagem para o retângulo exato (fotos de perfil ficam achatadas).
+    // Decode só pela largura; BoxFit.cover recorta no viewport quadrado.
+    final logicalH = (decodeLogicalWidth != null &&
+            decodeLogicalHeight != null &&
+            decodeLogicalWidth == decodeLogicalHeight)
+        ? null
+        : decodeLogicalHeight;
 
     final cw = cachePx(context, logicalW);
     final ch = cachePx(context, logicalH);

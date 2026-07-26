@@ -380,8 +380,13 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
   Future<void> _carregarMemoriasRecebidas() async {
     if (!_service.isConfigured) return;
     try {
-      final vinculos = await PessoaRepository.listarMemoriasCompartilhadasComigo();
+      final vinculos =
+          await PessoaRepository.listarMemoriasCompartilhadasComigo();
+      print('[SHARED_MEDIA] vinculos_compartilhados=${vinculos.length}');
       final recebidas = await _service.listarMemoriasRecebidas(vinculos);
+      print('[SHARED_MEDIA] recebidas_carregadas=${recebidas.length} '
+          'com_foto=${recebidas.where((m) => m.fotoUrl != null).length} '
+          'com_video=${recebidas.where((m) => m.temVideo).length}');
       if (mounted) {
         setState(() {
           _memoriasRecebidas
@@ -389,8 +394,8 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
             ..addAll(recebidas);
         });
       }
-    } catch (_) {
-      // Silencioso: a aba Compartilhadas continua funcional sem esta parte.
+    } catch (e) {
+      print('[SHARED_MEDIA] _carregarMemoriasRecebidas ERRO: $e');
     }
   }
 
@@ -655,6 +660,9 @@ class _AeternaAppState extends State<AeternaApp> with WidgetsBindingObserver {
                     onCompartilhadas: () => _abrirCompartilhadas(context),
                     onPerfil: () => _abrirPerfil(context),
                     onMemoriais: () => _abrirMemoriais(context),
+                    onMemoriaCriada: (memoria) {
+                      setState(() => _memorias.insert(0, memoria));
+                    },
                   ),
                 )
               : LoginScreen(onEntrar: _efetuarLogin),

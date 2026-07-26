@@ -50,6 +50,7 @@ class HomeScreen extends StatefulWidget {
     required this.onCompartilhadas,
     required this.onPerfil,
     required this.onMemoriais,
+    this.onMemoriaCriada,
     this.fotoUrl,
     this.memorias = const [],
     super.key,
@@ -64,6 +65,7 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback onCompartilhadas;
   final VoidCallback onPerfil;
   final VoidCallback onMemoriais;
+  final void Function(Memoria memoria)? onMemoriaCriada;
   final String? fotoUrl;
   final List<Memoria> memorias;
 
@@ -185,14 +187,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final momento = op.detectedMoment;
     if (momento != null) {
       try {
-        final file = await MomentDetectionService.instance.obterMidiaMaisRecente(momento);
+        final file =
+            await MomentDetectionService.instance.obterMidiaMaisRecente(momento);
         if (file != null) {
           mediaBytes = await file.readAsBytes();
         }
-      } catch (_) {}
+      } catch (e) {
+        print('[Home] midia proativa ERRO: $e');
+      }
     }
     if (!mounted) return;
-    await Navigator.of(context).push(
+    final resultado = await Navigator.of(context).push<CuradorResultado>(
       MaterialPageRoute(
         builder: (_) => CuradorScreen(
           titulo: op.titulo,
@@ -202,10 +207,24 @@ class _HomeScreenState extends State<HomeScreen> {
           proativoMediaIsVideo: op.temVideo,
           proativoFotosCount: op.quantidadeFotos,
           proativoVideosCount: op.quantidadeVideos,
+          detectedMoment: momento,
         ),
       ),
     );
-    if (mounted) _carregarOportunidadeProativa();
+    if (!mounted) return;
+    if (resultado?.memoriaSalva != null) {
+      final salva = resultado!.memoriaSalva!;
+      if (momento != null) {
+        CuratorDecisionLogService.instance
+            .atualizarAcaoUsuario(momento.id, 'criou_memoria');
+      }
+      widget.onMemoriaCriada?.call(salva);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Memória salva com sucesso')),
+      );
+      setState(() => _proactiveOpportunity = null);
+    }
+    _carregarOportunidadeProativa();
   }
 
   Future<void> _dispensarOportunidadeProativa(ProactiveOpportunity op) async {
@@ -443,7 +462,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     ).then((resultado) {
       if (resultado is Memoria) {
-        CuratorDecisionLogService.instance.atualizarAcaoUsuario(momento.id, 'criou_memoria');
+        CuratorDecisionLogService.instance
+            .atualizarAcaoUsuario(momento.id, 'criou_memoria');
+        widget.onMemoriaCriada?.call(resultado);
       }
       _carregarSugestoes();
     });
